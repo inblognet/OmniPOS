@@ -1,208 +1,205 @@
-import React from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../db/db';
+import React, { useState, useEffect } from 'react';
 import {
-  ShoppingCart, AlertCircle, DollarSign, RefreshCw, CheckCircle, XCircle
+  ShoppingCart, AlertCircle, DollarSign, RefreshCw, Users, TrendingUp, BarChart3, LineChart, Download
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
-// ✅ Import all charts
+// ✅ PDF Export Libraries
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
+// Cloud Services
+import { dashboardService, DashboardStats } from '../../services/dashboardService';
+import { productService } from '../../services/productService';
+import { orderService } from '../../services/orderService';
+
+// Chart Components
 import { SalesChart } from './SalesChart';
 import { CategoryPieChart } from './CategoryPieChart';
 import { HourlyBarChart } from './HourlyBarChart';
 
-// Configuration: Threshold for "Low Stock"
 const LOW_STOCK_THRESHOLD = 10;
 
 const DashboardScreen: React.FC = () => {
   const currency = useCurrency();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentOrders, setRecentOrders] = useState<any[]>([]);
+  const [stockAlerts, setStockAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
 
-  // Fetch Data
-  const data = useLiveQuery(async () => {
-    const orders = await db.orders.toArray();
-    const products = await db.products.toArray();
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      const cloudStats = await dashboardService.getStats();
+      setStats(cloudStats);
 
-    // --- Date Logic ---
-    const startOfDay = new Date();
-    startOfDay.setHours(0,0,0,0);
+      const allOrders = await orderService.getAllOrders();
+      const sortedRecent = allOrders
+        .sort((a: any, b: any) => new Date(b.created_at || b.timestamp).getTime() - new Date(a.created_at || a.timestamp).getTime())
+        .slice(0, 5);
+      setRecentOrders(sortedRecent);
 
-    // --- Calculations ---
+      const products = await productService.getAll();
+      setStockAlerts(products.filter((p: any) => p.stock <= LOW_STOCK_THRESHOLD));
+    } catch (error) {
+      console.error("Cloud Sync Failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // 1. Total Refunded Amount (All time)
-    const totalRefunded = orders.reduce((sum, order) => sum + (order.refundedAmount || 0), 0);
+  useEffect(() => { loadDashboardData(); }, []);
 
-    // 2. Today's Revenue (Net: Sales - Refunds)
-    const todaysOrders = orders.filter(o => o.timestamp >= startOfDay.getTime());
-    const todaysGross = todaysOrders.reduce((sum, o) => sum + o.total, 0);
-    const todaysRefunds = todaysOrders.reduce((sum, o) => sum + (o.refundedAmount || 0), 0);
-    const todaysNetRevenue = todaysGross - todaysRefunds;
+  // ✅ PDF Export Logic
+  const handleExportPDF = async () => {
+    const element = document.getElementById('dashboard-report-content');
+    if (!element) return;
 
-    const todaysCount = todaysOrders.length;
+    try {
+      setIsExporting(true);
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution
+        useCORS: true,
+        backgroundColor: '#ffffff' // Ensure white background for PDF
+      });
 
-    // 3. Stock Logic (Split Out vs Low)
-    const outOfStockItems = products.filter(p => p.stock <= 0);
-    const lowStockItems = products.filter(p => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD);
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgWidth = 210;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    // Combine for the single list view
-    const allAlertItems = [...outOfStockItems, ...lowStockItems];
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+      pdf.save(`OmniPOS_Report_${new Date().toLocaleDateString()}.pdf`);
+    } catch (error) {
+      console.error("Export Failed:", error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
-    // 4. Recent Transactions (Last 5)
-    const recentOrders = orders.sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
-
-    return {
-      todaysNetRevenue,
-      todaysCount,
-      totalRefunded,
-      outOfStockItems,
-      lowStockItems,
-      allAlertItems,
-      recentOrders,
-      allOrders: orders,
-      allProducts: products, // ✅ Needed for Pie Chart (maps IDs to Categories)
-      totalOrders: orders.length
-    };
-  });
-
-  if (!data) return <div className="p-12 text-center text-gray-500">Loading Dashboard...</div>;
-
-  const stats = [
-    {
-      label: "Today's Net Revenue",
-      value: `${currency}${data.todaysNetRevenue.toFixed(2)}`,
-      icon: DollarSign,
-      color: "bg-emerald-100 text-emerald-600",
-      subtext: "After refunds deducted"
-    },
-    {
-      label: "Orders Today",
-      value: data.todaysCount,
-      icon: ShoppingCart,
-      color: "bg-blue-100 text-blue-600"
-    },
-    {
-      label: "Total Refunded",
-      value: `${currency}${data.totalRefunded.toFixed(2)}`,
-      icon: RefreshCw,
-      color: "bg-red-100 text-red-600",
-      subtext: "Lifetime returns value"
-    },
-    {
-      label: "Stock Alerts",
-      value: data.allAlertItems.length,
-      icon: AlertCircle,
-      color: data.allAlertItems.length > 0 ? "bg-amber-100 text-amber-600" : "bg-gray-100 text-gray-500"
-    },
-  ];
+  if (loading || !stats) {
+    return <div className="p-12 text-center text-gray-500 animate-pulse">Syncing Cloud Intelligence...</div>;
+  }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-12">
+    // ✅ 1. Outer Container: Gray Background for the whole screen
+    <div className="min-h-full bg-gray-100 p-6">
 
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Store Overview</h1>
-        <p className="text-gray-500">Real-time insights from your local database.</p>
-      </div>
+      {/* ✅ 2. Inner Container: The "White Box" Sheet */}
+      <div
+        id="dashboard-report-content"
+        className="max-w-7xl mx-auto bg-white rounded-2xl shadow-xl border border-gray-200 p-8"
+      >
 
-      {/* --- KPI CARDS --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, idx) => (
-          <div key={idx} className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-start justify-between">
-            <div>
-              <p className="text-gray-500 text-sm font-medium mb-1">{stat.label}</p>
-              <h3 className="text-2xl font-bold text-gray-800">{stat.value}</h3>
-              {stat.subtext && <p className="text-xs text-gray-400 mt-1">{stat.subtext}</p>}
-            </div>
-            <div className={`p-3 rounded-lg ${stat.color}`}>
-              <stat.icon size={24} />
-            </div>
+        {/* --- HEADER SECTION --- */}
+        <div className="mb-8 flex justify-between items-center border-b border-gray-100 pb-6">
+          <div>
+            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Store Overview</h1>
+            <p className="text-gray-500 text-sm mt-1 flex items-center gap-2">
+               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+               Cloud-synced business intelligence
+            </p>
           </div>
-        ))}
-      </div>
 
-      {/* ✅ 1. SALES TREND CHART */}
-      <SalesChart orders={data.allOrders} />
+          <div className="flex items-center gap-3">
+              {/* Export PDF Button */}
+              <button
+                  onClick={handleExportPDF}
+                  disabled={isExporting}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-black transition-colors shadow-lg text-sm font-bold"
+              >
+                  {isExporting ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} />}
+                  <span>{isExporting ? 'Generating...' : 'Export PDF'}</span>
+              </button>
 
-      {/* ✅ 2. NEW CHARTS GRID (Pie + Bar) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-         {/* Categories Pie Chart */}
-         <CategoryPieChart orders={data.allOrders} products={data.allProducts} />
-
-         {/* Hourly Traffic Bar Chart */}
-         <HourlyBarChart orders={data.allOrders} />
-      </div>
-
-      {/* --- DETAILED SECTIONS --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* Recent Transactions */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-5 border-b border-gray-100 bg-gray-50">
-            <h3 className="font-bold text-gray-800">Recent Transactions</h3>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {data.recentOrders.length === 0 ? (
-                <div className="p-8 text-center text-gray-400">No transactions yet.</div>
-            ) : (
-                data.recentOrders.map(order => (
-                <div key={order.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
-                    <div className="flex flex-col">
-                        <span className="font-bold text-blue-600 text-sm">Order #{order.id}</span>
-                        <span className="text-xs text-gray-400">{new Date(order.timestamp).toLocaleTimeString()}</span>
-                    </div>
-                    <div className="text-right">
-                        {order.status === 'refunded' ? (
-                            <div>
-                                <span className="block text-xs font-bold text-red-500 uppercase">Refunded</span>
-                                <span className="font-medium text-gray-400 line-through text-sm">{currency}{order.total.toFixed(2)}</span>
-                            </div>
-                        ) : order.refundedAmount && order.refundedAmount > 0 ? (
-                             <div>
-                                <span className="block font-bold text-gray-800 text-sm">{currency}{(order.total - order.refundedAmount).toFixed(2)}</span>
-                                <span className="text-xs text-red-500">Partially Refunded</span>
-                             </div>
-                        ) : (
-                            <span className="font-bold text-gray-800 text-sm">{currency}{order.total.toFixed(2)}</span>
-                        )}
-                    </div>
-                </div>
-                ))
-            )}
+              <button onClick={loadDashboardData} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-all rounded-lg border border-gray-200">
+                  <RefreshCw size={20} />
+              </button>
           </div>
         </div>
 
-        {/* Stock Alerts List (Consolidated) */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-            <h3 className="font-bold text-gray-800">Stock Alerts</h3>
-            {/* ✅ UPDATED: Action Needed Badge - Transparent with border */}
-            {data.allAlertItems.length > 0 &&
-              <span className="text-xs bg-transparent border border-red-200 text-red-600 px-2 py-1 rounded-full font-bold">
-                Action Needed
-              </span>
-            }
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <MetricCard label="Today's Net Revenue" value={`${currency}${stats.revenue.toFixed(2)}`} icon={DollarSign} color="bg-emerald-50 text-emerald-600" sub="ALL-TIME" />
+          <MetricCard label="Orders Today" value={stats.orders} icon={ShoppingCart} color="bg-blue-50 text-blue-600" sub="LIVE" />
+          <MetricCard label="Unique Customers" value={stats.customers} icon={Users} color="bg-purple-50 text-purple-600" sub="LIVE" />
+          <MetricCard label="Stock Alerts" value={stockAlerts.length} icon={AlertCircle} color={stockAlerts.length > 0 ? "bg-amber-50 text-amber-600" : "bg-gray-50 text-gray-500"} sub="LIVE" />
+        </div>
+
+        {/* Row 1: Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-2 mb-4 text-blue-600 font-bold text-sm uppercase tracking-wide">
+              <LineChart size={18} /> Revenue Trend (7 Days)
+            </div>
+            <SalesChart data={stats.daily || []} isDaily={true} />
           </div>
-          <div className="p-4 space-y-3">
-            {data.allAlertItems.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-sm">
-                    <CheckCircle className="mx-auto mb-2 opacity-50" />
-                    All stock levels healthy
+
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-2 mb-4 text-indigo-600 font-bold text-sm uppercase tracking-wide">
+              <TrendingUp size={18} /> Hourly Performance
+            </div>
+            <SalesChart data={stats.hourly} isDaily={false} />
+          </div>
+        </div>
+
+        {/* Row 2: Analytics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-2 mb-4 text-blue-600 font-bold text-sm uppercase tracking-wide">
+              <BarChart3 size={18} /> Peak Traffic
+            </div>
+            <HourlyBarChart data={stats.hourly} />
+          </div>
+          <div className="bg-gray-50 p-6 rounded-xl border border-gray-100">
+            <div className="flex items-center gap-2 mb-4 text-blue-600 font-bold text-sm uppercase tracking-wide">
+              <TrendingUp size={18} /> Sales by Category
+            </div>
+            <CategoryPieChart data={stats.categories} />
+          </div>
+        </div>
+
+        {/* Row 3: Transactions & Inventory */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Recent Transactions</h3>
+              <span className="text-[10px] font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded">SYNCED</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {recentOrders.map(order => (
+                <div key={order.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                  <div className="flex flex-col">
+                    <span className="font-bold text-gray-800 text-sm">Order #{order.id}</span>
+                    <span className="text-xs text-gray-400">{new Date(order.created_at || order.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-blue-600 text-sm">
+                      {currency}{(Number(order.total_amount) || 0).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
-            ) : (
-                data.allAlertItems.map(item => {
-                  const isOutOfStock = item.stock <= 0;
-                  return (
-                    // ✅ UPDATED: Transparent BG, Border, Hover Ring
-                    <div key={item.id} className={`flex justify-between items-center p-3 rounded-lg border transition-all hover:ring-1 hover:ring-gray-300 ${isOutOfStock ? 'bg-transparent border-red-200' : 'bg-transparent border-orange-200'}`}>
-                        <div className="flex items-center gap-3">
-                           {isOutOfStock ? <XCircle size={16} className="text-red-500"/> : <AlertCircle size={16} className="text-orange-500"/>}
-                           <span className="text-sm font-medium text-gray-700 truncate w-28">{item.name}</span>
-                        </div>
-                        <span className={`text-sm font-bold ${isOutOfStock ? 'text-red-600' : 'text-orange-600'}`}>
-                            {isOutOfStock ? 'Out of Stock' : `${item.stock} left`}
-                        </span>
-                    </div>
-                  );
-                })
-            )}
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800">Inventory Status</h3>
+              <span className="text-xs bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded-full font-bold">Action Needed</span>
+            </div>
+            <div className="p-4 space-y-3">
+              {stockAlerts.map(item => (
+                <div key={item.id} className={`flex justify-between items-center p-3 rounded-lg border ${item.stock <= 0 ? 'border-red-100 bg-red-50/10' : 'border-orange-100 bg-orange-50/10'}`}>
+                  <div className="flex items-center gap-3">
+                    <AlertCircle size={16} className={item.stock <= 0 ? "text-red-500" : "text-orange-500"}/>
+                    <span className="text-sm font-medium text-gray-700 truncate w-28">{item.name}</span>
+                  </div>
+                  <span className={`text-xs font-black ${item.stock <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{item.stock} LEFT</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -210,5 +207,18 @@ const DashboardScreen: React.FC = () => {
     </div>
   );
 };
+
+const MetricCard = ({ label, value, icon: Icon, color, sub }: any) => (
+  <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex items-start justify-between hover:shadow-md transition-shadow">
+    <div>
+      <p className="text-gray-500 text-sm font-medium mb-1">{label}</p>
+      <h3 className="text-3xl font-bold text-gray-800 tracking-tight">{value}</h3>
+      <p className="text-[10px] text-gray-400 mt-2 uppercase font-bold tracking-wider">{sub}</p>
+    </div>
+    <div className={`p-4 rounded-xl ${color} bg-opacity-20`}>
+        <Icon size={28} />
+    </div>
+  </div>
+);
 
 export default DashboardScreen;

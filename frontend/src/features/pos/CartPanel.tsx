@@ -8,100 +8,137 @@ import {
 import {
   Printer, Search, X,
   Trash2, Save, RotateCcw,
-  AlertTriangle, List, Scale, Plus, Award, Calendar, User, Calculator
+  AlertTriangle, List, Scale, Plus, Award, Calendar, User, Calculator, Loader2
 } from 'lucide-react';
-import { db, Order, Product } from '../../db/db';
+import { db, Order, Product } from '../../db/db'; // Keep db for Settings only
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ReceiptTemplate } from '../orders/ReceiptTemplate';
 import { useCurrency } from '../../hooks/useCurrency';
 import VirtualKeyboard from '../../components/VirtualKeyboard';
 
-// --- Interfaces ---
+// ✅ IMPORT CLOUD SERVICES
+import { customerService, Customer } from '../../services/customerService';
+import { productService } from '../../services/productService';
+import { orderService } from '../../services/orderService';
 
 interface CartPanelProps {
     onCancelItem: () => void;
-    // Trigger the main screen keyboard when specific inputs are focused
     onInputFocus?: (e: React.FocusEvent<HTMLInputElement>) => void;
-    // ✅ Added onCheckout prop to trigger parent modal
     onCheckout?: () => void;
 }
 
 const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onCheckout }) => {
-  // --- Redux Hooks ---
   const dispatch = useAppDispatch();
   const { items, customer, heldSales } = useAppSelector((state) => state.cart);
   const currency = useCurrency();
 
-  // --- Local State: General ---
+  // --- Local State ---
   const [discount, setDiscount] = useState<number>(0);
   const [pointsToRedeem, setPointsToRedeem] = useState<number>(0);
-  const [lastOrder, setLastOrder] = useState<Order | null>(null);
+  const [lastOrder, setLastOrder] = useState<any>(null);
   const [calcInput, setCalcInput] = useState('0');
 
-  // --- Local State: UI Toggles ---
+  // --- UI Toggles ---
   const [customerSearch, setCustomerSearch] = useState('');
   const [showResults, setShowResults] = useState(false);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
 
-  // --- Local State: Modals ---
+  // --- Modals ---
   const [showItemSearch, setShowItemSearch] = useState(false);
   const [itemSearchQuery, setItemSearchQuery] = useState('');
 
   const [showRecords, setShowRecords] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
 
-  // --- Local State: Unit Calculator ---
+  // --- Unit Calculator ---
   const [showInternalUnitCalc, setShowInternalUnitCalc] = useState(false);
   const [ucItemName, setUcItemName] = useState('');
   const [ucBasePrice, setUcBasePrice] = useState<string>('');
   const [ucUnitSize, setUcUnitSize] = useState<string>('1');
   const [ucQuantity, setUcQuantity] = useState<string>('');
   const [ucUnitType, setUcUnitType] = useState<string>('g');
-
-  // Tracks which field in the Unit Calc is currently receiving keyboard input
   const [activeUcField, setActiveUcField] = useState<'name' | 'price' | 'size' | 'qty'>('name');
 
-  // --- Global Settings Query ---
+  // --- Global Settings (Local) ---
   const settings = useLiveQuery(() => db.settings.get(1));
   const taxRate = settings?.taxRate ?? 0.08;
   const redemptionValue = settings?.loyaltyRedemptionRate || 1;
 
-  // --- Data Fetching: Customers ---
-  const allCustomers = useLiveQuery(() => db.customers.toArray()) || [];
-  const filteredCustomers = allCustomers.filter(c =>
+  // --- ✅ CLOUD DATA STATE ---
+  const [cloudCustomers, setCloudCustomers] = useState<Customer[]>([]);
+  const [cloudProducts, setCloudProducts] = useState<any[]>([]);
+  const [cloudOrders, setCloudOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false); // New state for records modal
+
+  // --- ✅ INITIAL FETCH ---
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [custData, prodData] = await Promise.all([
+            customerService.getAll(),
+            productService.getAll()
+        ]);
+        setCloudCustomers(custData);
+        setCloudProducts(prodData.filter((p: any) => p.isActive !== false));
+      } catch (err) {
+        console.error("Error syncing cart panel data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [lastOrder]);
+
+  // --- ✅ FETCH RECORDS WHEN MODAL OPENS ---
+  useEffect(() => {
+      if (showRecords) {
+          const fetchOrders = async () => {
+              setRecordsLoading(true);
+              try {
+                  const orders = await orderService.getAllOrders();
+                  setCloudOrders(orders);
+              } catch (err) {
+                  console.error("Failed to load orders:", err);
+              } finally {
+                  setRecordsLoading(false);
+              }
+          };
+          fetchOrders();
+      }
+  }, [showRecords, lastOrder]); // Reload when modal opens or sale happens
+
+  // --- ✅ FILTERING LOGIC ---
+
+  const filteredCustomers = cloudCustomers.filter(c =>
     c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-    c.phone?.includes(customerSearch)
+    (c.phone && c.phone.includes(customerSearch))
   ).slice(0, 5);
 
-  // --- Data Fetching: Products (for Search Modal) ---
-  const allProducts = useLiveQuery(() => db.products.filter(p => p.isActive !== false).toArray()) || [];
-  const filteredItems = allProducts.filter(p =>
+  const filteredItems = cloudProducts.filter(p =>
       p.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) ||
-      p.barcode?.includes(itemSearchQuery) ||
-      p.sku?.includes(itemSearchQuery)
+      (p.barcode && p.barcode.includes(itemSearchQuery)) ||
+      (p.sku && p.sku.includes(itemSearchQuery))
   ).slice(0, 15);
 
-  // --- Data Fetching: Order History ---
-  const historyOrders = useLiveQuery(() => db.orders.orderBy('timestamp').reverse().toArray()) || [];
-  const filteredHistory = historyOrders.filter(order =>
-      order.id?.toString().includes(recordSearch)
+  const filteredHistory = cloudOrders.filter(order =>
+      order.id.toString().includes(recordSearch)
   );
 
-  // --- Mock Data: Sale Number & Time ---
-  const [currentOrderCount, setCurrentOrderCount] = useState(0);
+  // --- Mock Data ---
   const [currentTime, setCurrentTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
 
   useEffect(() => {
-      db.orders.count().then(count => setCurrentOrderCount(count + 1));
       const timer = setInterval(() => setCurrentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })), 60000);
       return () => clearInterval(timer);
-  }, [lastOrder]);
+  }, []);
 
-  const saleNumber = `#${String(currentOrderCount).padStart(5, '0')}`;
+  const saleNumber = `#${String(cloudOrders.length + 1).padStart(5, '0')}`;
   const cashierName = "Admin";
 
   // ==========================================
-  // 🧮 UNIVERSAL MATH LOGIC
+  // 🧮 MATH LOGIC
   // ==========================================
   let calculatedTax = 0;
   let totalExcludingTax = 0;
@@ -136,9 +173,8 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
   const finalTotal = Math.max(0, finalTotalBeforePoints - pointsMonetaryValue);
 
   // ==========================================
-  // ⚖️ UNIT CALCULATOR LOGIC
+  // ⚖️ UNIT CALCULATOR
   // ==========================================
-
   const getNormalizedValue = (val: number, unit: string): number => {
       if (unit === 'kg' || unit === 'L') return val * 1000;
       return val;
@@ -155,7 +191,6 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
 
       const normSingleUnit = getNormalizedValue(singleUnitSize, ucUnitType);
       const normQuantity = getNormalizedValue(quantity, ucUnitType);
-
       const pricePerBaseUnit = basePrice / normSingleUnit;
       const totalCost = pricePerBaseUnit * normQuantity;
 
@@ -165,15 +200,13 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
   const unitCalcTotal = calculateUnitTotal();
 
   // ==========================================
-  // ⌨️ VIRTUAL KEYBOARD HANDLERS
+  // ⌨️ INPUT HANDLERS
   // ==========================================
-
   const handleUcKeyPress = (key: string) => {
       const updateNum = (prev: string) => {
           if (key === '.' && prev.includes('.')) return prev;
           return prev + key;
       };
-
       if (activeUcField === 'name') setUcItemName(prev => prev + key);
       if (activeUcField === 'price') setUcBasePrice(prev => updateNum(prev));
       if (activeUcField === 'size') setUcUnitSize(prev => updateNum(prev));
@@ -189,24 +222,15 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
 
   const handleSearchItemKeyPress = (key: string) => setItemSearchQuery(prev => prev + key);
   const handleSearchItemBackspace = () => setItemSearchQuery(prev => prev.slice(0, -1));
-
   const handleRecordKeyPress = (key: string) => setRecordSearch(prev => prev + key);
   const handleRecordBackspace = () => setRecordSearch(prev => prev.slice(0, -1));
 
   // ==========================================
-  // ⚡ ACTION HANDLERS
+  // ⚡ ACTIONS
   // ==========================================
-
   const handleAddUnitItem = () => {
-      if (unitCalcTotal <= 0) {
-          alert("Invalid input parameters. Please check values.");
-          return;
-      }
-
-      const finalName = ucItemName.trim() !== ''
-          ? `${ucItemName} (${parseFloat(ucQuantity)} ${ucUnitType})`
-          : `Custom (${parseFloat(ucQuantity)} ${ucUnitType})`;
-
+      if (unitCalcTotal <= 0) return alert("Invalid input.");
+      const finalName = ucItemName.trim() !== '' ? `${ucItemName} (${parseFloat(ucQuantity)} ${ucUnitType})` : `Custom (${parseFloat(ucQuantity)} ${ucUnitType})`;
       dispatch(addToCart({
           id: Date.now(),
           name: finalName,
@@ -221,24 +245,16 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
           discount: 0,
           note: ''
       }));
-
-      setUcItemName('');
-      setUcBasePrice('');
-      setUcUnitSize('1');
-      setUcQuantity('');
-      setShowInternalUnitCalc(false);
+      setUcItemName(''); setUcBasePrice(''); setUcUnitSize('1'); setUcQuantity(''); setShowInternalUnitCalc(false);
   };
 
-  const handleAddItem = (product: Product) => {
-      if (product.type === 'Stock' && product.stock <= 0 && !product.allowNegativeStock) {
-          alert("Out of Stock");
-          return;
-      }
+  const handleAddItem = (product: any) => {
+      if (product.type === 'Stock' && product.stock <= 0 && !product.allowNegativeStock) return alert("Out of Stock");
       dispatch(addToCart({
-          id: product.id!,
-          name: product.displayName || product.name,
-          price: product.price,
-          stock: product.stock,
+          id: product.id,
+          name: product.name,
+          price: Number(product.price),
+          stock: Number(product.stock),
           barcode: product.barcode,
           category: product.category,
           isTaxIncluded: product.isTaxIncluded,
@@ -249,9 +265,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
   };
 
   const handleItemSearchKeyDown = (e?: React.KeyboardEvent) => {
-      if ((!e || e.key === 'Enter') && filteredItems.length > 0) {
-          handleAddItem(filteredItems[0]);
-      }
+      if ((!e || e.key === 'Enter') && filteredItems.length > 0) handleAddItem(filteredItems[0]);
   };
 
   const handleReprintOld = (order: Order) => {
@@ -260,9 +274,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
   };
 
   const handleDeleteOrder = async (id: number) => {
-      if(window.confirm("Are you sure you want to permanently delete this sale record?")) {
-          await db.orders.delete(id);
-      }
+      alert("⚠️ Deleting cloud records is restricted in POS mode.");
   };
 
   const handleCalcPress = (key: string) => {
@@ -285,9 +297,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
   );
 
   const handleResumeHeld = () => {
-      if (heldSales.length > 0) {
-          dispatch(resumeSale(heldSales[heldSales.length - 1].id));
-      }
+      if (heldSales.length > 0) dispatch(resumeSale(heldSales[heldSales.length - 1].id));
   };
 
   // --- Global Listeners ---
@@ -295,7 +305,6 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
       const handleGlobalKeyDown = (e: KeyboardEvent) => {
           if (e.key === 'End') {
               e.preventDefault();
-              // ✅ Updated to use prop instead of local state
               if (items.length > 0 && onCheckout) onCheckout();
           }
       };
@@ -313,14 +322,12 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [searchWrapperRef]);
 
-
   // ==========================================
   // 🖥️ RENDER
   // ==========================================
   return (
     <div className="flex flex-col h-full bg-white border-l border-gray-200">
 
-      {/* Hidden Receipt Template */}
       {lastOrder && <ReceiptTemplate order={lastOrder} />}
 
       {/* 1. Header */}
@@ -338,7 +345,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                     <div>
                         <p className="font-bold text-gray-800 text-sm leading-tight">{customer.name}</p>
                         <p className="text-[10px] text-blue-600 font-bold flex items-center gap-1">
-                            <Award size={10} /> {customer.loyaltyPoints} Pts Available
+                            <Award size={10} /> {customer.loyaltyPoints || 0} Pts
                         </p>
                     </div>
                 </div>
@@ -357,29 +364,26 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                 />
                 {showResults && customerSearch && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-xl border border-gray-100 z-50 max-h-40 overflow-y-auto">
-                        {filteredCustomers.length > 0 ? (
+                        {loading ? <div className="p-3 text-xs text-center text-gray-400">Loading...</div> :
+                         filteredCustomers.length > 0 ? (
                             filteredCustomers.map(c => (
                                 <button
                                     key={c.id}
                                     className="w-full text-left px-4 py-2 hover:bg-gray-50 flex justify-between items-center group border-b border-gray-50 last:border-0"
                                     onClick={() => {
-                                        // ✅ CUSTOMER DISPATCH LOGIC (CONFIRMED WORKING)
                                         dispatch(setCustomer({
                                             id: c.id!,
                                             name: c.name,
                                             loyaltyPoints: c.loyaltyPoints || 0,
-                                            loyaltyJoined: c.loyaltyJoined
-                                        }));
+                                        } as any));
                                         setCustomerSearch('');
                                         setShowResults(false);
                                     }}
                                 >
                                     <span className="font-medium text-gray-800 text-sm">{c.name}</span>
-                                    {c.loyaltyJoined && (
-                                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
-                                            {c.loyaltyPoints || 0} pts
-                                        </span>
-                                    )}
+                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
+                                        {c.loyaltyPoints || 0} pts
+                                    </span>
                                 </button>
                             ))
                         ) : (
@@ -402,14 +406,12 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                 <span>Discount</span>
                 <input type="number" value={discount || ''} onChange={e => setDiscount(parseFloat(e.target.value)||0)} className="w-20 text-right border-b border-gray-300 focus:border-blue-500 outline-none" placeholder="0.00"/>
             </div>
-
             {pointsToRedeem > 0 && (
                 <div className="flex justify-between font-bold text-purple-700 text-sm">
                     <span>Points Redeemed</span>
                     <span>-{currency}{pointsMonetaryValue.toFixed(2)}</span>
                 </div>
             )}
-
             <div className="border-t border-gray-100 pt-2 mt-2">
                 <div className="flex justify-between items-end">
                     <span className="text-gray-600 font-bold">TOTAL</span>
@@ -426,7 +428,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
             <ControlTile icon={Scale} label="Unit Calc" color="bg-purple-500" onClick={() => setShowInternalUnitCalc(true)} />
         </div>
 
-        {/* Simple Side Calculator */}
+        {/* Calculator */}
         <div className="bg-gray-100 rounded-xl p-2 mb-4">
               <div className="bg-white border border-gray-200 rounded-lg p-2 mb-2 text-right font-mono text-xl font-bold text-gray-800">{calcInput}</div>
               <div className="grid grid-cols-4 gap-1.5">
@@ -453,7 +455,6 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
 
         {/* Pay Button */}
         <button
-            // ✅ Updated to use props.onCheckout
             onClick={() => items.length > 0 && onCheckout && onCheckout()}
             disabled={items.length === 0}
             className="w-full mt-3 py-4 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -461,9 +462,7 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
             <Printer size={20}/> Pay & Print (End)
         </button>
 
-        {/* Held Sales Indicator */}
         {heldSales.length > 0 && (
-            // ✅ UPDATED: Transparent background with yellow border
             <div className="mt-3 p-2 bg-transparent border border-yellow-200 rounded-lg flex justify-between items-center animate-in fade-in slide-in-from-bottom-2">
                 <span className="text-xs font-bold text-yellow-700">{heldSales.length} Sales on Hold</span>
                 <button onClick={handleResumeHeld} className="text-xs font-bold text-blue-600 hover:underline">Resume Last</button>
@@ -471,18 +470,14 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
         )}
       </div>
 
-      {/* ✅ Removed Local CheckoutModal render here to avoid duplicates */}
-
       {/* Item Search Modal */}
       {showItemSearch && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[700px] animate-in fade-in zoom-in-95">
-
                 <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><Search size={18} className="text-blue-600"/> Search Item</h3>
                     <button onClick={() => {setShowItemSearch(false); setItemSearchQuery('');}} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
                 </div>
-
                 <div className="flex flex-1 overflow-hidden">
                     <div className="w-1/2 border-r border-gray-100 flex flex-col bg-gray-50">
                         <div className="p-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Search Results ({filteredItems.length})</div>
@@ -495,14 +490,13 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                                                 <div className="font-bold text-gray-800 group-hover:text-blue-700">{product.name}</div>
                                                 <div className="text-xs text-gray-400">SKU: {product.sku || 'N/A'} • {product.stock} in stock</div>
                                             </div>
-                                            <div className="font-bold text-gray-600 group-hover:text-blue-600">{currency}{product.price.toFixed(2)}</div>
+                                            <div className="font-bold text-gray-600 group-hover:text-blue-600">{currency}{Number(product.price).toFixed(2)}</div>
                                         </button>
                                     ))}
                                 </div>
                             }
                         </div>
                     </div>
-
                     <div className="w-1/2 p-5 flex flex-col bg-white">
                         <div className="mb-4">
                             <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Search Query</label>
@@ -537,12 +531,10 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
       {showRecords && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[600px] animate-in fade-in zoom-in-95">
-
                 <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><List size={18} className="text-blue-600"/> Sales Records</h3>
                     <button onClick={() => {setShowRecords(false); setRecordSearch('');}} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
                 </div>
-
                 <div className="flex flex-1 overflow-hidden">
                     <div className="w-2/3 flex flex-col border-r border-gray-100">
                         <div className="p-4 border-b border-gray-100 bg-white">
@@ -550,7 +542,6 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                                 <input
                                     type="text"
-                                    // ✅ Changed: Removed readOnly and added onChange
                                     placeholder="Search Sale ID (e.g. 24)"
                                     value={recordSearch}
                                     onChange={(e) => setRecordSearch(e.target.value)}
@@ -570,18 +561,20 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {filteredHistory.length === 0 ? (
+                                    {recordsLoading ? (
+                                        <tr><td colSpan={5} className="text-center py-8 text-gray-400"><Loader2 className="animate-spin inline mr-2"/> Loading Records...</td></tr>
+                                    ) : filteredHistory.length === 0 ? (
                                         <tr><td colSpan={5} className="text-center py-8 text-gray-400">No records found.</td></tr>
                                     ) : (
                                         filteredHistory.map(order => (
                                             <tr key={order.id} className="hover:bg-blue-50 transition-colors group">
                                                 <td className="px-4 py-3 font-bold text-gray-700">#{order.id}</td>
-                                                <td className="px-4 py-3 text-gray-500 flex items-center gap-1"><Calendar size={12}/> {new Date(order.timestamp).toLocaleString()}</td>
-                                                <td className="px-4 py-3 text-gray-600">{order.items.reduce((acc, i) => acc + i.quantity, 0)} items</td>
-                                                <td className="px-4 py-3 text-right font-bold text-gray-800">{currency}{order.total.toFixed(2)}</td>
+                                                <td className="px-4 py-3 text-gray-500 flex items-center gap-1"><Calendar size={12}/> {new Date(order.created_at || order.timestamp).toLocaleDateString()}</td>
+                                                <td className="px-4 py-3 text-gray-600">{(order.items || []).length} items</td>
+                                                <td className="px-4 py-3 text-right font-bold text-gray-800">{currency}{Number(order.total || order.total_amount).toFixed(2)}</td>
                                                 <td className="px-4 py-3 flex justify-center gap-2">
                                                     <button onClick={() => handleReprintOld(order)} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors" title="Reprint"><Printer size={14}/></button>
-                                                    <button onClick={() => order.id && handleDeleteOrder(order.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors" title="Delete"><Trash2 size={14}/></button>
+                                                    <button onClick={() => handleDeleteOrder(order.id)} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors" title="Delete"><Trash2 size={14}/></button>
                                                 </td>
                                             </tr>
                                         ))
@@ -590,7 +583,6 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
                             </table>
                         </div>
                     </div>
-
                     <div className="w-1/3 bg-gray-50 p-4">
                         <div className="h-full flex flex-col justify-end">
                             <VirtualKeyboard
@@ -607,106 +599,39 @@ const CartPanel: React.FC<CartPanelProps> = ({ onCancelItem, onInputFocus, onChe
         </div>
       )}
 
-      {/* Unit Calculator Modal (Internal Keyboard) */}
+      {/* Unit Calculator Modal */}
       {showInternalUnitCalc && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 flex flex-col h-[700px]">
-
                 <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0">
                     <h3 className="font-bold text-gray-800 flex items-center gap-2"><Calculator size={18} className="text-purple-600"/> Unit Calculator</h3>
                     <button onClick={() => setShowInternalUnitCalc(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
                 </div>
-
                 <div className="flex flex-1 overflow-hidden">
                     <div className="w-1/2 p-5 border-r border-gray-100 overflow-y-auto flex flex-col gap-4">
-
                         <div>
                             <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Unit Type</label>
                             <div className="flex bg-gray-100 p-1 rounded-lg">
                                 {['g', 'kg', 'ml', 'L', 'pcs'].map(u => (
-                                    <button
-                                        key={u}
-                                        onClick={() => setUcUnitType(u)}
-                                        className={`flex-1 py-1 text-sm font-bold rounded-md transition-all ${ucUnitType === u ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                                    >
-                                        {u}
-                                    </button>
+                                    <button key={u} onClick={() => setUcUnitType(u)} className={`flex-1 py-1 text-sm font-bold rounded-md transition-all ${ucUnitType === u ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{u}</button>
                                 ))}
                             </div>
                         </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">Item Name (Optional)</label>
-                            <input
-                                type="text"
-                                readOnly
-                                placeholder="e.g. Loose Rice"
-                                value={ucItemName}
-                                onClick={() => setActiveUcField('name')}
-                                className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'name' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`}
-                            />
-                        </div>
-
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Item Name</label><input type="text" readOnly placeholder="e.g. Loose Rice" value={ucItemName} onClick={() => setActiveUcField('name')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'name' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Base Price ($)</label>
-                                <input
-                                    type="text"
-                                    readOnly
-                                    placeholder="0.00"
-                                    value={ucBasePrice}
-                                    onClick={() => setActiveUcField('price')}
-                                    className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'price' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Unit Size ({ucUnitType})</label>
-                                <input
-                                    type="text"
-                                    readOnly
-                                    placeholder="1"
-                                    value={ucUnitSize}
-                                    onClick={() => setActiveUcField('size')}
-                                    className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'size' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`}
-                                />
-                            </div>
+                            <div><label className="block text-xs font-bold text-gray-500 mb-1">Base Price ($)</label><input type="text" readOnly placeholder="0.00" value={ucBasePrice} onClick={() => setActiveUcField('price')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'price' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div>
+                            <div><label className="block text-xs font-bold text-gray-500 mb-1">Unit Size ({ucUnitType})</label><input type="text" readOnly placeholder="1" value={ucUnitSize} onClick={() => setActiveUcField('size')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'size' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div>
                         </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">Customer Quantity ({ucUnitType})</label>
-                            <input
-                                type="text"
-                                readOnly
-                                placeholder="0"
-                                value={ucQuantity}
-                                onClick={() => setActiveUcField('qty')}
-                                className={`w-full px-3 py-2 border rounded-lg font-bold text-lg outline-none cursor-pointer transition-all ${activeUcField === 'qty' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`}
-                            />
-                        </div>
-
+                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Customer Quantity ({ucUnitType})</label><input type="text" readOnly placeholder="0" value={ucQuantity} onClick={() => setActiveUcField('qty')} className={`w-full px-3 py-2 border rounded-lg font-bold text-lg outline-none cursor-pointer transition-all ${activeUcField === 'qty' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div>
                         <div className="bg-purple-50 p-3 rounded-lg flex justify-between items-center border border-purple-100 mt-auto">
                             <div className="text-xs text-purple-600 font-medium">Calculated Cost</div>
                             <div className="text-xl font-black text-purple-800">{currency}{unitCalcTotal.toFixed(2)}</div>
                         </div>
-
-                        <button
-                            onClick={handleAddUnitItem}
-                            disabled={unitCalcTotal <= 0}
-                            className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                        >
-                            <Plus size={18} /> Add Calculated Item
-                        </button>
+                        <button onClick={handleAddUnitItem} disabled={unitCalcTotal <= 0} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"><Plus size={18} /> Add Calculated Item</button>
                     </div>
-
                     <div className="w-1/2 bg-gray-50 p-4 border-l border-gray-200">
                         <div className="h-full flex flex-col justify-end">
-                            <VirtualKeyboard
-                                layout={activeUcField === 'name' ? 'full' : 'numeric'}
-                                onKeyPress={handleUcKeyPress}
-                                onBackspace={handleUcBackspace}
-                                onEnter={handleAddUnitItem}
-                                className="h-full border-none shadow-none bg-transparent"
-                            />
+                            <VirtualKeyboard layout={activeUcField === 'name' ? 'full' : 'numeric'} onKeyPress={handleUcKeyPress} onBackspace={handleUcBackspace} onEnter={handleAddUnitItem} className="h-full border-none shadow-none bg-transparent" />
                         </div>
                     </div>
                 </div>

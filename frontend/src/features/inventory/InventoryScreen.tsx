@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, Product, Category, ProductBatch } from '../../db/db';
 import { useInventoryLogic } from '../../hooks/useInventoryLogic';
 import { PRESETS, BusinessType, InventoryPreset } from '../../config/inventoryConfig';
+import { productService } from '../../services/productService'; // ✅ IMPORTED API SERVICE
 import Barcode from 'react-barcode';
 import { QRCodeSVG } from 'qrcode.react';
 import {
@@ -23,7 +24,30 @@ const InventoryScreen: React.FC = () => {
   }, [config.features.expiryTracking]);
 
   // --- Data Queries ---
-  const products = useLiveQuery(() => db.products.toArray()) || [];
+  // ❌ REMOVED: const products = useLiveQuery(() => db.products.toArray()) || [];
+
+  // ✅ ADDED: API State for Products
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // ✅ ADDED: Fetch from API on mount
+  const loadProducts = async () => {
+    try {
+      setLoading(true);
+      const data = await productService.getAll();
+      setProducts(data);
+    } catch (error) {
+      console.error("Failed to load products from API", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProducts();
+  }, []);
+
+  // Keep Categories on Dexie for now (until Category API is built)
   const categories = useLiveQuery(() => db.categories.toArray()) || [];
 
   // --- UI State ---
@@ -254,18 +278,57 @@ const InventoryScreen: React.FC = () => {
     setNewBatch({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' }); setEditingBatchId(null); setShowModal(true);
   };
 
+  // ✅ UPDATED: Connected to backend API (CREATE & UPDATE)
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.price) return alert("Name and Price are required.");
+
     let finalStock = parseFloat(formData.stock.toString());
     if (config.features.expiryTracking) {
         finalStock = (formData.batches || []).reduce((acc, b) => acc + b.quantity, 0);
     }
-    const payload = { ...formData, updatedAt: new Date().toISOString(), price: parseFloat(formData.price.toString()), costPrice: parseFloat(formData.costPrice.toString()), wholesalePrice: formData.wholesalePrice ? parseFloat(formData.wholesalePrice.toString()) : 0, minSellingPrice: formData.minSellingPrice ? parseFloat(formData.minSellingPrice.toString()) : 0, stock: finalStock, reorderLevel: parseFloat((formData.reorderLevel || 0).toString()), batches: formData.batches };
-    try { if (editingId) await db.products.update(editingId, payload); else await db.products.add(payload); setShowModal(false); } catch (error) { console.error("Failed to save product:", error); }
+
+    const payload = {
+        ...formData,
+        updatedAt: new Date().toISOString(),
+        price: parseFloat(formData.price.toString()),
+        costPrice: parseFloat(formData.costPrice.toString()),
+        wholesalePrice: formData.wholesalePrice ? parseFloat(formData.wholesalePrice.toString()) : 0,
+        minSellingPrice: formData.minSellingPrice ? parseFloat(formData.minSellingPrice.toString()) : 0,
+        stock: finalStock,
+        reorderLevel: parseFloat((formData.reorderLevel || 0).toString()),
+        batches: formData.batches
+    };
+
+    try {
+        if (editingId) {
+            // ✅ Connected to API Update
+            await productService.update(editingId, payload);
+        } else {
+            // ✅ Connected to API Create
+            await productService.create(payload);
+        }
+        setShowModal(false);
+        loadProducts(); // Refresh the grid
+    } catch (error) {
+        console.error("Failed to save product:", error);
+        alert("Failed to save to server.");
+    }
   };
 
-  const handleDelete = async (id: number) => { if (window.confirm("Are you sure you want to delete this product?")) await db.products.delete(id); };
+  // ✅ UPDATED: Connected to backend API (DELETE)
+  const handleDelete = async (id: number) => {
+      if (window.confirm("Are you sure you want to delete this product?")) {
+          try {
+            await productService.delete(id);
+            loadProducts(); // Refresh the grid
+          } catch (error) {
+            console.error("Failed to delete product:", error);
+            alert("Failed to delete product.");
+          }
+      }
+  };
+
   const handleAddCategory = async () => { if (!newCatName.trim()) return; if (editingCatId) { await db.categories.update(editingCatId, { name: newCatName }); setEditingCatId(null); } else { await db.categories.add({ name: newCatName }); } setNewCatName(''); };
   const handleDeleteCategory = async (id: number) => { if(window.confirm("Delete this category?")) await db.categories.delete(id); };
   const handleDeleteAllCategories = async () => { if (window.prompt("Type 'DELETE' to confirm:") === "DELETE") await db.categories.clear(); };
@@ -279,6 +342,7 @@ const InventoryScreen: React.FC = () => {
 
   const handleConfirmDamage = async () => {
     if (selectedProduct && selectedProduct.id) {
+        // Note: reportDamage hook likely still uses Dexie. Needs update to API later.
         await reportDamage(selectedProduct.id, damageQty, damageNote);
         setShowDamageModal(false); setDamageQty(1); setDamageNote(''); setSelectedProduct(null);
     }
@@ -476,7 +540,7 @@ const InventoryScreen: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">{editingId ? 'Edit Product' : 'New Product'}</h2><button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500"><X size={20} /></button></div>
-            <div className="flex border-b border-gray-200 px-6 bg-white">{[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: DollarSign}, {id: 'inventory', label: 'Inventory & Stock', icon: Box}, {id: 'settings', label: 'Rules & Settings', icon: Layers}].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500'}`}><tab.icon size={16} /> {tab.label}</button>))}</div>
+            <div className="flex border-b border-gray-200 px-6 bg-white">{[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: DollarSign}, {id: 'inventory', label: 'Inventory & Stock', icon: Box}, {id: 'settings', label: 'Rules & Settings', icon: Layers}].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><tab.icon size={16} /> {tab.label}</button>))}</div>
             <div className="flex-1 overflow-y-auto p-8 bg-white">
               <form onSubmit={handleSave} className="space-y-8">
                 {activeTab === 'basic' && (

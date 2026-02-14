@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, QrCode, Search, CheckCircle, AlertTriangle, Package, Clock, ChevronRight } from 'lucide-react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Product } from '../../db/db';
-import { useAppDispatch } from '../../app/hooks';
-import { addToCart } from '../../store/cartSlice';
+
+// ✅ REMOVED: Dexie/Redux imports
+// import { useLiveQuery } from 'dexie-react-hooks';
+// import { db, Product } from '../../db/db';
+// import { useAppDispatch } from '../../app/hooks';
+// import { addToCart } from '../../store/cartSlice';
 
 interface QuickScanModalProps {
     isOpen: boolean;
     onClose: () => void;
+    // ✅ ADDED: Receive cloud data and handler from parent
+    products: any[];
+    onAddToCart: (product: any) => void;
 }
 
 // Helper type for the local session history
@@ -18,8 +23,8 @@ interface ScannedItem {
     timestamp: number;
 }
 
-const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
-    const dispatch = useAppDispatch();
+const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose, products, onAddToCart }) => {
+    // ❌ REMOVED: const dispatch = useAppDispatch();
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
 
@@ -28,13 +33,13 @@ const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
     const [mode, setMode] = useState<'SCAN' | 'MANUAL'>('SCAN');
     const [lastScanned, setLastScanned] = useState<{ name: string; status: 'success' | 'error' } | null>(null);
 
-    // New: Session History & Search Suggestions
+    // Session History & Search Suggestions
     const [sessionHistory, setSessionHistory] = useState<ScannedItem[]>([]);
-    const [suggestions, setSuggestions] = useState<Product[]>([]);
+    const [suggestions, setSuggestions] = useState<any[]>([]);
     const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-    // --- DB Data ---
-    const products = useLiveQuery(() => db.products.filter(p => p.isActive !== false).toArray()) || [];
+    // ❌ REMOVED: Local DB Query
+    // const products = useLiveQuery(...)
 
     // --- Focus & Reset ---
     useEffect(() => {
@@ -67,30 +72,24 @@ const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
         });
     };
 
-    const processProductAdd = (product: Product) => {
-        // Stock Check
+    const processProductAdd = (product: any) => {
+        // Stock Check (UI Feedback)
         if (product.type === 'Stock' && product.stock <= 0 && !product.allowNegativeStock) {
             setLastScanned({ name: `${product.name} (Out of Stock)`, status: 'error' });
             return;
         }
 
-        dispatch(addToCart({
-            id: product.id!,
-            name: product.displayName || product.name,
-            price: product.price,
-            stock: product.stock,
-            barcode: product.barcode,
-            category: product.category,
-            isTaxIncluded: product.isTaxIncluded,
-            quantity: 1,
-            discount: 0,
-            note: ''
-        }));
+        // ✅ Call Parent Handler
+        onAddToCart(product);
 
+        // UI Updates
         setLastScanned({ name: product.name, status: 'success' });
         addToSession(product.name);
         setInputVal('');
         setSuggestions([]);
+
+        // Keep focus
+        if(inputRef.current) inputRef.current.focus();
     };
 
     // --- Logic ---
@@ -102,7 +101,7 @@ const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
         if (mode === 'MANUAL' && val.trim().length > 1) {
             const matches = products.filter(p =>
                 p.name.toLowerCase().includes(val.toLowerCase()) ||
-                p.sku?.toLowerCase().includes(val.toLowerCase())
+                (p.sku && p.sku.toLowerCase().includes(val.toLowerCase()))
             ).slice(0, 5); // Limit to 5 suggestions
             setSuggestions(matches);
             setHighlightedIndex(0);
@@ -123,7 +122,7 @@ const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
         }
 
         // 2. Try Exact SKU Match
-        const skuMatch = products.find(p => p.sku?.toLowerCase() === query.toLowerCase());
+        const skuMatch = products.find(p => p.sku && p.sku.toLowerCase() === query.toLowerCase());
         if (skuMatch) {
             processProductAdd(skuMatch);
             return;
@@ -228,7 +227,7 @@ const QuickScanModal: React.FC<QuickScanModalProps> = ({ isOpen, onClose }) => {
                                         className={`p-3 px-4 flex justify-between items-center cursor-pointer border-b last:border-0 ${idx === highlightedIndex ? 'bg-blue-50 text-blue-800' : 'hover:bg-gray-50'}`}
                                     >
                                         <div className="font-bold">{product.name}</div>
-                                        <div className="text-sm opacity-60 font-mono">${product.price.toFixed(2)}</div>
+                                        <div className="text-sm opacity-60 font-mono">${Number(product.price).toFixed(2)}</div>
                                     </div>
                                 ))}
                             </div>
