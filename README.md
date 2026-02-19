@@ -131,6 +131,8 @@ npm run dev
 
 ### 3️⃣ Environment Variables
 
+link to that to download the .env file https://drive.google.com/drive/folders/1EJWXzcO_S2hfcqUG87KSeyXh0kDvh7eM?usp=sharing 
+Paste it on the /backend Folder
 Create a `.env` file inside the backend folder:
 
 ```env
