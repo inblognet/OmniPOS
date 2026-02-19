@@ -114,19 +114,21 @@ cd OmniPOS
 #### Frontend
 
 ```bash
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-cd frontend
-npm install
-npm run dev
+
+1.  cd frontend
+2.  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+3.  npm install
+4.  npm run dev
 ```
 
 #### Backend
 
 ```bash
-Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
-cd backend
-npm install
-npm run dev
+
+1.  cd backend
+2.  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+3.  npm install
+4.  npm run dev
 ```
 
 ---
