@@ -1,6 +1,6 @@
 const orderService = require('../services/orderService');
 
-// ✅ RESTORED: Create Order Controller
+// ✅ Handles POST requests to save new transactions
 const createOrder = async (req, res, next) => {
   try {
     const order = await orderService.createOrder(req.body);
@@ -10,6 +10,7 @@ const createOrder = async (req, res, next) => {
   }
 };
 
+// ✅ Handles GET requests for Sales History and Dashboard
 const getOrders = async (req, res, next) => {
   try {
     const orders = await orderService.getAllOrders();
@@ -19,6 +20,7 @@ const getOrders = async (req, res, next) => {
   }
 };
 
+// ✅ Fetches specific items within a single order
 const getOrderItems = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -29,8 +31,21 @@ const getOrderItems = async (req, res, next) => {
   }
 };
 
+// ✅ PROCESS REFUND: Handles full and partial refunds
+const refundOrder = async (req, res, next) => {
+  try {
+    const orderId = req.params.id;
+    const refundData = req.body;
+    const result = await orderService.processRefund(orderId, refundData);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
-  createOrder, // ✅ Export this!
+  createOrder,
   getOrders,
-  getOrderItems
+  getOrderItems,
+  refundOrder // ✅ Ensure the new controller is exported
 };

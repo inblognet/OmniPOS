@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, ClipboardList,
   Package, Settings, Menu, LogOut, FileText, Users,
-  Puzzle // ✅ CHANGED: Used 'Puzzle' instead of 'Blocks' to fix the error
+  Puzzle, MonitorPlay // ✅ ADDED MonitorPlay for CFD Panel
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -29,8 +29,8 @@ const MainLayout: React.FC = () => {
     { path: '/customers', label: 'Customers', icon: Users },
     { path: '/inventory', label: 'Inventory', icon: Package },
     { path: '/reports', label: 'Reports', icon: FileText },
-    // ✅ Updated Icon to Puzzle
     { path: '/integrations', label: 'Integrations', icon: Puzzle },
+    { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay }, // ✅ NEW CFD PANEL LINK
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 

@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
   CheckCircle, ShoppingBag, Printer, Search,
-  RefreshCcw, AlertTriangle, X, CornerUpLeft,
-  Eye, Download
+  RefreshCcw, CornerUpLeft, X, AlertTriangle
 } from 'lucide-react';
 import { ReceiptTemplate } from './ReceiptTemplate';
 import { useCurrency } from '../../hooks/useCurrency';
-import { orderService, Order, OrderItem } from '../../services/orderService'; // ✅ Imported OrderItem
+import { orderService, Order, OrderItem } from '../../services/orderService';
 
 const OrdersScreen: React.FC = () => {
   const currency = useCurrency();
@@ -18,10 +17,14 @@ const OrdersScreen: React.FC = () => {
 
   // Modal & Selection State
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItem[]>([]); // ✅ New State
-  const [itemsLoading, setItemsLoading] = useState(false); // ✅ New State
+  const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItem[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
 
-  const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
+  // Refund State
+  const [refundSelectedItems, setRefundSelectedItems] = useState<Set<number>>(new Set());
+  const [isRefunding, setIsRefunding] = useState(false);
+
+  const [printingOrder, setPrintingOrder] = useState<any>(null);
 
   // --- FETCH ALL ORDERS ---
   const fetchOrders = async () => {
@@ -42,11 +45,13 @@ const OrdersScreen: React.FC = () => {
 
   // --- FETCH ITEMS WHEN MODAL OPENS ---
   useEffect(() => {
+    // Reset refund selection every time modal opens/changes
+    setRefundSelectedItems(new Set());
+
     if (selectedOrder) {
       const loadItems = async () => {
         try {
           setItemsLoading(true);
-          // ✅ API Call to get specific products for this order
           const items = await orderService.getOrderItems(selectedOrder.id);
           setSelectedOrderItems(items);
         } catch (error) {
@@ -57,7 +62,7 @@ const OrdersScreen: React.FC = () => {
       };
       loadItems();
     } else {
-      setSelectedOrderItems([]); // Clear on close
+      setSelectedOrderItems([]);
     }
   }, [selectedOrder]);
 
@@ -66,26 +71,66 @@ const OrdersScreen: React.FC = () => {
     (o.customer_name?.toLowerCase() || '').includes(searchId.toLowerCase())
   );
 
-  const handlePrint = (order: Order) => {
-    setPrintingOrder(order);
-    setTimeout(() => {
-      window.print();
-    }, 100);
-  };
-
-  // Stub for processing returns (will connect to backend later)
-  const handleProcessReturn = async (order: Order, item: OrderItem, qty: number, type: string) => {
-     alert(`Feature coming next: Process ${type} for ${qty} x ${item.name}`);
-  };
-
-  const handleFullRefund = async (order: Order) => {
-    if(!confirm("⚠️ WARNING: Mark ENTIRE order as refunded?")) return;
+  // --- PRINT LOGIC ---
+  const handlePrint = async (order: Order) => {
     try {
-      alert("✅ Cloud Sync: Full refund processed.");
-      fetchOrders();
+      const items = await orderService.getOrderItems(order.id);
+      const fullOrderToPrint = { ...order, items: items };
+
+      setPrintingOrder(fullOrderToPrint);
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => setPrintingOrder(null), 1000);
+      }, 200);
+
+    } catch (error) {
+      console.error("Failed to prepare order for printing", error);
+      alert("Could not load receipt details. Please check your connection.");
+    }
+  };
+
+  // --- ✅ REFUND LOGIC ---
+  const toggleRefundItem = (index: number) => {
+    const newSelection = new Set(refundSelectedItems);
+    if (newSelection.has(index)) {
+      newSelection.delete(index);
+    } else {
+      newSelection.add(index);
+    }
+    setRefundSelectedItems(newSelection);
+  };
+
+  const handleRefund = async (type: 'full' | 'partial') => {
+    if (!selectedOrder) return;
+
+    const confirmMessage = type === 'full'
+        ? "⚠️ Are you sure you want to issue a FULL refund for this order? This action cannot be undone."
+        : `⚠️ Are you sure you want to refund the ${refundSelectedItems.size} selected item(s)?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    try {
+      setIsRefunding(true);
+
+      // Determine payload for backend
+      const payload = type === 'full'
+        ? { type: 'full' as const } // type assertion to keep TS happy
+        : { type: 'partial' as const, items: Array.from(refundSelectedItems).map(idx => selectedOrderItems[idx]) };
+
+      // ✅ Uses the new orderService method instead of raw axios
+      await orderService.refundOrder(selectedOrder.id, payload);
+
+      alert(`✅ ${type === 'full' ? 'Full' : 'Partial'} refund processed successfully.`);
+
+      // Refresh Data
       setSelectedOrder(null);
-    } catch (err) {
-      alert("Error processing full refund.");
+      fetchOrders();
+
+    } catch (error) {
+      console.error("Refund Error:", error);
+      alert("❌ Failed to process refund. Please check your network connection.");
+    } finally {
+      setIsRefunding(false);
     }
   };
 
@@ -97,7 +142,10 @@ const OrdersScreen: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Sales History</h1>
-          <p className="text-gray-500">Cloud-synced management</p>
+          <p className="text-gray-500 text-sm flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            Cloud-synced database records
+          </p>
         </div>
 
         <div className="relative w-full md:w-64">
@@ -107,7 +155,7 @@ const OrdersScreen: React.FC = () => {
               placeholder="Search ID or Customer..."
               value={searchId}
               onChange={(e) => setSearchId(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full outline-none"
+              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
            />
         </div>
       </div>
@@ -115,47 +163,61 @@ const OrdersScreen: React.FC = () => {
       {/* --- ORDER LIST --- */}
       <div className="grid gap-4">
         {loading ? (
-          <div className="bg-white p-12 text-center border rounded-xl">
-            <RefreshCcw className="mx-auto h-12 w-12 text-blue-400 animate-spin" />
+          <div className="bg-white p-12 text-center border rounded-xl shadow-sm">
+            <RefreshCcw className="mx-auto h-12 w-12 text-blue-400 animate-spin mb-4" />
+            <p className="text-gray-500 font-medium">Fetching secure transaction data...</p>
           </div>
         ) : filteredOrders.length === 0 ? (
-          <div className="bg-white p-12 text-center border rounded-xl">
+          <div className="bg-white p-12 text-center border rounded-xl shadow-sm">
             <ShoppingBag className="mx-auto h-12 w-12 text-gray-300 mb-3" />
-            <h3 className="text-gray-900">No orders found</h3>
+            <h3 className="text-gray-900 font-bold">No transactions found</h3>
+            <p className="text-gray-500 text-sm">New sales will appear here instantly after sync.</p>
           </div>
         ) : (
           filteredOrders.map((order) => (
-            <div key={order.id} className={`bg-white rounded-xl shadow-sm border p-4 transition-shadow ${order.status === 'refunded' ? 'border-red-200 bg-red-50' : 'border-gray-200'}`}>
+            <div key={order.id} className={`bg-white rounded-xl shadow-sm border p-4 hover:shadow-md transition-all ${order.status === 'refunded' ? 'border-red-200 bg-red-50' : 'border-gray-200'}`}>
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-4">
-                  <span className="font-mono font-bold text-gray-500">#{order.id}</span>
+                  <div className="bg-gray-100 p-3 rounded-lg font-mono font-bold text-gray-600">
+                    #{order.id}
+                  </div>
                   <div className="flex flex-col text-sm">
-                      <span className="font-bold">{new Date(order.created_at).toLocaleDateString()}</span>
+                      <span className="font-bold text-gray-800">{new Date(order.created_at).toLocaleDateString()}</span>
                       <span className="text-gray-500">{new Date(order.created_at).toLocaleTimeString()}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-6">
                     {order.status === 'refunded' ? (
-                        <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                        <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 border border-red-200">
                           <CornerUpLeft size={12}/> REFUNDED
                         </span>
                     ) : (
-                        <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-medium border border-green-200 flex items-center gap-1">
-                          <CheckCircle size={14} /> Synced
+                        <span className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-xs font-bold border border-green-200 flex items-center gap-1">
+                          <CheckCircle size={14} /> SECURE SYNC
                         </span>
                     )}
 
-                    <div className="text-right">
-                        <p className={`font-bold ${order.status === 'refunded' ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                    <div className="text-right min-w-[100px]">
+                        <p className={`font-black text-lg ${order.status === 'refunded' ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                             {currency}{Number(order.total_amount).toFixed(2)}
                         </p>
-                        <p className="text-xs text-gray-500 uppercase">{order.payment_method}</p>
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{order.payment_method}</p>
                     </div>
 
                     <div className="flex gap-2">
-                        <button onClick={() => setSelectedOrder(order)} className="px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-sm font-medium">Manage</button>
-                        <button onClick={() => handlePrint(order)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg"><Printer size={20} /></button>
+                        <button
+                          onClick={() => setSelectedOrder(order)}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-bold shadow-sm transition-colors"
+                        >
+                          Manage
+                        </button>
+                        <button
+                          onClick={() => handlePrint(order)}
+                          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                        >
+                          <Printer size={20} />
+                        </button>
                     </div>
                 </div>
               </div>
@@ -166,76 +228,107 @@ const OrdersScreen: React.FC = () => {
 
       {/* --- MANAGEMENT MODAL --- */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="p-6 border-b flex justify-between items-center bg-white sticky top-0">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="p-6 border-b flex justify-between items-center bg-gray-50">
                     <div>
-                        <h2 className="text-xl font-bold text-gray-800">Order #{selectedOrder.id}</h2>
-                        <p className="text-sm text-gray-500">Cloud Data</p>
+                        <h2 className="text-xl font-black text-gray-900 uppercase tracking-tight">Order Details</h2>
+                        <p className="text-sm text-blue-600 font-bold">Transaction Reference: #{selectedOrder.id}</p>
                     </div>
-                    <button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-gray-100 rounded-full"><X size={24}/></button>
+                    <button onClick={() => setSelectedOrder(null)} className="p-2 hover:bg-gray-200 rounded-full transition-colors"><X size={24}/></button>
                 </div>
 
-                <div className="p-6 space-y-6">
-                    {/* Summary Card */}
-                    <div className="flex justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                    <div className="flex justify-between p-5 bg-blue-50/50 rounded-xl border border-blue-100">
                         <div>
-                            <p className="text-xs text-gray-500 uppercase tracking-wider">Status</p>
-                            <p className="font-bold capitalize text-gray-800">{selectedOrder.status}</p>
+                            <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Customer</p>
+                            <p className="font-bold text-gray-800">{selectedOrder.customer_name || 'Guest Checkout'}</p>
                         </div>
                         <div className="text-right">
-                             <p className="text-xs text-gray-500 uppercase tracking-wider">Total Paid</p>
-                             <p className="font-bold text-lg text-blue-600">{currency}{Number(selectedOrder.total_amount).toFixed(2)}</p>
+                             <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Net Amount</p>
+                             <p className={`font-black text-2xl ${selectedOrder.status === 'refunded' ? 'line-through text-red-500' : 'text-blue-700'}`}>
+                                 {currency}{Number(selectedOrder.total_amount).toFixed(2)}
+                             </p>
                         </div>
                     </div>
 
-                    {/* ✅ ITEMIZED TABLE (Fetching from Cloud) */}
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    {/* ✅ MODIFIED TABLE FOR REFUND SELECTION */}
+                    <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
+                            <thead className="bg-gray-100 border-b border-gray-200 text-gray-600">
                                 <tr>
-                                    <th className="p-3 font-medium">Product</th>
-                                    <th className="p-3 font-medium text-center">Qty</th>
-                                    <th className="p-3 font-medium text-right">Actions</th>
+                                    {selectedOrder.status !== 'refunded' && (
+                                        <th className="p-4 font-bold uppercase text-[11px] w-12 text-center">Ref</th>
+                                    )}
+                                    <th className="p-4 font-bold uppercase text-[11px]">Product Item</th>
+                                    <th className="p-4 font-bold uppercase text-[11px] text-center">Qty</th>
+                                    <th className="p-4 font-bold uppercase text-[11px] text-right">Price</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {itemsLoading ? (
-                                  <tr><td colSpan={3} className="p-8 text-center animate-pulse text-gray-500">Loading items...</td></tr>
-                                ) : selectedOrderItems.length === 0 ? (
-                                  <tr><td colSpan={3} className="p-8 text-center text-gray-400">No items found for this order.</td></tr>
-                                ) : (
-                                  selectedOrderItems.map((item, idx) => (
+                                  <tr><td colSpan={4} className="p-12 text-center animate-pulse text-gray-400 font-medium">Retrieving itemized records...</td></tr>
+                                ) : selectedOrderItems.map((item, idx) => (
                                     <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                                      <td className="p-3">
-                                        <div className="font-medium text-gray-900">{item.name}</div>
-                                        <div className="text-xs text-gray-500">{currency}{Number(item.price).toFixed(2)}</div>
+                                      {/* ✅ ITEM CHECKBOX */}
+                                      {selectedOrder.status !== 'refunded' && (
+                                          <td className="p-4 text-center">
+                                            <input
+                                                type="checkbox"
+                                                className="w-4 h-4 text-red-600 bg-white border-gray-300 rounded focus:ring-red-500 cursor-pointer"
+                                                checked={refundSelectedItems.has(idx)}
+                                                onChange={() => toggleRefundItem(idx)}
+                                            />
+                                          </td>
+                                      )}
+                                      <td className="p-4">
+                                        <div className="font-bold text-gray-900">{item.name}</div>
+                                        <div className="text-[10px] text-gray-400 uppercase font-bold">SKU Ref: {item.productId}</div>
                                       </td>
-                                      <td className="p-3 text-center font-bold text-gray-600">{item.quantity}</td>
-                                      <td className="p-3 text-right">
-                                        {/* Placeholder button for next step */}
-                                        <button
-                                          className="text-red-600 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold border border-red-100"
-                                          onClick={() => handleProcessReturn(selectedOrder, item, 1, 'refund')}
-                                        >
-                                          Refund 1
-                                        </button>
-                                      </td>
+                                      <td className="p-4 text-center font-black text-gray-700 bg-gray-50/50">{item.quantity}</td>
+                                      <td className="p-4 text-right font-bold text-gray-900">{currency}{Number(item.price).toFixed(2)}</td>
                                     </tr>
                                   ))
-                                )}
+                                }
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <div className="p-6 border-t bg-gray-50 flex justify-between items-center rounded-b-xl">
-                    <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-gray-700 font-medium text-sm">Close</button>
-                    {selectedOrder.status !== 'refunded' && (
-                        <button onClick={() => handleFullRefund(selectedOrder)} className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-red-700">
-                            <AlertTriangle size={16} /> Full Refund
-                        </button>
-                    )}
+                <div className="p-6 border-t bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <button onClick={() => setSelectedOrder(null)} className="text-gray-500 hover:text-gray-900 font-bold text-sm uppercase tracking-wider">Cancel View</button>
+
+                    <div className="flex flex-wrap gap-3 justify-end w-full sm:w-auto">
+                      {/* ✅ REFUND BUTTONS (Hidden if already refunded) */}
+                      {selectedOrder.status !== 'refunded' && (
+                          <>
+                              {refundSelectedItems.size > 0 && (
+                                <button
+                                    onClick={() => handleRefund('partial')}
+                                    disabled={isRefunding}
+                                    className="flex items-center gap-2 bg-orange-100 text-orange-700 border border-orange-200 px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-orange-200 transition-all disabled:opacity-50"
+                                >
+                                    <AlertTriangle size={18} /> Refund Selected
+                                </button>
+                              )}
+                              <button
+                                  onClick={() => handleRefund('full')}
+                                  disabled={isRefunding}
+                                  className="flex items-center gap-2 bg-red-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-red-700 shadow-lg transition-all disabled:opacity-50"
+                              >
+                                  <CornerUpLeft size={18} /> Full Refund
+                              </button>
+                          </>
+                      )}
+
+                      <button
+                         onClick={() => handlePrint(selectedOrder)}
+                         disabled={itemsLoading}
+                         className="flex items-center gap-2 bg-gray-900 text-white px-5 py-2.5 rounded-xl text-sm font-bold hover:bg-black shadow-lg transition-all disabled:opacity-50"
+                      >
+                          <Printer size={18} /> Print Copy
+                      </button>
+                    </div>
                 </div>
             </div>
         </div>

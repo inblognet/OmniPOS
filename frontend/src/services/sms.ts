@@ -1,6 +1,6 @@
 // src/services/sms.ts
 
-import { StoreSettings } from '../db/db';
+import api from '../api/axiosConfig'; // ✅ Use Axios to fetch Cloud Settings
 
 export interface SmsReceiptData {
     storeName: string;
@@ -8,7 +8,6 @@ export interface SmsReceiptData {
     date: string;
     total: string;
     items: { name: string; quantity: number; price: number }[];
-    // ✅ NEW: Payment & Loyalty Fields
     paidAmount?: string;
     change?: string;
     customerName?: string;
@@ -18,16 +17,14 @@ export interface SmsReceiptData {
 }
 
 interface SendSmsOptions {
-    settings: StoreSettings;
     recipientPhone: string;
     data: SmsReceiptData;
 }
 
 type SmsProviderResult = { ok: true; data?: any } | { ok: false; error: string };
 
-// ✅ UPDATED: Rich Receipt Format with Payment Details
+// --- Format Receipt ---
 const formatSmsBody = (data: SmsReceiptData): string => {
-    // 1. Welcome Header
     let body = "";
     if (data.customerName && data.customerName !== "Walk-in Customer") {
         body += `WELCOME ${data.customerName.toUpperCase()}!\n`;
@@ -35,40 +32,34 @@ const formatSmsBody = (data: SmsReceiptData): string => {
         body += `WELCOME!\n`;
     }
 
-    // 2. Store & Order Info
     body += `${data.storeName}\n`;
     body += `================\n`;
     body += `Order: #${data.orderId}\n`;
     body += `Date: ${data.date}\n`;
     body += `----------------\n`;
 
-    // 3. Items Loop
     data.items.forEach(item => {
         body += `${item.quantity} x ${item.name}\n`;
     });
     body += `----------------\n`;
 
-    // 4. Loyalty Redemption (Only if used)
     if (data.pointsRedeemed && data.pointsRedeemed > 0) {
         body += `Redeemed: ${data.pointsRedeemed} Pts\n`;
         body += `Saving: -${data.discountAmount}\n`;
         body += `----------------\n`;
     }
 
-    // 5. Financials (Total, Paid, Change)
     body += `TOTAL: ${data.total}\n`;
 
     if (data.paidAmount) {
         body += `PAID: ${data.paidAmount}\n`;
     }
-
     if (data.change) {
         body += `CHANGE: ${data.change}\n`;
     }
 
     body += `================\n`;
 
-    // 6. Remaining Balance (Only if registered)
     if (data.pointsBalance !== undefined) {
         body += `Loyalty Balance: ${data.pointsBalance} Pts\n`;
     }
@@ -87,18 +78,17 @@ const formatSriLankaNumber = (phone: string): string => {
 };
 
 // --- Provider: Brevo ---
-const sendBrevoSms = async (recipientPhone: string, body: string, settings: StoreSettings): Promise<SmsProviderResult> => {
-    console.log('[SMS] Sending via Brevo...');
+const sendBrevoSms = async (recipientPhone: string, body: string, config: any): Promise<SmsProviderResult> => {
     try {
         const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
             method: 'POST',
             headers: {
                 'accept': 'application/json',
-                'api-key': settings.smsAuthToken || '',
+                'api-key': config.smsAuthToken || '',
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
-                "sender": settings.smsFromNumber,
+                "sender": config.smsFromNumber,
                 "recipient": recipientPhone,
                 "content": body,
                 "type": "transactional"
@@ -113,33 +103,26 @@ const sendBrevoSms = async (recipientPhone: string, body: string, settings: Stor
 };
 
 // --- Provider: Text.lk (HTTP API via GET) ---
-const sendTextlkSms = async (recipientPhone: string, body: string, settings: StoreSettings): Promise<SmsProviderResult> => {
-    console.log('[SMS] Starting Text.lk HTTP GET Request...');
-
+const sendTextlkSms = async (recipientPhone: string, body: string, config: any): Promise<SmsProviderResult> => {
     try {
         const baseUrl = 'https://app.text.lk/api/http/sms/send';
         const formattedPhone = formatSriLankaNumber(recipientPhone);
 
-        console.log(`[SMS] Sending to: ${formattedPhone}`);
-
-        // ✅ Ensure all values are strings for URLSearchParams
         const params = new URLSearchParams({
-            "api_token": settings.smsApiToken || "",
+            "api_token": config.smsApiToken || "",
             "recipient": formattedPhone,
-            "sender_id": settings.smsFromNumber || "TextLKDemo",
+            "sender_id": config.smsFromNumber || "TextLKDemo",
             "message": body
         });
 
         const finalUrl = `${baseUrl}?${params.toString()}`;
 
-        // Send GET Request (Bypasses CSRF)
         const response = await fetch(finalUrl, {
             method: 'GET',
             headers: { 'Accept': 'application/json' }
         });
 
         const result = await response.json();
-        console.log('[SMS] Text.lk Response:', result);
 
         if (result.status === 'success' || (result.data && result.data.status === 'success')) {
              return { ok: true, data: result };
@@ -147,52 +130,44 @@ const sendTextlkSms = async (recipientPhone: string, body: string, settings: Sto
              throw new Error(result.message || 'Text.lk API Failed');
         }
     } catch (err: any) {
-        console.error('[SMS] Network Error:', err);
         return { ok: false, error: err.message };
     }
 };
 
-// --- Provider: Generic ---
-const sendGenericSms = async (provider: string): Promise<SmsProviderResult> => {
-    console.warn(`[SMS] Provider '${provider}' not implemented.`);
-    return { ok: false, error: 'Provider not supported' };
-};
-
 // --- Main Send Function ---
-export const sendSmsReceipt = async ({ settings, recipientPhone, data }: SendSmsOptions) => {
-    if (!settings.smsEnabled) {
-        return { ok: false, error: 'SMS integration is disabled.' };
-    }
-
-    const body = formatSmsBody(data);
-    let result: SmsProviderResult;
-
+export const sendSmsReceipt = async ({ recipientPhone, data }: SendSmsOptions) => {
     try {
-        switch (settings.smsProvider) {
+        // ✅ 1. Fetch Cloud Settings
+        const configRes = await api.get('/integrations');
+        const config = configRes.data;
+
+        // ✅ 2. Validate
+        if (!config.smsEnabled) {
+            return { ok: false, error: 'SMS integration is disabled in Cloud Settings.' };
+        }
+
+        const body = formatSmsBody(data);
+        let result: SmsProviderResult;
+
+        // ✅ 3. Route to Provider
+        switch (config.smsProvider) {
             case 'brevo':
-                result = await sendBrevoSms(recipientPhone, body, settings);
+                result = await sendBrevoSms(recipientPhone, body, config);
                 break;
             case 'textlk':
-                result = await sendTextlkSms(recipientPhone, body, settings);
-                break;
-            case 'twilio':
-            case 'bird':
-            case 'plivo':
-                result = await sendGenericSms(settings.smsProvider);
+                result = await sendTextlkSms(recipientPhone, body, config);
                 break;
             default:
-                return { ok: false, error: 'Invalid SMS provider selected.' };
+                return { ok: false, error: 'Unsupported or unconfigured SMS provider.' };
         }
 
         if (result.ok) {
             return { ok: true };
         } else {
-            const errorMsg = result.error || 'Failed to send SMS.';
-            console.error('[SMS Service] Error:', errorMsg);
-            return { ok: false, error: errorMsg };
+            return { ok: false, error: result.error || 'Failed to send SMS.' };
         }
     } catch (error: any) {
-        console.error('[SMS Service] Exception:', error);
-        return { ok: false, error: error.message || 'An unexpected error occurred.' };
+        console.error('[SMS Service] Cloud Sync Exception:', error);
+        return { ok: false, error: error.message || 'Failed to connect to cloud configurations.' };
     }
 };

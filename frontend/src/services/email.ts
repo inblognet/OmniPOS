@@ -1,25 +1,27 @@
+import api from '../api/axiosConfig';
+
 interface EmailPayload {
     recipientEmail: string;
     recipientName: string;
     storeName: string;
-    orderId: number;
+    orderId: number | string;
     date: string;
     total: string;
     items: any[];
 }
 
-interface EmailCredentials {
-    apiKey: string;
-    senderName: string;
-    senderEmail: string;
-}
-
-export const sendEmailReceipt = async (
-    payload: EmailPayload,
-    creds: EmailCredentials
-) => {
+export const sendEmailReceipt = async (payload: EmailPayload) => {
     try {
-        // 1. Construct the HTML Receipt Table
+        // 1. Fetch live credentials from Cloud Integrations API
+        const configRes = await api.get('/integrations');
+        const config = configRes.data;
+
+        // 2. Validate Service Status
+        if (!config.emailEnabled || !config.emailApiKey || !config.emailSenderAddress) {
+            return { ok: false, error: 'Email integration is disabled or missing API keys in Settings.' };
+        }
+
+        // 3. Construct the HTML Receipt Table
         const itemsHtml = payload.items.map(item => `
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="padding: 8px;">${item.name} <br> <span style="font-size: 12px; color: #777;">x${item.quantity}</span></td>
@@ -27,7 +29,7 @@ export const sendEmailReceipt = async (
             </tr>
         `).join('');
 
-        // 2. Build the Full HTML Body
+        // 4. Build the Full HTML Body
         const htmlContent = `
             <div style="font-family: sans-serif; max-width: 400px; margin: 0 auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
                 <div style="background-color: #000; color: #fff; padding: 20px; text-align: center;">
@@ -54,18 +56,18 @@ export const sendEmailReceipt = async (
             </div>
         `;
 
-        // 3. Send Request to Brevo API
+        // 5. Send Request to Brevo API using Cloud Keys
         const response = await fetch('https://api.brevo.com/v3/smtp/email', {
             method: 'POST',
             headers: {
                 'accept': 'application/json',
-                'api-key': creds.apiKey,
+                'api-key': config.emailApiKey,
                 'content-type': 'application/json'
             },
             body: JSON.stringify({
                 sender: {
-                    name: creds.senderName,
-                    email: creds.senderEmail
+                    name: config.emailSenderName || payload.storeName,
+                    email: config.emailSenderAddress
                 },
                 to: [
                     {
@@ -80,13 +82,13 @@ export const sendEmailReceipt = async (
 
         if (!response.ok) {
             const errorData = await response.json();
-            return { ok: false, error: errorData.message || 'Failed to send email' };
+            return { ok: false, error: errorData.message || 'Failed to send email via provider' };
         }
 
         return { ok: true };
 
     } catch (error) {
         console.error("Email API Error:", error);
-        return { ok: false, error: 'Network error or invalid API key' };
+        return { ok: false, error: 'Network error connecting to email provider' };
     }
 };

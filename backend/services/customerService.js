@@ -1,11 +1,11 @@
 const db = require('../config/db');
 
-// Map DB snake_case to Frontend camelCase
+// ✅ MAPPER: Matches DB snake_case to Frontend camelCase
 const mapCustomer = (row) => ({
   id: row.id,
   name: row.name,
   phone: row.phone,
-  email: row.email,
+  email: row.email, // ✅ Email is mapped
   type: row.type || 'Walk-in',
   loyaltyJoined: !!row.loyalty_joined,
   loyaltyPoints: parseFloat(row.loyalty_points || 0),
@@ -22,28 +22,29 @@ const getAllCustomers = async () => {
 
 const createCustomer = async (data) => {
   const query = `
-    INSERT INTO customers (name, phone, email, type, loyalty_joined, loyalty_points, total_spend, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    INSERT INTO customers (name, phone, email, type, loyalty_joined, loyalty_points, total_spend, total_purchases, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
     RETURNING *;
   `;
   const values = [
     data.name,
-    data.phone,
-    data.email,
+    data.phone || null,
+    data.email || null, // ✅ Safely insert email
     data.type || 'Walk-in',
     data.loyaltyJoined !== undefined ? Boolean(data.loyaltyJoined) : false,
     data.loyaltyPoints || 0,
-    data.totalSpend || 0
+    data.totalSpend || 0,
+    data.totalPurchases || 0 // ✅ Explicitly tracking total purchases on creation
   ];
 
   const result = await db.query(query, values);
   return mapCustomer(result.rows[0]);
 };
 
-// ✅ FINAL ROBUST UPDATE FUNCTION
+/**
+ * ✅ UPDATE CUSTOMER: Uses COALESCE to keep existing data if new values aren't provided
+ */
 const updateCustomer = async (id, data) => {
-  console.log("DEBUG: Updating Customer ID:", id, "With Payload:", data);
-
   const query = `
     UPDATE customers SET
       name = COALESCE($1, name),
@@ -61,6 +62,7 @@ const updateCustomer = async (id, data) => {
   `;
 
   const safeNum = (val, isInt = false) => {
+    if (val === undefined || val === null) return null;
     const parsed = isInt ? parseInt(val) : parseFloat(val);
     return isNaN(parsed) ? null : parsed;
   };
@@ -78,40 +80,14 @@ const updateCustomer = async (id, data) => {
     parseInt(id)
   ];
 
-  try {
-    const result = await db.query(query, values);
-    if (result.rows.length === 0) {
-      console.warn("⚠️ No customer found with ID:", id);
-      return null;
-    }
-    return mapCustomer(result.rows[0]);
-  } catch (error) {
-    console.error("❌ SQL CRASH DETAILS (Update):", error.message);
-    throw error;
-  }
+  const result = await db.query(query, values);
+  return result.rows.length ? mapCustomer(result.rows[0]) : null;
 };
 
-// ✅ FINAL ROBUST DELETE FUNCTION
 const deleteCustomer = async (id) => {
-  try {
-    const customerId = parseInt(id);
-    console.log("DEBUG: Attempting to delete Customer ID:", customerId);
-
-    const query = 'DELETE FROM customers WHERE id = $1 RETURNING id';
-    const result = await db.query(query, [customerId]);
-
-    if (result.rows.length === 0) {
-      console.warn("⚠️ No customer found in database with ID:", customerId);
-      return false;
-    }
-
-    console.log("✅ Customer deleted successfully from Cloud:", customerId);
-    return true;
-  } catch (error) {
-    // This logs the exact SQL constraint preventing deletion in your terminal
-    console.error("❌ SQL DELETE ERROR:", error.message);
-    throw error;
-  }
+  const query = 'DELETE FROM customers WHERE id = $1 RETURNING id';
+  const result = await db.query(query, [parseInt(id)]);
+  return result.rows.length > 0;
 };
 
 module.exports = { getAllCustomers, createCustomer, updateCustomer, deleteCustomer };

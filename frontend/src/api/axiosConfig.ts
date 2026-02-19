@@ -1,10 +1,12 @@
 import axios from 'axios';
 
-export const api = axios.create({
-  // ✅ Must be 5001
-  baseURL: 'http://localhost:5001/api',
-  withCredentials: true,
+const axiosInstance = axios.create({
+  // ✅ NEW PORT: 5500
+  baseURL: 'http://localhost:5500/api',
   headers: {
-    'Content-Type': 'application/json'
-  }
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true
 });
+
+export default axiosInstance;

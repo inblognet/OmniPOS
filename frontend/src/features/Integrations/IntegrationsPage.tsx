@@ -1,46 +1,51 @@
+// cspell:ignore dexie IMEI qrcode react-barcode bcid Barcodes Uncategorized
 import React, { useState, useEffect } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../db/db';
+import api from '../../api/axiosConfig'; // ✅ Use Axios for backend communication
 import { Save, MessageCircle, CheckCircle, Mail, Smartphone, HelpCircle } from 'lucide-react';
 
 const IntegrationsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [success, setSuccess] = useState(false);
 
   // --- State for Settings ---
-  // We use a single object for all settings to make adding new ones easier
   const [localSettings, setLocalSettings] = useState<any>(null);
 
-  // 1. Fetch current settings from Database
-  const dbSettings = useLiveQuery(async () => {
-    const last = await db.settings.orderBy('id').last();
-    return last || await db.settings.get(1);
-  });
-
-  // 2. Sync Database -> Local State (Initial Load)
+  // 1. Fetch current settings from Cloud Database
   useEffect(() => {
-    if (dbSettings) {
-      // Ensure default values for new fields if they don't exist yet
-      setLocalSettings({
-        ...dbSettings,
-        smsProvider: dbSettings.smsProvider || 'textlk', // Default to Text.lk as requested
-        smsEnabled: dbSettings.smsEnabled || false
-      });
-    }
-  }, [dbSettings]);
+    const fetchIntegrations = async () => {
+      try {
+        const res = await api.get('/integrations');
+        const dbSettings = res.data || {};
+
+        // Ensure default values for new fields if they don't exist yet
+        setLocalSettings({
+          ...dbSettings,
+          smsProvider: dbSettings.smsProvider || 'textlk', // Default to Text.lk as requested
+          smsEnabled: dbSettings.smsEnabled || false
+        });
+      } catch (error) {
+        console.error("Failed to load integrations from cloud:", error);
+        // Fallback so the UI doesn't break on a fresh start
+        setLocalSettings({ smsProvider: 'textlk', smsEnabled: false });
+      } finally {
+        setInitialLoad(false);
+      }
+    };
+
+    fetchIntegrations();
+  }, []);
 
   // Helper: Update a specific setting field
   const handleUpdate = (key: string, value: any) => {
     setLocalSettings((prev: any) => ({ ...prev, [key]: value }));
   };
 
-  // 3. Save Changes
+  // 3. Save Changes to Cloud Database
   const handleSave = async () => {
     setLoading(true);
     setSuccess(false);
     try {
-      const exists = await db.settings.get(1);
-
       // Prepare the data to save
       const payload = {
           // WhatsApp
@@ -54,7 +59,7 @@ const IntegrationsPage: React.FC = () => {
           emailSenderName: localSettings?.emailSenderName || '',
           emailSenderAddress: localSettings?.emailSenderAddress || '',
 
-          // ✅ SMS Service (Universal)
+          // SMS Service (Universal)
           smsEnabled: localSettings?.smsEnabled || false,
           smsProvider: localSettings?.smsProvider || 'textlk',
           smsAccountSid: localSettings?.smsAccountSid || '',
@@ -65,24 +70,14 @@ const IntegrationsPage: React.FC = () => {
           smsTemplateId: localSettings?.smsTemplateId || ''
       };
 
-      if (!exists) {
-        // Create default if missing
-        await db.settings.add({
-          id: 1,
-          storeName: 'My Store',
-          address: '', phone: '', email: '', headerText: '', footerText: '',
-          taxRate: 0.08, currency: 'LKR ',
-          ...payload
-        });
-      } else {
-        // Update existing
-        await db.settings.update(1, payload);
-      }
+      // Push to backend
+      await api.put('/integrations', payload);
+
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (error) {
       console.error("Failed to save integrations", error);
-      alert("Failed to save settings.");
+      alert("Failed to save settings to the cloud server.");
     } finally {
       setLoading(false);
     }
@@ -120,7 +115,6 @@ const IntegrationsPage: React.FC = () => {
                           </div>
                       </div>
 
-                      {/* ✅ ADDED: Sender ID Field for Text.lk */}
                       <div className="space-y-1">
                           <label className="text-xs font-bold text-gray-500 uppercase">Sender ID</label>
                           <input
@@ -230,7 +224,8 @@ const IntegrationsPage: React.FC = () => {
       }
   };
 
-  if (!localSettings) return <div className="p-10 text-center text-gray-500">Loading Settings...</div>;
+  if (initialLoad) return <div className="p-10 text-center text-gray-400 animate-pulse">Syncing integrations with cloud database...</div>;
+  if (!localSettings) return <div className="p-10 text-center text-red-500 font-bold">Failed to load integration settings.</div>;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
@@ -238,7 +233,7 @@ const IntegrationsPage: React.FC = () => {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-800">Integrations</h1>
-        <p className="text-gray-500 text-sm">Manage third-party connections and APIs.</p>
+        <p className="text-gray-500 text-sm">Manage cloud-synced third-party connections and APIs.</p>
       </div>
 
       {/* --- 1. WHATSAPP INTEGRATION CARD --- */}
@@ -344,7 +339,7 @@ const IntegrationsPage: React.FC = () => {
                               type="text"
                               value={localSettings.emailSenderName || ''}
                               onChange={(e) => handleUpdate('emailSenderName', e.target.value)}
-                              className="w-full p-3 border border-gray-300 rounded-lg"
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                               placeholder="My Store"
                           />
                       </div>
@@ -354,7 +349,7 @@ const IntegrationsPage: React.FC = () => {
                               type="email"
                               value={localSettings.emailSenderAddress || ''}
                               onChange={(e) => handleUpdate('emailSenderAddress', e.target.value)}
-                              className="w-full p-3 border border-gray-300 rounded-lg"
+                              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                               placeholder="receipts@mystore.com"
                           />
                       </div>
@@ -364,7 +359,7 @@ const IntegrationsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* --- 3. SMS INTEGRATION CARD (✅ NEW) --- */}
+      {/* --- 3. SMS INTEGRATION CARD --- */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all hover:shadow-md">
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
            <div className="flex items-center gap-3">
@@ -432,7 +427,7 @@ const IntegrationsPage: React.FC = () => {
               disabled={loading}
               className="flex items-center gap-2 px-8 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all active:scale-95 disabled:opacity-50 shadow-lg"
           >
-              {loading ? 'Saving...' : success ? 'Settings Saved!' : 'Save All Changes'}
+              {loading ? 'Saving to Cloud...' : success ? 'Settings Synced!' : 'Save Integrations'}
               {success ? <CheckCircle size={20}/> : <Save size={20}/>}
           </button>
       </div>

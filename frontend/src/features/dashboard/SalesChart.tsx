@@ -6,15 +6,14 @@ import {
 import { useCurrency } from '../../hooks/useCurrency';
 
 interface SalesChartProps {
-  // Relaxed type to accept both hourly (hour) and daily (date) data structure
   data: any[];
-  isDaily?: boolean; // New prop to toggle between "date" and "hour" keys
+  isDaily?: boolean;
 }
 
 export const SalesChart: React.FC<SalesChartProps> = ({ data, isDaily }) => {
   const currency = useCurrency();
 
-  // Handle empty or loading states
+  // ✅ Safety Check: Ensure data exists
   if (!data || data.length === 0) {
     return (
       <div className="h-[280px] flex items-center justify-center text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
@@ -24,7 +23,6 @@ export const SalesChart: React.FC<SalesChartProps> = ({ data, isDaily }) => {
   }
 
   return (
-    // Removed the outer bg-white/shadow card wrapper so it fits the new Dashboard layout
     <div className="h-[280px] w-full">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
@@ -38,8 +36,8 @@ export const SalesChart: React.FC<SalesChartProps> = ({ data, isDaily }) => {
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
 
           <XAxis
-            // ✅ Dynamically switches key based on the chart type
-            dataKey={isDaily ? "date" : "hour"}
+            // ✅ FIX: Use 'date' for daily, 'name' for hourly (matches backend)
+            dataKey={isDaily ? "date" : "name"}
             axisLine={false}
             tickLine={false}
             tick={{ fontSize: 12, fill: '#94a3b8' }}
@@ -67,12 +65,13 @@ export const SalesChart: React.FC<SalesChartProps> = ({ data, isDaily }) => {
 
           <Area
             type="monotone"
-            dataKey="amount"
+            // ✅ FIX: Backend sends 'value', not 'amount'
+            dataKey="value"
             stroke="#3b82f6"
             strokeWidth={3}
             fillOpacity={1}
             fill="url(#colorRevenue)"
-            animationDuration={1000}
+            animationDuration={1500}
           />
         </AreaChart>
       </ResponsiveContainer>

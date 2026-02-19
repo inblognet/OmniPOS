@@ -5,17 +5,20 @@ import {
 } from 'recharts';
 
 export const HourlyBarChart = ({ data }: { data: any[] }) => {
-  // Format data: "14:00" -> "2 PM"
-  const chartData = data.map(item => ({
+  // ✅ Data is already formatted by backend as { name: "02 PM", value: 5 }
+  // We just ensure 'value' is a number to be safe.
+  const chartData = (data || []).map(item => ({
     ...item,
-    label: item.hour
-      ? new Date(`2000-01-01T${item.hour}`).toLocaleTimeString([], { hour: 'numeric' })
-      : '',
-    amount: parseFloat(item.amount as any)
+    name: item.name,
+    value: Number(item.value)
   }));
 
-  if (!data || data.length === 0) {
-    return <div className="h-[280px] flex items-center justify-center text-gray-400">No traffic data</div>;
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="h-[280px] flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-100 rounded-xl">
+        <p className="text-sm font-medium">No activity recorded today</p>
+      </div>
+    );
   }
 
   return (
@@ -24,7 +27,7 @@ export const HourlyBarChart = ({ data }: { data: any[] }) => {
         <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
           <XAxis
-            dataKey="label"
+            dataKey="name"
             axisLine={false}
             tickLine={false}
             tick={{fontSize: 10, fill: '#94a3b8'}}
@@ -33,17 +36,25 @@ export const HourlyBarChart = ({ data }: { data: any[] }) => {
             axisLine={false}
             tickLine={false}
             tick={{fontSize: 10, fill: '#94a3b8'}}
+            allowDecimals={false} // Since it's transaction count, no decimals
           />
           <Tooltip
             cursor={{fill: '#f8fafc'}}
-            formatter={(val: any) => [`${Number(val).toFixed(2)}`, 'Revenue']}
-            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+            formatter={(val: any) => [`${val}`, 'Transactions']}
+            contentStyle={{
+              borderRadius: '12px',
+              border: 'none',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+              padding: '12px'
+            }}
+            itemStyle={{ color: '#6366f1', fontWeight: 600 }}
           />
           <Bar
-            dataKey="amount"
-            fill="#6366f1"
+            dataKey="value"
+            fill="#8b5cf6"
             radius={[4, 4, 0, 0]}
-            barSize={30}
+            barSize={40}
+            animationDuration={1500}
           />
         </BarChart>
       </ResponsiveContainer>

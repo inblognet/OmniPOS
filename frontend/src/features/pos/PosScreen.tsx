@@ -1,6 +1,5 @@
+// cspell:ignore dexie cust
 import React, { useState, useEffect, useRef } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, Product } from '../../db/db';
 import ProductCard from './ProductCard';
 import CartPanel from './CartPanel';
 import {
@@ -11,8 +10,8 @@ import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
   Search, X, Save, Package, Plus, Filter,
   PauseCircle, PlayCircle, RotateCcw, FileText, LogIn, LogOut,
-  Minus, Trash2, CheckCircle, Tag, Edit3, StickyNote, Calculator,
-  ChevronDown, CheckSquare, Square, QrCode, Star, User, Zap, BarChart4, Keyboard, Lock, Unlock
+  Minus, Trash2, Calculator, CheckSquare, Square, QrCode, Star, User, Zap, Keyboard, Lock, Unlock,
+  MonitorPlay, Monitor
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import QuickScanModal from './QuickScanModal';
@@ -27,77 +26,98 @@ import { ReceiptTemplate } from '../orders/ReceiptTemplate';
 import { productService } from '../../services/productService';
 import { customerService, Customer } from '../../services/customerService';
 
+// ✅ Import CFD Sync Hook
+import { useCFDSync } from '../../hooks/useCFDSync.ts';
+
 const PosScreen: React.FC = () => {
   const dispatch = useAppDispatch();
   const currency = useCurrency();
   const { items: cartItems, heldSales, customer } = useAppSelector((state) => state.cart);
 
+  // ✅ Initialize CFD Broadcaster
+  const { broadcast } = useCFDSync();
+
+  // ✅ CFD Toggle State (Starts OFF so it requires a click to open the window)
+  const [isCFDEnabled, setIsCFDEnabled] = useState(false);
+
   // --- UI State ---
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCartItemId, setSelectedCartItemId] = useState<number | null>(null);
-
-  // Category Filter State
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-
-  // Quick Scan State
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
-
-  // Recent vs Favorites State
   const [sidebarTab, setSidebarTab] = useState<'recent' | 'favorites'>('recent');
   const [hiddenRecentIds, setHiddenRecentIds] = useState<number[]>([]);
-
-  // --- Modals State ---
   const [activeModal, setActiveModal] = useState<'price' | 'discount' | 'note' | null>(null);
   const [modalValue, setModalValue] = useState('');
-
-  // --- Checkout, Refund & Print State ---
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
-
-  // --- Unit Calculator State ---
   const [showUnitCalc, setShowUnitCalc] = useState(false);
   const [unitBasePrice, setUnitBasePrice] = useState('');
   const [unitWeight, setUnitWeight] = useState('');
   const [selectedUnit, setSelectedUnit] = useState('g');
-
-  // --- Custom Item State ---
   const [customItemName, setCustomItemName] = useState('');
   const [customItemPrice, setCustomItemPrice] = useState('');
   const [customItemTax, setCustomItemTax] = useState(true);
-
-  // --- Quick Edit State ---
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
-
-  // --- Keyboard State ---
   const [showMainKeyboard, setShowMainKeyboard] = useState(false);
   const [isKeyboardLocked, setIsKeyboardLocked] = useState(false);
   const activeInputRef = useRef<HTMLInputElement | null>(null);
-
-  // --- Fetch Data (CLOUD SYNC) ---
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // ✅ Customer Search State
   const [customerSearch, setCustomerSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-
-  // Category State
   const [categories, setCategories] = useState<{id: number, name: string}[]>([]);
 
-  // --- ✅ LIVE CALCULATIONS ---
+  // --- LIVE CALCULATIONS ---
   const totalQty = cartItems.reduce((acc, item) => acc + item.quantity, 0);
   const grossAmount = cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const totalDiscount = cartItems.reduce((acc, item) => acc + ((item.discount || 0) * item.quantity), 0);
-
-  // Tax Calculation
   const taxRate = 0.00;
   const totalTax = (grossAmount - totalDiscount) * taxRate;
-
   const roundOff = 0.00;
   const netPayable = grossAmount - totalDiscount + totalTax - roundOff;
+
+  // --- ✅ LAUNCH CFD WINDOW HANDLER ---
+  const handleToggleCFD = () => {
+    const nextState = !isCFDEnabled;
+    setIsCFDEnabled(nextState);
+
+    if (nextState) {
+        // Opens the CFD in a new window. Using a specific name 'CustomerDisplayWindow'
+        // ensures it just focuses the existing window if you click it multiple times.
+        window.open(
+            '/#/cfd-display',
+            'CustomerDisplayWindow',
+            'width=1024,height=768,menubar=no,toolbar=no,location=no,status=no'
+        );
+    }
+  };
+
+  // --- ✅ CFD BROADCASTING LOGIC ---
+  useEffect(() => {
+    if (!isCFDEnabled) {
+      broadcast({ type: 'IDLE' });
+      return;
+    }
+    if (lastOrder) {
+      broadcast({ type: 'CHECKOUT_SUCCESS' });
+      return;
+    }
+    if (cartItems.length === 0) {
+      broadcast({ type: 'IDLE' });
+      return;
+    }
+
+    broadcast({
+      type: isCheckoutOpen ? 'CHECKOUT_INTERACTION' : 'ACTIVE_CART',
+      cart: cartItems,
+      totals: { subtotal: grossAmount, tax: totalTax, discount: totalDiscount, total: netPayable, itemCount: totalQty },
+      customerData: customer ? { name: customer.name, phone: (customer as any).phone, email: (customer as any).email } : undefined
+    });
+  }, [cartItems, grossAmount, totalTax, totalDiscount, netPayable, totalQty, isCheckoutOpen, lastOrder, customer, isCFDEnabled]);
 
   const loadData = async () => {
     try {
@@ -118,13 +138,8 @@ const PosScreen: React.FC = () => {
   useEffect(() => { loadData(); }, []);
 
   // --- Filtering & Lists ---
-  const recentProducts = products
-    .filter(p => p.id && !hiddenRecentIds.includes(p.id))
-    .sort((a, b) => (b.id || 0) - (a.id || 0))
-    .slice(0, 10);
-
+  const recentProducts = products.filter(p => p.id && !hiddenRecentIds.includes(p.id)).sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
   const favoriteProducts = products.filter(p => p.isFavorite);
-
   const filteredProducts = products.filter(product => {
     const query = searchQuery.toLowerCase();
     const matchesSearch = product.name.toLowerCase().includes(query) || (product.barcode && product.barcode.toLowerCase().includes(query)) || (product.sku && product.sku.toLowerCase().includes(query));
@@ -135,7 +150,6 @@ const PosScreen: React.FC = () => {
     }
     return matchesSearch && matchesCategory;
   });
-
   const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || (c.phone && c.phone.includes(customerSearch))).slice(0, 5);
 
   useEffect(() => {
@@ -149,33 +163,17 @@ const PosScreen: React.FC = () => {
   // --- Handlers ---
   const toggleCategory = (catName: string) => setSelectedCategories(prev => prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]);
 
-  // ✅ Toggle Favorite (Add/Remove)
   const toggleFavorite = async (e: React.MouseEvent, product: any) => {
       e.stopPropagation();
       if (!product.id) return;
-
-      const newStatus = !product.isFavorite; // Toggle logic
-
-      // Optimistic Update for UI speed
+      const newStatus = !product.isFavorite;
       setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: newStatus } : p));
-
-      try {
-          await productService.update(product.id, { ...product, isFavorite: newStatus });
-          // Ideally reload data to sync fully, but optimistic update handles the UI
-          // loadData();
-      } catch (err) {
-          console.error("Failed to toggle favorite", err);
-          // Revert on fail
-          setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: !newStatus } : p));
-      }
+      try { await productService.update(product.id, { ...product, isFavorite: newStatus }); }
+      catch (err) { setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: !newStatus } : p)); }
   };
 
-  const handleRemoveFromRecent = (e: React.MouseEvent, id: number) => {
-      e.stopPropagation();
-      setHiddenRecentIds(prev => [...prev, id]);
-  };
+  const handleRemoveFromRecent = (e: React.MouseEvent, id: number) => { e.stopPropagation(); setHiddenRecentIds(prev => [...prev, id]); };
 
-  // ✅ Stock Validation Logic
   const validateAndAdd = (product: any) => {
     const existingItem = cartItems.find(item => item.id === product.id);
     const currentQty = existingItem ? existingItem.quantity : 0;
@@ -231,9 +229,7 @@ const PosScreen: React.FC = () => {
 
   const handleHoldSale = () => { if (cartItems.length === 0) return alert("Cart is empty"); dispatch(holdSale()); };
   const handleOpenHeld = () => { if (heldSales.length === 0) return alert("No held sales found."); dispatch(resumeSale(heldSales[heldSales.length - 1].id)); };
-
   const handleRefundClick = () => { setIsRefundOpen(true); };
-
   const handleReprint = () => alert("Reprinting...");
   const handleCashIO = (type: 'in' | 'out') => alert(`Cash ${type} clicked`);
 
@@ -248,10 +244,8 @@ const PosScreen: React.FC = () => {
 
   const handleSaveEdit = async (e: React.FormEvent) => {
       e.preventDefault(); if (!editingProduct || !editingProduct.id) return;
-      try {
-          await productService.update(editingProduct.id, { ...editingProduct, name: editingProduct.name, price: Number(editingProduct.price), stock: Number(editingProduct.stock) });
-          setEditingProduct(null); loadData();
-      } catch (err) { console.error(err); alert("Failed to update product via API"); }
+      try { await productService.update(editingProduct.id, { ...editingProduct, name: editingProduct.name, price: Number(editingProduct.price), stock: Number(editingProduct.stock) }); setEditingProduct(null); loadData(); }
+      catch (err) { alert("Failed to update product via API"); }
   };
 
   const handleCheckoutClick = () => { if (cartItems.length > 0) setIsCheckoutOpen(true); };
@@ -268,7 +262,6 @@ const PosScreen: React.FC = () => {
 
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => { if (!activeModal && !editingProduct) { activeInputRef.current = e.target; setShowMainKeyboard(true); } };
 
-  // --- Virtual Keyboard ---
   const handleVirtualKeyPress = (key: string) => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const start = input.selectionStart || 0; const end = input.selectionEnd || 0; const newVal = input.value.substring(0, start) + key + input.value.substring(end); setter.call(input, newVal); input.dispatchEvent(new Event('input', { bubbles: true })); } } };
   const handleVirtualBackspace = () => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const newVal = input.value.slice(0, -1); setter.call(input, newVal); input.dispatchEvent(new Event('input', { bubbles: true })); } } };
 
@@ -381,6 +374,21 @@ const PosScreen: React.FC = () => {
                 )}
                 {showFilterDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>}
             </div>
+
+            {/* ✅ NEW: CFD TOGGLE & LAUNCH BUTTON */}
+            <button
+                onClick={handleToggleCFD}
+                className={`h-full px-4 rounded-lg border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${
+                  isCFDEnabled
+                    ? 'bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700'
+                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                }`}
+                title="Launch Customer Display"
+            >
+                {isCFDEnabled ? <MonitorPlay size={16} className="animate-pulse" /> : <Monitor size={16} />}
+                CFD {isCFDEnabled ? 'ON' : 'OFF'}
+            </button>
+
           </div>
           {selectedCategories.length > 0 && ( <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1"> {selectedCategories.map(cat => ( <button key={cat} onClick={() => toggleCategory(cat)} className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-200 transition-colors border border-blue-200"> {cat} <X size={12}/> </button> ))} <button onClick={() => setSelectedCategories([])} className="text-xs text-gray-500 underline hover:text-gray-700 px-2">Reset</button> </div> )}
         </div>
@@ -401,7 +409,7 @@ const PosScreen: React.FC = () => {
             </div>
         </div>
 
-        {/* LIVE ORDER SUMMARY (Moved Here - Center/Below List) */}
+        {/* LIVE ORDER SUMMARY */}
         <div className="bg-white border-t border-b border-gray-200 p-4 shadow-sm z-10">
             <div className="flex justify-between items-end">
                 <div className="flex gap-6 text-sm text-gray-600">
@@ -510,14 +518,12 @@ const PosScreen: React.FC = () => {
                        recentProducts.map(p => (
                          <div key={p.id} onClick={() => validateAndAdd(p)} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer group">
                              <div className="flex items-center gap-2 overflow-hidden">
-                                 {/* ✅ ADDED: Star Icon in Recent to Toggle Favorite */}
                                  <button onClick={(e) => toggleFavorite(e, p)} className="text-gray-300 hover:text-blue-500 transition-colors">
                                      <Star size={14} fill={p.isFavorite ? "#3b82f6" : "none"} className={p.isFavorite ? "text-blue-500" : ""} />
                                  </button>
                                  <span className="text-xs font-bold text-gray-700 truncate">{p.name}</span>
                              </div>
                              <div className="flex items-center gap-1">
-                                 {/* ✅ ADDED: X Icon to Remove from Recent */}
                                  <button onClick={(e) => handleRemoveFromRecent(e, p.id)} className="text-gray-300 hover:text-red-500 p-1"><X size={14}/></button>
                                  <Plus size={14} className="text-gray-300 group-hover:text-blue-500"/>
                              </div>
@@ -531,7 +537,6 @@ const PosScreen: React.FC = () => {
                                  <span className="text-xs font-bold text-gray-700 truncate">{p.name}</span>
                              </div>
                              <div className="flex items-center gap-1">
-                                  {/* ✅ ADDED: Trash Icon to Remove from Favorites */}
                                   <button onClick={(e) => toggleFavorite(e, p)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14}/></button>
                                   <Plus size={14} className="text-gray-300 group-hover:text-blue-500"/>
                              </div>
