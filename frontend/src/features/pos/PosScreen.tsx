@@ -3,14 +3,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import ProductCard from './ProductCard';
 import CartPanel from './CartPanel';
 import {
-  addToCart, updateQuantity, removeFromCart, updatePrice,
-  updateItemDiscount, updateItemNote, holdSale, resumeSale, clearCart, setCustomer
+  addToCart, updatePrice, updateItemDiscount, updateItemNote,
+  clearCart, setCustomer, removeFromCart
 } from '../../store/cartSlice';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
-  Search, X, Save, Package, Plus, Filter,
-  PauseCircle, PlayCircle, RotateCcw, FileText, LogIn, LogOut,
-  Minus, Trash2, Calculator, CheckSquare, Square, QrCode, Star, User, Zap, Keyboard, Lock, Unlock,
+  Search, X, Save, Package, Filter, CheckSquare, Square, QrCode, User, Keyboard, Lock, Unlock,
   MonitorPlay, Monitor
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
@@ -32,12 +30,12 @@ import { useCFDSync } from '../../hooks/useCFDSync.ts';
 const PosScreen: React.FC = () => {
   const dispatch = useAppDispatch();
   const currency = useCurrency();
-  const { items: cartItems, heldSales, customer } = useAppSelector((state) => state.cart);
+  const { items: cartItems, customer } = useAppSelector((state) => state.cart);
 
   // ✅ Initialize CFD Broadcaster
   const { broadcast } = useCFDSync();
 
-  // ✅ CFD Toggle State (Starts OFF so it requires a click to open the window)
+  // ✅ CFD Toggle State
   const [isCFDEnabled, setIsCFDEnabled] = useState(false);
 
   // --- UI State ---
@@ -46,24 +44,19 @@ const PosScreen: React.FC = () => {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const [isQuickScanOpen, setIsQuickScanOpen] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'recent' | 'favorites'>('recent');
-  const [hiddenRecentIds, setHiddenRecentIds] = useState<number[]>([]);
+
   const [activeModal, setActiveModal] = useState<'price' | 'discount' | 'note' | null>(null);
   const [modalValue, setModalValue] = useState('');
+
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
-  const [showUnitCalc, setShowUnitCalc] = useState(false);
-  const [unitBasePrice, setUnitBasePrice] = useState('');
-  const [unitWeight, setUnitWeight] = useState('');
-  const [selectedUnit, setSelectedUnit] = useState('g');
-  const [customItemName, setCustomItemName] = useState('');
-  const [customItemPrice, setCustomItemPrice] = useState('');
-  const [customItemTax, setCustomItemTax] = useState(true);
+
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
   const [showMainKeyboard, setShowMainKeyboard] = useState(false);
   const [isKeyboardLocked, setIsKeyboardLocked] = useState(false);
   const activeInputRef = useRef<HTMLInputElement | null>(null);
+
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,8 +79,6 @@ const PosScreen: React.FC = () => {
     setIsCFDEnabled(nextState);
 
     if (nextState) {
-        // Opens the CFD in a new window. Using a specific name 'CustomerDisplayWindow'
-        // ensures it just focuses the existing window if you click it multiple times.
         window.open(
             '/#/cfd-display',
             'CustomerDisplayWindow',
@@ -117,7 +108,7 @@ const PosScreen: React.FC = () => {
       totals: { subtotal: grossAmount, tax: totalTax, discount: totalDiscount, total: netPayable, itemCount: totalQty },
       customerData: customer ? { name: customer.name, phone: (customer as any).phone, email: (customer as any).email } : undefined
     });
-  }, [cartItems, grossAmount, totalTax, totalDiscount, netPayable, totalQty, isCheckoutOpen, lastOrder, customer, isCFDEnabled]);
+  }, [cartItems, grossAmount, totalTax, totalDiscount, netPayable, totalQty, isCheckoutOpen, lastOrder, customer, isCFDEnabled, broadcast]);
 
   const loadData = async () => {
     try {
@@ -138,8 +129,6 @@ const PosScreen: React.FC = () => {
   useEffect(() => { loadData(); }, []);
 
   // --- Filtering & Lists ---
-  const recentProducts = products.filter(p => p.id && !hiddenRecentIds.includes(p.id)).sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
-  const favoriteProducts = products.filter(p => p.isFavorite);
   const filteredProducts = products.filter(product => {
     const query = searchQuery.toLowerCase();
     const matchesSearch = product.name.toLowerCase().includes(query) || (product.barcode && product.barcode.toLowerCase().includes(query)) || (product.sku && product.sku.toLowerCase().includes(query));
@@ -163,17 +152,6 @@ const PosScreen: React.FC = () => {
   // --- Handlers ---
   const toggleCategory = (catName: string) => setSelectedCategories(prev => prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]);
 
-  const toggleFavorite = async (e: React.MouseEvent, product: any) => {
-      e.stopPropagation();
-      if (!product.id) return;
-      const newStatus = !product.isFavorite;
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: newStatus } : p));
-      try { await productService.update(product.id, { ...product, isFavorite: newStatus }); }
-      catch (err) { setProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: !newStatus } : p)); }
-  };
-
-  const handleRemoveFromRecent = (e: React.MouseEvent, id: number) => { e.stopPropagation(); setHiddenRecentIds(prev => [...prev, id]); };
-
   const validateAndAdd = (product: any) => {
     const existingItem = cartItems.find(item => item.id === product.id);
     const currentQty = existingItem ? existingItem.quantity : 0;
@@ -184,32 +162,8 @@ const PosScreen: React.FC = () => {
     dispatch(addToCart({ id: product.id!, name: product.displayName || product.name, price: product.price, stock: product.stock, barcode: product.barcode, category: product.category, isTaxIncluded: product.isTaxIncluded, quantity: 1, discount: 0, note: '' }));
   };
 
-  const handleAddCustomItem = () => {
-    if (!customItemName || !customItemPrice) return;
-    dispatch(addToCart({ id: Date.now(), name: customItemName, price: parseFloat(customItemPrice), stock: 9999, barcode: 'CUSTOM', category: 'Custom', isTaxIncluded: customItemTax, quantity: 1, discount: 0, note: '' }));
-    setCustomItemName(''); setCustomItemPrice('');
-  };
-
-  const handleAddUnitItem = () => {
-      const price = parseFloat(unitBasePrice); const weight = parseFloat(unitWeight);
-      if (!price || !weight) return;
-      let finalPrice = 0; let nameSuffix = '';
-      if (selectedUnit === 'g') { finalPrice = (price / 1000) * weight; nameSuffix = `${weight}g`; }
-      else if (selectedUnit === 'kg') { finalPrice = price * weight; nameSuffix = `${weight}kg`; }
-      else if (selectedUnit === 'ml') { finalPrice = (price / 1000) * weight; nameSuffix = `${weight}ml`; }
-      else if (selectedUnit === 'l') { finalPrice = price * weight; nameSuffix = `${weight}L`; }
-      else { finalPrice = price * weight; nameSuffix = `${weight}pcs`; }
-      dispatch(addToCart({ id: Date.now(), name: `Custom Item (${nameSuffix})`, price: parseFloat(finalPrice.toFixed(2)), stock: 9999, barcode: 'UNIT-CALC', category: 'Custom', isTaxIncluded: true, quantity: 1, unit: selectedUnit, unitValue: weight, discount: 0, note: '' }));
-      setShowUnitCalc(false); setUnitBasePrice(''); setUnitWeight('');
-  };
-
-  const handleControlRemove = () => {
-      if (!selectedCartItemId) return alert("Please select an item from the list first.");
-      dispatch(removeFromCart(selectedCartItemId)); setSelectedCartItemId(null);
-  };
-
   const openControlModal = (type: 'price' | 'discount' | 'note') => {
-      if (!selectedCartItemId) return;
+      if (!selectedCartItemId) return alert("Please select an item from the list first.");
       const item = cartItems.find(i => i.id === selectedCartItemId);
       if (!item) return;
       if (type === 'price') setModalValue(item.price.toString());
@@ -227,11 +181,8 @@ const PosScreen: React.FC = () => {
       setActiveModal(null);
   };
 
-  const handleHoldSale = () => { if (cartItems.length === 0) return alert("Cart is empty"); dispatch(holdSale()); };
-  const handleOpenHeld = () => { if (heldSales.length === 0) return alert("No held sales found."); dispatch(resumeSale(heldSales[heldSales.length - 1].id)); };
   const handleRefundClick = () => { setIsRefundOpen(true); };
   const handleReprint = () => alert("Reprinting...");
-  const handleCashIO = (type: 'in' | 'out') => alert(`Cash ${type} clicked`);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter' && searchQuery.trim() !== '') {
@@ -260,13 +211,52 @@ const PosScreen: React.FC = () => {
     setTimeout(() => { window.print(); setLastOrder(null); loadData(); }, 500);
   };
 
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => { if (!activeModal && !editingProduct) { activeInputRef.current = e.target; setShowMainKeyboard(true); } };
+  // ✅ Virtual Keyboard Handlers
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (!activeModal && !editingProduct) {
+        activeInputRef.current = e.target;
+        setShowMainKeyboard(true);
+    }
+  };
 
-  const handleVirtualKeyPress = (key: string) => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const start = input.selectionStart || 0; const end = input.selectionEnd || 0; const newVal = input.value.substring(0, start) + key + input.value.substring(end); setter.call(input, newVal); input.dispatchEvent(new Event('input', { bubbles: true })); } } };
-  const handleVirtualBackspace = () => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const newVal = input.value.slice(0, -1); setter.call(input, newVal); input.dispatchEvent(new Event('input', { bubbles: true })); } } };
+  const handleVirtualKeyPress = (key: string) => {
+    if (activeInputRef.current) {
+        const input = activeInputRef.current;
+
+        if (input.name === "customerSearchInput") {
+            setCustomerSearch(prev => prev + key);
+        } else {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (setter) {
+                const start = input.selectionStart || 0;
+                const end = input.selectionEnd || 0;
+                const newVal = input.value.substring(0, start) + key + input.value.substring(end);
+                setter.call(input, newVal);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+    }
+  };
+
+  const handleVirtualBackspace = () => {
+    if (activeInputRef.current) {
+        const input = activeInputRef.current;
+
+        if (input.name === "customerSearchInput") {
+            setCustomerSearch(prev => prev.slice(0, -1));
+        } else {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (setter) {
+                const newVal = input.value.slice(0, -1);
+                setter.call(input, newVal);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+    }
+  };
 
   const handleVirtualEnter = () => {
-      if (activeInputRef.current && searchQuery.trim() !== '') {
+      if (activeInputRef.current && activeInputRef.current.name !== "customerSearchInput" && searchQuery.trim() !== '') {
           const query = searchQuery.trim();
           const exactMatch = products.find(p => p.barcode === query || p.sku === query);
           if (exactMatch) { validateAndAdd(exactMatch); setSearchQuery(''); }
@@ -300,6 +290,7 @@ const PosScreen: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
                 type="text"
+                name="productSearchInput"
                 onFocus={handleInputFocus}
                 className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg leading-5 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm h-full"
                 placeholder="Scan Barcode, SKU, or Search Product..."
@@ -320,11 +311,12 @@ const PosScreen: React.FC = () => {
                 ) : (
                     <input
                         type="text"
+                        name="customerSearchInput" // ✅ Fix: Links to virtual keyboard logic
                         placeholder="Search Customer..."
                         className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg leading-5 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm h-full"
                         value={customerSearch}
                         onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
-                        onFocus={() => setShowCustomerDropdown(true)}
+                        onFocus={(e) => { handleInputFocus(e); setShowCustomerDropdown(true); }} // ✅ Trigger keyboard focus
                     />
                 )}
                 {/* Cloud Customer Dropdown */}
@@ -375,7 +367,7 @@ const PosScreen: React.FC = () => {
                 {showFilterDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>}
             </div>
 
-            {/* ✅ NEW: CFD TOGGLE & LAUNCH BUTTON */}
+            {/* ✅ CFD TOGGLE & LAUNCH BUTTON */}
             <button
                 onClick={handleToggleCFD}
                 className={`h-full px-4 rounded-lg border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${
@@ -393,7 +385,7 @@ const PosScreen: React.FC = () => {
           {selectedCategories.length > 0 && ( <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1"> {selectedCategories.map(cat => ( <button key={cat} onClick={() => toggleCategory(cat)} className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-200 transition-colors border border-blue-200"> {cat} <X size={12}/> </button> ))} <button onClick={() => setSelectedCategories([])} className="text-xs text-gray-500 underline hover:text-gray-700 px-2">Reset</button> </div> )}
         </div>
 
-        {/* Current Order Items List */}
+        {/* ✅ RESTORED: Current Order Items List */}
         <div className="bg-transparent border-b border-gray-200 h-48 flex flex-col shrink-0">
             <div className="px-4 py-2 bg-transparent border-b border-gray-200 flex justify-between items-center">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Current Order Items ({cartItems.length})</h3>
@@ -409,7 +401,7 @@ const PosScreen: React.FC = () => {
             </div>
         </div>
 
-        {/* LIVE ORDER SUMMARY */}
+        {/* ✅ RESTORED: LIVE ORDER SUMMARY */}
         <div className="bg-white border-t border-b border-gray-200 p-4 shadow-sm z-10">
             <div className="flex justify-between items-end">
                 <div className="flex gap-6 text-sm text-gray-600">
@@ -489,106 +481,22 @@ const PosScreen: React.FC = () => {
 
       </div>
 
-      {/* --- COLUMN 2: ACTIONS BOX (Vertical) --- */}
-      <div className="w-80 flex-shrink-0 bg-gray-50 border-l border-gray-200 flex flex-col overflow-y-auto custom-scrollbar">
-          <div className="p-4 space-y-6">
-              <h2 className="text-lg font-black text-gray-800 flex items-center gap-2"><Zap className="text-yellow-500 fill-current" size={20}/> Actions</h2>
-
-              {/* 1. Quick Actions */}
-              <div className="space-y-2">
-                 <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Quick Actions</h4>
-                 <div className="grid grid-cols-2 gap-2">
-                    <button onClick={handleHoldSale} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"><PauseCircle size={20} className="text-orange-500 mb-1"/><span className="text-xs font-bold text-gray-700">Hold</span></button>
-                    <button onClick={handleOpenHeld} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"><PlayCircle size={20} className="text-blue-500 mb-1"/><span className="text-xs font-bold text-gray-700">Open</span></button>
-                    <button onClick={handleRefundClick} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-red-300 hover:shadow-sm transition-all group"><RotateCcw size={20} className="text-red-500 mb-1 group-hover:scale-110 transition-transform"/><span className="text-xs font-bold text-gray-700">Refund</span></button>
-                    <button onClick={handleReprint} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"><FileText size={20} className="text-gray-500 mb-1"/><span className="text-xs font-bold text-gray-700">Reprint</span></button>
-                    <button onClick={() => handleCashIO('in')} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"><LogIn size={20} className="text-green-500 mb-1"/><span className="text-xs font-bold text-gray-700">Cash In</span></button>
-                    <button onClick={() => handleCashIO('out')} className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"><LogOut size={20} className="text-purple-500 mb-1"/><span className="text-xs font-bold text-gray-700">Cash Out</span></button>
-                 </div>
-              </div>
-
-              {/* 2. Recent / Favorites */}
-              <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm h-64 flex flex-col">
-                  <div className="flex gap-2 mb-2">
-                    <button onClick={() => setSidebarTab('recent')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${sidebarTab === 'recent' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:bg-gray-50'}`}>Recent</button>
-                    <button onClick={() => setSidebarTab('favorites')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-1 transition-colors ${sidebarTab === 'favorites' ? 'bg-blue-50 text-blue-700' : 'text-gray-400 hover:bg-gray-50'}`}>Favorites</button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
-                     {sidebarTab === 'recent' ? (
-                       recentProducts.map(p => (
-                         <div key={p.id} onClick={() => validateAndAdd(p)} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-lg cursor-pointer group">
-                             <div className="flex items-center gap-2 overflow-hidden">
-                                 <button onClick={(e) => toggleFavorite(e, p)} className="text-gray-300 hover:text-blue-500 transition-colors">
-                                     <Star size={14} fill={p.isFavorite ? "#3b82f6" : "none"} className={p.isFavorite ? "text-blue-500" : ""} />
-                                 </button>
-                                 <span className="text-xs font-bold text-gray-700 truncate">{p.name}</span>
-                             </div>
-                             <div className="flex items-center gap-1">
-                                 <button onClick={(e) => handleRemoveFromRecent(e, p.id)} className="text-gray-300 hover:text-red-500 p-1"><X size={14}/></button>
-                                 <Plus size={14} className="text-gray-300 group-hover:text-blue-500"/>
-                             </div>
-                         </div>
-                       ))
-                     ) : (
-                       favoriteProducts.map(p => (
-                         <div key={p.id} onClick={() => validateAndAdd(p)} className="flex justify-between items-center p-2 hover:bg-blue-50 rounded-lg cursor-pointer group">
-                             <div className="flex items-center gap-2 overflow-hidden">
-                                 <Star size={12} className="text-blue-500 fill-current"/>
-                                 <span className="text-xs font-bold text-gray-700 truncate">{p.name}</span>
-                             </div>
-                             <div className="flex items-center gap-1">
-                                  <button onClick={(e) => toggleFavorite(e, p)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14}/></button>
-                                  <Plus size={14} className="text-gray-300 group-hover:text-blue-500"/>
-                             </div>
-                         </div>
-                       ))
-                     )}
-                  </div>
-              </div>
-
-              {/* 3. Item Controls */}
-              <div className={`space-y-2 transition-opacity duration-200 ${!selectedCartItemId ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-                 <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex justify-between">Item Controls {selectedCartItemId && <span className="text-blue-600">Active</span>}</h4>
-                 <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => selectedCartItemId && dispatch(updateQuantity({ id: selectedCartItemId, quantity: cartItems.find(i=>i.id===selectedCartItemId)!.quantity - 1 }))} className="bg-white border border-gray-200 rounded-lg py-3 font-bold text-gray-700 hover:border-red-300 hover:text-red-600 shadow-sm"><Minus size={16} className="mx-auto"/></button>
-                    <button onClick={() => {
-                       if(!selectedCartItemId) return;
-                       const item = cartItems.find(i => i.id === selectedCartItemId);
-                       if(item) {
-                           const original = products.find(p => p.id === item.id);
-                           if(original && original.type === 'Stock' && !original.allowNegativeStock && item.quantity >= original.stock) {
-                               alert(`Max stock reached (${original.stock})`); return;
-                           }
-                           dispatch(updateQuantity({ id: selectedCartItemId, quantity: item.quantity + 1 }));
-                       }
-                    }} className="bg-white border border-gray-200 rounded-lg py-3 font-bold text-gray-700 hover:border-green-300 hover:text-green-600 shadow-sm"><Plus size={16} className="mx-auto"/></button>
-                    <button onClick={() => openControlModal('price')} className="bg-white border border-gray-200 rounded-lg py-2 font-bold text-xs text-gray-600 hover:bg-gray-50">Price</button>
-                    <button onClick={() => openControlModal('discount')} className="bg-white border border-gray-200 rounded-lg py-2 font-bold text-xs text-gray-600 hover:bg-gray-50">Disc %</button>
-                    <button onClick={() => openControlModal('note')} className="bg-white border border-gray-200 rounded-lg py-2 font-bold text-xs text-gray-600 hover:bg-gray-50 col-span-2">Add Note</button>
-                    <button onClick={handleControlRemove} className="bg-red-50 border border-red-200 text-red-600 rounded-lg py-2 font-bold text-xs hover:bg-red-100 col-span-2 flex items-center justify-center gap-2"><Trash2 size={14}/> Remove Item</button>
-                 </div>
-              </div>
-
-              {/* 4. Custom Item */}
-              <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm space-y-3">
-                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Custom Item</h4>
-                  <input type="text" placeholder="Item Name" value={customItemName} onChange={e => setCustomItemName(e.target.value)} onFocus={handleInputFocus} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none"/>
-                  <div className="flex gap-2">
-                      <input type="number" placeholder="Price" value={customItemPrice} onChange={e => setCustomItemPrice(e.target.value)} onFocus={handleInputFocus} className="w-2/3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-right focus:ring-2 focus:ring-blue-500 outline-none"/>
-                      <button onClick={() => setCustomItemTax(!customItemTax)} className={`w-1/3 rounded-lg text-xs font-bold border ${customItemTax ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{customItemTax ? 'Tax On' : 'No Tax'}</button>
-                  </div>
-                  <button onClick={handleAddCustomItem} className="w-full bg-gray-900 text-white py-2 rounded-lg font-bold text-sm hover:bg-black transition-colors shadow-lg">Add to Cart</button>
-              </div>
-
-          </div>
-      </div>
-
-      {/* --- COLUMN 3: CART PANEL (Right) --- */}
+      {/* --- COLUMN 2: CART PANEL (Right) --- */}
       <div className="w-96 flex-shrink-0 bg-white shadow-xl z-20 border-l border-gray-200">
         <CartPanel
-            onCancelItem={handleControlRemove}
+            onCancelItem={() => {
+                if (!selectedCartItemId) return alert("Please select an item from the list first.");
+                dispatch(removeFromCart(selectedCartItemId));
+                setSelectedCartItemId(null);
+            }}
             onInputFocus={handleInputFocus}
             onCheckout={handleCheckoutClick}
+
+            // ✅ Passing down the modal handlers and active item state
+            selectedCartItemId={selectedCartItemId}
+            onOpenControlModal={openControlModal}
+            onRefundClick={handleRefundClick}
+            onReprintClick={handleReprint}
         />
       </div>
 
@@ -612,25 +520,6 @@ const PosScreen: React.FC = () => {
                         <VirtualKeyboard layout={activeModal === 'note' ? 'full' : 'numeric'} onKeyPress={(key) => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value + key); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onBackspace={() => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value.slice(0, -1)); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onEnter={() => saveControlModal({ preventDefault: () => {} } as any)} className="bg-gray-100 border-none shadow-none" />
                     </div>
                     <button type="submit" onClick={saveControlModal} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2"><Save size={18} /> Save Changes</button>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {showUnitCalc && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                    <h3 className="font-bold text-gray-800 flex items-center gap-2"><Calculator size={18} className="text-blue-600"/> Unit Calculator</h3>
-                    <button onClick={() => setShowUnitCalc(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-                </div>
-                <div className="p-5 space-y-4">
-                    <div><label className="block text-xs font-bold text-gray-500 mb-1">Base Price</label><input type="number" autoFocus placeholder="e.g. 1200" value={unitBasePrice} onChange={e => setUnitBasePrice(e.target.value)} className="w-full px-3 py-2 border rounded-lg font-bold"/></div>
-                    <div className="flex gap-2">
-                        <div className="flex-1"><label className="block text-xs font-bold text-gray-500 mb-1">Weight</label><input type="number" placeholder="e.g. 250" value={unitWeight} onChange={e => setUnitWeight(e.target.value)} className="w-full px-3 py-2 border rounded-lg font-bold"/></div>
-                        <div className="w-24"><label className="block text-xs font-bold text-gray-500 mb-1">Unit</label><select value={selectedUnit} onChange={e => setSelectedUnit(e.target.value)} className="w-full px-3 py-2 border rounded-lg font-bold bg-white"><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">L</option><option value="pcs">Pcs</option></select></div>
-                    </div>
-                    <button onClick={handleAddUnitItem} className="w-full py-3 bg-blue-600 text-white rounded-lg font-bold">Add to Cart</button>
                 </div>
             </div>
         </div>

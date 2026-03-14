@@ -35,7 +35,7 @@ const InventoryScreen: React.FC = () => {
 
   useEffect(() => {
     checkExpiries();
-  }, [config.features.expiryTracking]);
+  }, [config.features.expiryTracking, checkExpiries]);
 
   // --- Data State ---
   const [products, setProducts] = useState<ExtendedProduct[]>([]);
@@ -264,7 +264,6 @@ const InventoryScreen: React.FC = () => {
     if (!newCatName.trim()) return;
     try {
         if (editingCatId) {
-            // Optional: Implement a PUT request if you want to rename categories
             alert("Category renaming is currently disabled to protect existing product links.");
         } else {
             await productService.addCategory(newCatName.trim());
@@ -298,9 +297,10 @@ const InventoryScreen: React.FC = () => {
     setFormData({ ...formData, category: updated.join(', ') });
   };
 
-  // --- Printing Helpers ---
+  // --- Printing Helpers (FIXED TIMING ISSUE) ---
   const toggleBarcodeSelection = (id: number) => { setSelectedBarcodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
   const selectAllBarcodes = () => { if (selectedBarcodeIds.length === barcodeFilteredProducts.length) setSelectedBarcodeIds([]); else setSelectedBarcodeIds(barcodeFilteredProducts.map(p => p.id!)); };
+
   const handleBatchPrint = () => {
     const items = products.filter(p => selectedBarcodeIds.includes(p.id!));
     if (items.length === 0) return alert("Select items");
@@ -308,13 +308,22 @@ const InventoryScreen: React.FC = () => {
     if (win) {
       win.document.write('<html><head><style>body{font-family:sans-serif;}.grid{display:grid;grid-template-columns:repeat(auto-fit,'+printCardSize+'px);gap:20px;}.card{border:1px solid #ccc;padding:10px;text-align:center;border-radius:8px;height:'+(printCardSize*1.3)+'px;display:flex;flex-direction:column;justify-content:space-between;}</style></head><body><div class="grid">');
       items.forEach(i => win.document.write('<div class="card"><div>'+i.name+'</div><img src="https://bwipjs-api.metafloor.com/?bcid='+(printType==='barcode'?'code128':'qrcode')+'&text='+i.barcode+'&scale=2" /><div>'+currency+i.price+'</div></div>'));
-      win.document.write('</div></body></html>'); win.document.close(); setTimeout(() => win.print(), 500);
+      win.document.write('</div></body></html>');
+      win.document.close();
+      // Increased timeout to allow image rendering
+      setTimeout(() => win.print(), 800);
     }
   };
+
   const handlePrintSingle = () => {
     if (printRef.current && viewingCode) {
       const win = window.open('', '', 'height=600,width=800');
-      if (win) { win.document.write('<html><body>'+printRef.current.innerHTML+'</body></html>'); win.document.close(); win.print(); }
+      if (win) {
+        win.document.write('<html><body>'+printRef.current.innerHTML+'</body></html>');
+        win.document.close();
+        // Added timeout to allow component rendering before print dialog opens
+        setTimeout(() => win.print(), 500);
+      }
     }
   };
 
@@ -535,7 +544,7 @@ const InventoryScreen: React.FC = () => {
          </div>
       )}
 
-      {/* --- STAT DETAIL MODAL (✅ UPDATED: Fetches Real Logs from Backend) --- */}
+      {/* --- STAT DETAIL MODAL --- */}
       {activeStatModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden">
