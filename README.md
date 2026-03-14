@@ -114,24 +114,50 @@ cd OmniPOS
 #### Frontend
 
 ```bash
-cd frontend
-npm install
-npm run dev
+
+1.  cd frontend
+2.  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+3.  npm install
+4.  npm run dev
 ```
 
 #### Backend
 
 ```bash
-cd backend
-npm install
-npm run dev
+
+1.  cd backend
+2.  Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process
+3.  npm install
+4.  npm run dev
 ```
 
 ---
 
 ### 3️⃣ Environment Variables
 
-Create a `.env` file inside the backend folder:
+Download the environment file from the link below:
+
+👉 **[.env Download Link](https://drive.google.com/drive/folders/1EJWXzcO_S2hfcqUG87KSeyXh0kDvh7eM?usp=sharing)**
+
+⚠️ After downloading, make sure to:
+
+1. Rename the file to:
+
+```
+.env
+```
+
+2. Paste it inside the:
+
+```
+/backend
+```
+
+folder.
+
+---
+
+Alternatively, you can manually create a `.env` file inside the backend folder:
 
 ```env
 PORT=5000
@@ -145,6 +171,7 @@ postgresql://username:password@host:port/database
 ```
 
 ---
+
 
 ## 🗄️ Database
 
