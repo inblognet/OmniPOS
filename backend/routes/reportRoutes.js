@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const reportController = require('../controllers/reportController');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware'); // ✅ Import the bouncer
+
+// ✅ Lock down all report routes to Admin and Manager only
+router.use(protect, authorizeRoles('admin', 'manager'));
 
 /**
  * Route: GET /api/reports/sales

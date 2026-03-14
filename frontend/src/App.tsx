@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import { ThemeManager } from './components/ThemeManager';
 
@@ -11,56 +11,77 @@ import CustomersScreen from './features/customers/CustomersScreen';
 import ReportsScreen from './features/reports/ReportsScreen';
 import SettingsScreen from './features/settings/SettingsScreen';
 import IntegrationsPage from './features/Integrations/IntegrationsPage';
-
-// ✅ FIX: Added explicit .tsx extensions to solve the "Cannot find module" (2307) error
 import CFDPanelScreen from './features/cfd/CFDPanelScreen.tsx';
 import CFDDisplayScreen from './features/cfd/CFDDisplayScreen.tsx';
+import UsersScreen from './features/users/UsersScreen';
+
+// ✅ Import the new Login Screen
+import Login from './features/auth/Login';
+
+// ✅ Frontend Bouncer: Checks for the VIP token
+const ProtectedRoute = () => {
+  const token = localStorage.getItem('omnipos_token');
+
+  // If no token is found, kick them back to the login page
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // If token exists, let them pass through to the child routes (<Outlet />)
+  return <Outlet />;
+};
 
 function App() {
   return (
-    // Use HashRouter to fix page refresh/redirect 404 errors on reload
     <HashRouter>
-      {/* ThemeManager injects user-defined colors (bg, text, primary) globally */}
       <ThemeManager />
 
       <Routes>
-        {/* Main Layout wraps all pages to provide the Sidebar & Header */}
-        <Route element={<MainLayout />}>
+        {/* 🔓 PUBLIC ROUTES (Anyone can access these without logging in) */}
+        <Route path="/login" element={<Login />} />
 
-          {/* 1. Dashboard (Home) */}
-          <Route path="/" element={<DashboardScreen />} />
+        {/* We keep CFD Display public so it can run on a separate monitor without needing to log in again */}
+        <Route path="/cfd-display" element={<CFDDisplayScreen />} />
 
-          {/* 2. Point of Sale (Register) */}
-          <Route path="/pos" element={<PosScreen />} />
+        {/* 🔒 PROTECTED ROUTES (Must have a token to enter) */}
+        <Route element={<ProtectedRoute />}>
 
-          {/* 3. Orders (History) */}
-          <Route path="/orders" element={<OrdersScreen />} />
+          {/* Main Layout wraps all pages to provide the Sidebar & Header */}
+          <Route element={<MainLayout />}>
+            {/* 1. Dashboard (Home) */}
+            <Route path="/" element={<DashboardScreen />} />
 
-          {/* 4. Customers (CRM) */}
-          <Route path="/customers" element={<CustomersScreen />} />
+            {/* 2. Point of Sale (Register) */}
+            <Route path="/pos" element={<PosScreen />} />
 
-          {/* 5. Inventory (Products) */}
-          <Route path="/inventory" element={<InventoryScreen />} />
+            {/* 3. Orders (History) */}
+            <Route path="/orders" element={<OrdersScreen />} />
 
-          {/* 6. Reports (Analytics) */}
-          <Route path="/reports" element={<ReportsScreen />} />
+            {/* 4. Customers (CRM) */}
+            <Route path="/customers" element={<CustomersScreen />} />
 
-          {/* 7. Settings (Configuration) */}
-          <Route path="/settings" element={<SettingsScreen />} />
+            {/* 5. Inventory (Products) */}
+            <Route path="/inventory" element={<InventoryScreen />} />
 
-          {/* 8. Integrations (WhatsApp, etc.) */}
-          <Route path="/integrations" element={<IntegrationsPage />} />
+            {/* 6. Reports (Analytics) */}
+            <Route path="/reports" element={<ReportsScreen />} />
 
-          {/* ✅ 9. CFD Configuration Panel (With Sidebar) */}
-          <Route path="/cfd-panel" element={<CFDPanelScreen />} />
+            {/* 7. Settings (Configuration) */}
+            <Route path="/settings" element={<SettingsScreen />} />
+
+            {/* 8. Integrations (WhatsApp, etc.) */}
+            <Route path="/integrations" element={<IntegrationsPage />} />
+
+            {/* 9. CFD Configuration Panel */}
+            <Route path="/cfd-panel" element={<CFDPanelScreen />} />
+
+            {/* 10. Staff Management */}
+            <Route path="/staff" element={<UsersScreen />} />
+          </Route>
 
         </Route>
 
-        {/* ✅ 10. CFD Display Window (Full Screen, NO Sidebar) */}
-        {/* This is kept outside MainLayout so it takes up the entire monitor for the customer */}
-        <Route path="/cfd-display" element={<CFDDisplayScreen />} />
-
-        {/* Fallback: Redirect any unknown URLs to the Dashboard */}
+        {/* Fallback: Redirect any unknown URLs to the Dashboard (which will then redirect to login if no token) */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

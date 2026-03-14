@@ -1,9 +1,9 @@
-import React from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, ClipboardList,
   Package, Settings, Menu, LogOut, FileText, Users,
-  Puzzle, MonitorPlay // ✅ ADDED MonitorPlay for CFD Panel
+  Puzzle, MonitorPlay, UserCog
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -14,25 +14,54 @@ import { useGlobalScanner } from '../hooks/useGlobalScanner';
 const MainLayout: React.FC = () => {
   const isOnline = useOnlineStatus();
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Activate Global Scanner Listener
   useGlobalScanner();
 
   // Live Fetch Store Settings
   const settings = useLiveQuery(() => db.settings.get(1));
-  const appName = settings?.storeName || 'OmniPOS'; // Default fallback
+  const appName = settings?.storeName || 'OmniPOS';
 
-  const navItems = [
-    { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/pos', label: 'POS Register', icon: ShoppingCart },
-    { path: '/orders', label: 'Orders', icon: ClipboardList },
-    { path: '/customers', label: 'Customers', icon: Users },
-    { path: '/inventory', label: 'Inventory', icon: Package },
-    { path: '/reports', label: 'Reports', icon: FileText },
-    { path: '/integrations', label: 'Integrations', icon: Puzzle },
-    { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay }, // ✅ NEW CFD PANEL LINK
-    { path: '/settings', label: 'Settings', icon: Settings },
+  // ✅ Fetch Logged-In User Details & Role from localStorage
+  const [userName, setUserName] = useState('User');
+  const [userRole, setUserRole] = useState('cashier'); // Default to lowest privilege
+
+  useEffect(() => {
+    const storedUser = localStorage.getItem('omnipos_user');
+    if (storedUser) {
+      try {
+        const userObj = JSON.parse(storedUser);
+        setUserName(userObj.name || 'User');
+        setUserRole(userObj.role || 'cashier'); // Grab the role!
+      } catch (e) {
+        console.error("Could not parse user data");
+      }
+    }
+  }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('omnipos_token');
+    localStorage.removeItem('omnipos_user');
+    navigate('/login');
+  };
+
+  // ✅ Added a 'roles' array to determine who can see each link
+  const ALL_NAV_ITEMS = [
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager'] },
+    { path: '/pos', label: 'POS Register', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/orders', label: 'Orders', icon: ClipboardList, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/customers', label: 'Customers', icon: Users, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/inventory', label: 'Inventory', icon: Package, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'manager'] },
+    { path: '/integrations', label: 'Integrations', icon: Puzzle, roles: ['admin'] },
+    { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/staff', label: 'Staff Management', icon: UserCog, roles: ['admin'] },
+    { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
   ];
+
+  // ✅ Filter the items based on the user's current role
+  const navItems = ALL_NAV_ITEMS.filter(item => item.roles.includes(userRole));
 
   return (
     <div className="flex h-screen bg-gray-100 text-gray-900 font-sans overflow-hidden">
@@ -41,10 +70,8 @@ const MainLayout: React.FC = () => {
       <aside className="w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col transition-all duration-300">
         <div className="h-16 flex items-center px-6 border-b border-gray-100">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm mr-3">
-              {/* Dynamic First Letter */}
               {appName.charAt(0).toUpperCase()}
           </div>
-          {/* Dynamic Store Name */}
           <span className="text-xl font-bold text-gray-800 tracking-tight truncate">
             {appName}
           </span>
@@ -71,7 +98,10 @@ const MainLayout: React.FC = () => {
         </nav>
 
         <div className="p-4 border-t border-gray-100">
-           <button className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 w-full rounded-xl transition-colors font-medium">
+           <button
+             onClick={handleLogout}
+             className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 w-full rounded-xl transition-colors font-medium"
+           >
              <LogOut size={20} />
              <span>Logout</span>
            </button>
@@ -82,23 +112,20 @@ const MainLayout: React.FC = () => {
       <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
 
         {/* TOP NAVIGATION BAR */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-20 relative">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-50 relative">
 
-          {/* Left: Page Title */}
           <div className="flex items-center gap-4">
             <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
                 <Menu size={20} />
             </button>
             <h2 className="text-lg font-bold text-gray-800 hidden sm:block">
-              {/* Use App Name if no specific page label found */}
-              {navItems.find(i => i.path === location.pathname)?.label || appName}
+              {/* Uses ALL_NAV_ITEMS so it can still resolve the title even if hidden from sidebar */}
+              {ALL_NAV_ITEMS.find(i => i.path === location.pathname)?.label || appName}
             </h2>
           </div>
 
-          {/* Right: Status & Quick Settings */}
           <div className="flex items-center gap-4">
 
-            {/* Online Status Indicator */}
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border shadow-sm ${
                 isOnline
                 ? 'bg-green-50 text-green-600 border-green-100'
@@ -113,12 +140,13 @@ const MainLayout: React.FC = () => {
 
             <div className="h-6 w-px bg-gray-200 mx-1"></div>
 
-            {/* Quick Settings Dropdown */}
             <QuickSettingsMenu />
 
-            {/* User Avatar - Dynamic Letter */}
-            <div className="w-9 h-9 bg-gray-800 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md cursor-pointer hover:bg-gray-700 transition-colors">
-              {appName.charAt(0).toUpperCase()}
+            <div
+              className="w-9 h-9 bg-gray-800 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md cursor-pointer hover:bg-gray-700 transition-colors"
+              title={`${userName} (${userRole})`}
+            >
+              {userName.charAt(0).toUpperCase()}
             </div>
           </div>
         </header>

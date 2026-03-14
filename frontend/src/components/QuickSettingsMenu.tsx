@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Settings, Download, Maximize, Minimize, Lock,
-  Keyboard, Calculator, X, ChevronLeft
-} from 'lucide-react'; // ✅ Removed unused 'Delete'
+  Keyboard, Calculator, X, ChevronLeft, LogOut
+} from 'lucide-react';
 import { db } from '../db/db';
 
 export const QuickSettingsMenu: React.FC = () => {
@@ -18,8 +18,23 @@ export const QuickSettingsMenu: React.FC = () => {
   // Calculator State
   const [calcInput, setCalcInput] = useState("");
 
+  // Logged In User State
+  const [user, setUser] = useState<{name: string, email: string, role: string} | null>(null);
+
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+
+  // Fetch user on mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem('omnipos_user');
+    if (storedUser) {
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        console.error("Failed to parse user");
+      }
+    }
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -69,6 +84,12 @@ export const QuickSettingsMenu: React.FC = () => {
     }
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('omnipos_token');
+    localStorage.removeItem('omnipos_user');
+    navigate('/login');
+  };
+
   // --- Calculator Logic ---
   const handleCalcPress = (val: string) => {
     if (val === 'C') {
@@ -76,7 +97,7 @@ export const QuickSettingsMenu: React.FC = () => {
     } else if (val === '=') {
         try {
             // eslint-disable-next-line
-            setCalcInput(eval(calcInput).toString()); // Simple eval for local calculator
+            setCalcInput(eval(calcInput).toString());
         } catch {
             setCalcInput("Error");
         }
@@ -199,10 +220,26 @@ export const QuickSettingsMenu: React.FC = () => {
         </button>
 
         {isOpen && (
-          <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in slide-in-from-top-2">
+          <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-[100] animate-in fade-in slide-in-from-top-2">
 
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-              <p className="text-xs font-bold text-gray-500 uppercase">Quick Actions</p>
+            {/* USER PROFILE HEADER */}
+            {user && (
+              <div className="px-4 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-sm flex-shrink-0">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="overflow-hidden">
+                  <p className="text-sm font-bold text-gray-800 truncate">{user.name}</p>
+                  <p className="text-xs text-gray-500 truncate" title={user.email}>{user.email}</p>
+                  <span className="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold uppercase rounded-full tracking-wider">
+                    {user.role}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="px-4 py-2 border-b border-gray-50">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Quick Actions</p>
             </div>
 
             <div className="p-1 space-y-1">
@@ -242,25 +279,40 @@ export const QuickSettingsMenu: React.FC = () => {
                 Keyboard Shortcuts
               </button>
 
+              {/* ✅ ONLY ADMINS CAN SEE THESE ACTIONS */}
+              {user?.role === 'admin' && (
+                <>
+                  <div className="my-1 border-t border-gray-100"></div>
+
+                  <button
+                    onClick={handleQuickBackup}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-colors text-left"
+                  >
+                    <Download size={16} />
+                    Backup Data Now
+                  </button>
+
+                  <button
+                    onClick={() => { navigate('/settings'); setIsOpen(false); }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-colors text-left"
+                  >
+                    <Settings size={16} />
+                    Full Configuration
+                  </button>
+                </>
+              )}
+
               <div className="my-1 border-t border-gray-100"></div>
 
-              {/* Quick Backup */}
+              {/* Logout Button */}
               <button
-                onClick={handleQuickBackup}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-green-600 rounded-lg transition-colors text-left"
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors text-left"
               >
-                <Download size={16} />
-                Backup Data Now
+                <LogOut size={16} />
+                Sign Out
               </button>
 
-              {/* Full Settings Link */}
-              <button
-                onClick={() => { navigate('/settings'); setIsOpen(false); }}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-purple-600 rounded-lg transition-colors text-left"
-              >
-                <Settings size={16} />
-                Full Configuration
-              </button>
             </div>
           </div>
         )}

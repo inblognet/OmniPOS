@@ -12,6 +12,8 @@ const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const integrationRoutes = require('./routes/integrationRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const authRoutes = require('./routes/authRoutes'); // ✅ ADDED: Import Auth Routes
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -47,6 +49,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/auth', authRoutes); // ✅ ADDED: Mount Auth Routes
+app.use('/api/users', userRoutes);
 
 // Health Check
 app.get('/', (req, res) => res.status(200).send('✅ OmniPOS Backend is Online!'));
