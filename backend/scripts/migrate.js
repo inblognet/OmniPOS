@@ -5,7 +5,7 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Required for Render
+  ssl: { rejectUnauthorized: false } // Required for cloud databases like Neon/Render
 });
 
 const migrate = async () => {
@@ -14,7 +14,7 @@ const migrate = async () => {
     const sqlPath = path.join(__dirname, 'schema.sql');
     const sql = fs.readFileSync(sqlPath, 'utf8');
 
-    console.log('⏳ Running database migration...');
+    console.log('⏳ Running database migration on Neon...');
 
     // Execute the SQL
     await pool.query(sql);
