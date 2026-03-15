@@ -73,14 +73,17 @@ const PosScreen: React.FC = () => {
   const roundOff = 0.00;
   const netPayable = grossAmount - totalDiscount + totalTax - roundOff;
 
-  // --- LAUNCH CFD WINDOW HANDLER ---
+// --- LAUNCH CFD WINDOW HANDLER ---
   const handleToggleCFD = () => {
     const nextState = !isCFDEnabled;
     setIsCFDEnabled(nextState);
 
     if (nextState) {
+        // ✅ Universally safe URL generation for both Web and Desktop!
+        const cfdUrl = window.location.origin + window.location.pathname + '#/cfd-display';
+
         window.open(
-            '/#/cfd-display',
+            cfdUrl,
             'CustomerDisplayWindow',
             'width=1024,height=768,menubar=no,toolbar=no,location=no,status=no'
         );
