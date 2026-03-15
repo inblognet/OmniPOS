@@ -12,7 +12,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const customerRoutes = require('./routes/customerRoutes');
 const integrationRoutes = require('./routes/integrationRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-const authRoutes = require('./routes/authRoutes'); // ✅ ADDED: Import Auth Routes
+const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 
 const app = express();
@@ -25,20 +25,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// 2. Universal CORS
+// 2. Universal CORS for Web & Desktop Apps
 app.use(cors({
-  origin: true,
+  origin: '*', // ✅ Allows requests from BOTH web browsers and Electron 'file://' paths
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  allowedHeaders: ['Content-Type', 'Authorization']
+  // ❌ Removed 'credentials: true' to prevent CORS conflicts
 }));
 
 // Pre-flight fix for Node v25
 app.options(/(.*)/, cors());
 
-// 3. Body Parsers & Logging (Moved up for better pipeline flow)
+// 3. Body Parsers & Logging
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Added for URL-encoded payloads
+app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 // --- ROUTES ---
@@ -49,13 +49,13 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/auth', authRoutes); // ✅ ADDED: Mount Auth Routes
+app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 
 // Health Check
 app.get('/', (req, res) => res.status(200).send('✅ OmniPOS Backend is Online!'));
 
-// Handle 404 - Unknown Routes (Added to catch bad requests before the error handler)
+// Handle 404 - Unknown Routes
 app.use((req, res, next) => {
   res.status(404).json({ error: 'Route not found' });
 });
@@ -71,7 +71,6 @@ app.use((err, req, res, next) => {
 
 // --- SERVER STARTUP ---
 
-// Allows flexibility if deployed, but maintains your 5500 default locally
 const PORT = process.env.PORT || 5500;
 
 app.listen(PORT, '0.0.0.0', () => {
