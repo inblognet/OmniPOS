@@ -25,4 +25,5 @@ pool.connect((err, client, release) => {
 
 module.exports = {
   query: (text, params) => pool.query(text, params),
+  pool: pool, // ✅ ADD THIS LINE: Exposes the pool for Order Transactions!
 };
