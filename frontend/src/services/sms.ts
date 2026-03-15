@@ -1,5 +1,6 @@
 // src/services/sms.ts
 
+import axios from 'axios';
 import api from '../api/axiosConfig'; // ✅ Use Axios to fetch Cloud Settings
 
 export interface SmsReceiptData {
@@ -77,52 +78,46 @@ const formatSriLankaNumber = (phone: string): string => {
     return clean;
 };
 
-// --- Provider: Brevo ---
+// --- Provider: Brevo (Using Axios) ---
 const sendBrevoSms = async (recipientPhone: string, body: string, config: any): Promise<SmsProviderResult> => {
     try {
-        const response = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
-            method: 'POST',
+        const response = await axios.post('https://api.brevo.com/v3/transactionalSMS/sms', {
+            "sender": config.smsFromNumber,
+            "recipient": recipientPhone,
+            "content": body,
+            "type": "transactional"
+        }, {
             headers: {
                 'accept': 'application/json',
                 'api-key': config.smsAuthToken || '',
                 'content-type': 'application/json'
-            },
-            body: JSON.stringify({
-                "sender": config.smsFromNumber,
-                "recipient": recipientPhone,
-                "content": body,
-                "type": "transactional"
-            })
+            }
         });
-        const result = await response.json();
-        if (!response.ok) return { ok: false, error: result.message || 'Brevo API Error' };
-        return { ok: true, data: result };
+
+        return { ok: true, data: response.data };
     } catch (err: any) {
-        return { ok: false, error: err.message };
+        console.error("Brevo SMS API Error:", err.response?.data || err.message);
+        return { ok: false, error: err.response?.data?.message || err.message };
     }
 };
 
-// --- Provider: Text.lk (HTTP API via GET) ---
+// --- Provider: Text.lk (Using Axios) ---
 const sendTextlkSms = async (recipientPhone: string, body: string, config: any): Promise<SmsProviderResult> => {
     try {
         const baseUrl = 'https://app.text.lk/api/http/sms/send';
         const formattedPhone = formatSriLankaNumber(recipientPhone);
 
-        const params = new URLSearchParams({
-            "api_token": config.smsApiToken || "",
-            "recipient": formattedPhone,
-            "sender_id": config.smsFromNumber || "TextLKDemo",
-            "message": body
-        });
-
-        const finalUrl = `${baseUrl}?${params.toString()}`;
-
-        const response = await fetch(finalUrl, {
-            method: 'GET',
+        const response = await axios.get(baseUrl, {
+            params: {
+                "api_token": config.smsApiToken || "",
+                "recipient": formattedPhone,
+                "sender_id": config.smsFromNumber || "TextLKDemo",
+                "message": body
+            },
             headers: { 'Accept': 'application/json' }
         });
 
-        const result = await response.json();
+        const result = response.data;
 
         if (result.status === 'success' || (result.data && result.data.status === 'success')) {
              return { ok: true, data: result };
@@ -130,7 +125,8 @@ const sendTextlkSms = async (recipientPhone: string, body: string, config: any):
              throw new Error(result.message || 'Text.lk API Failed');
         }
     } catch (err: any) {
-        return { ok: false, error: err.message };
+        console.error("Text.lk SMS API Error:", err.response?.data || err.message);
+        return { ok: false, error: err.response?.data?.message || err.message };
     }
 };
 

@@ -1,3 +1,4 @@
+import axios from 'axios';
 import api from '../api/axiosConfig';
 
 interface EmailPayload {
@@ -56,39 +57,33 @@ export const sendEmailReceipt = async (payload: EmailPayload) => {
             </div>
         `;
 
-        // 5. Send Request to Brevo API using Cloud Keys
-        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-            method: 'POST',
+        // 5. Send Request to Brevo API using standard Axios (better for Electron compatibility)
+        const response = await axios.post('https://api.brevo.com/v3/smtp/email', {
+            sender: {
+                name: config.emailSenderName || payload.storeName,
+                email: config.emailSenderAddress
+            },
+            to: [
+                {
+                    email: payload.recipientEmail,
+                    name: payload.recipientName
+                }
+            ],
+            subject: `Receipt from ${payload.storeName} (Order #${payload.orderId})`,
+            htmlContent: htmlContent
+        }, {
             headers: {
                 'accept': 'application/json',
                 'api-key': config.emailApiKey,
                 'content-type': 'application/json'
-            },
-            body: JSON.stringify({
-                sender: {
-                    name: config.emailSenderName || payload.storeName,
-                    email: config.emailSenderAddress
-                },
-                to: [
-                    {
-                        email: payload.recipientEmail,
-                        name: payload.recipientName
-                    }
-                ],
-                subject: `Receipt from ${payload.storeName} (Order #${payload.orderId})`,
-                htmlContent: htmlContent
-            })
+            }
         });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            return { ok: false, error: errorData.message || 'Failed to send email via provider' };
-        }
 
         return { ok: true };
 
-    } catch (error) {
-        console.error("Email API Error:", error);
+    } catch (error: any) {
+        // Now if it fails, it will print the EXACT reason to your console
+        console.error("Email API Error:", error.response?.data || error.message);
         return { ok: false, error: 'Network error connecting to email provider' };
     }
 };

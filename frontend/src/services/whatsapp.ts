@@ -1,3 +1,4 @@
+import axios from 'axios';
 import api from '../api/axiosConfig'; // ✅ Use Axios to fetch Cloud Settings
 
 export interface WhatsAppReceiptData {
@@ -43,33 +44,30 @@ Thank you for your visit!`;
     // Ensure phone number is pure digits for Meta API
     const cleanPhone = phone.replace(/\D/g, '');
 
-    // 4. Send Request to Meta Graph API
-    const response = await fetch(`https://graph.facebook.com/v17.0/${phoneId}/messages`, {
-      method: 'POST',
+    // 4. Send Request to Meta Graph API using Axios
+    const response = await axios.post(`https://graph.facebook.com/v17.0/${phoneId}/messages`, {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: cleanPhone,
+      type: "text",
+      text: { preview_url: false, body: messageBody }
+    }, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: cleanPhone,
-        type: "text",
-        text: { preview_url: false, body: messageBody }
-      })
+      }
     });
 
-    const data = await response.json();
+    return { ok: true, messageId: response.data.messages?.[0]?.id };
 
-    if (!response.ok) {
-      console.error("Meta API Error:", data);
-      return { ok: false, error: data.error?.message || "Unknown Meta Error" };
+  } catch (error: any) {
+    // Axios puts API error details inside error.response.data
+    if (error.response) {
+        console.error("Meta API Error:", error.response.data);
+        return { ok: false, error: error.response.data.error?.message || "Unknown Meta Error" };
     }
 
-    return { ok: true, messageId: data.messages?.[0]?.id };
-
-  } catch (error) {
-    console.error("WhatsApp Service Error:", error);
+    console.error("WhatsApp Service Error:", error.message);
     return { ok: false, error: "Network connection failed or Cloud settings unreachable" };
   }
 };
