@@ -8,11 +8,18 @@ const pool = new Pool({
   },
 });
 
-pool.connect((err) => {
+// ✅ 1. Catch Neon background idle disconnects
+pool.on('error', (err, client) => {
+  console.error('⚠️ Unexpected error on idle client (safely ignored):', err.message);
+});
+
+// ✅ 2. Test connection AND RELEASE the client!
+pool.connect((err, client, release) => {
   if (err) {
     console.error('🔥 Failed to connect to Neon DB:', err.message);
   } else {
     console.log('✅ Connected to Neon PostgreSQL Database!');
+    release(); // <-- THIS IS THE MISSING PIECE! Puts it safely back in the pool.
   }
 });
 

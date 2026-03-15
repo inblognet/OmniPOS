@@ -5,8 +5,8 @@ const axiosInstance = axios.create({
   baseURL: 'https://omnipos-backend.onrender.com/api',
   headers: {
     'Content-Type': 'application/json',
-  },
-  withCredentials: true
+  }
+  // ❌ DELETED: withCredentials: true (This breaks Electron CORS!)
 });
 
 // ✅ NEW: Request Interceptor to attach the JWT token automatically
