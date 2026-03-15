@@ -1,7 +1,7 @@
 // cspell:ignore dexie IMEI qrcode react-barcode bcid Barcodes Uncategorized
 import React, { useState, useEffect } from 'react';
-import api from '../../api/axiosConfig'; // ✅ Use Axios for backend communication
-import { Save, MessageCircle, CheckCircle, Mail, Smartphone, HelpCircle } from 'lucide-react';
+import api from '../../api/axiosConfig';
+import { Save, MessageCircle, CheckCircle, Mail, Smartphone, HelpCircle, WifiOff } from 'lucide-react';
 
 const IntegrationsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -11,21 +11,35 @@ const IntegrationsPage: React.FC = () => {
   // --- State for Settings ---
   const [localSettings, setLocalSettings] = useState<any>(null);
 
-  // 1. Fetch current settings from Cloud Database
+  // 1. Fetch current settings from Cloud OR Local Cache
   useEffect(() => {
     const fetchIntegrations = async () => {
       try {
-        const res = await api.get('/integrations');
-        const dbSettings = res.data || {};
+        let dbSettings: any = {};
+
+        // 🌐 NETWORK INTERCEPTOR
+        if (navigator.onLine) {
+           // 🟢 ONLINE: Fetch fresh from Render
+           const res = await api.get('/integrations');
+           dbSettings = res.data || {};
+        } else {
+           // 🔴 OFFLINE: Load from local SQLite Cache!
+           if (window.electronAPI) {
+              const cachedResponse = await window.electronAPI.getCache('integrations');
+              if (cachedResponse.success && cachedResponse.data) {
+                 dbSettings = cachedResponse.data;
+              }
+           }
+        }
 
         // Ensure default values for new fields if they don't exist yet
         setLocalSettings({
           ...dbSettings,
-          smsProvider: dbSettings.smsProvider || 'textlk', // Default to Text.lk as requested
+          smsProvider: dbSettings.smsProvider || 'textlk',
           smsEnabled: dbSettings.smsEnabled || false
         });
       } catch (error) {
-        console.error("Failed to load integrations from cloud:", error);
+        console.error("Failed to load integrations:", error);
         // Fallback so the UI doesn't break on a fresh start
         setLocalSettings({ smsProvider: 'textlk', smsEnabled: false });
       } finally {
@@ -43,10 +57,15 @@ const IntegrationsPage: React.FC = () => {
 
   // 3. Save Changes to Cloud Database
   const handleSave = async () => {
+    // 🛑 OFFLINE SAFETY BLOCK
+    if (!navigator.onLine) {
+      alert("⚠️ Cannot update Integrations in Offline Mode. Please connect to the internet to save changes.");
+      return;
+    }
+
     setLoading(true);
     setSuccess(false);
     try {
-      // Prepare the data to save
       const payload = {
           // WhatsApp
           whatsappEnabled: localSettings?.whatsappEnabled || false,
@@ -100,6 +119,7 @@ const IntegrationsPage: React.FC = () => {
                                   onChange={(e) => handleUpdate('smsApiEndpoint', e.target.value)}
                                   className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                                   placeholder="https://app.text.lk/api/http/sms/send"
+                                  disabled={!navigator.onLine}
                               />
                               <p className="text-[10px] text-gray-400">The full API URL provided by Text.lk</p>
                           </div>
@@ -111,6 +131,7 @@ const IntegrationsPage: React.FC = () => {
                                   onChange={(e) => handleUpdate('smsApiToken', e.target.value)}
                                   className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                                   placeholder="Your Text.lk API Token"
+                                  disabled={!navigator.onLine}
                               />
                           </div>
                       </div>
@@ -124,6 +145,7 @@ const IntegrationsPage: React.FC = () => {
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="TextLKDemo"
                               maxLength={11}
+                              disabled={!navigator.onLine}
                           />
                           <p className="text-[10px] text-gray-400">Enter "TextLKDemo" for testing, or your approved Sender ID.</p>
                       </div>
@@ -140,6 +162,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('smsAuthToken', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="xkeysib-..."
+                              disabled={!navigator.onLine}
                           />
                       </div>
                       <div className="space-y-1">
@@ -151,6 +174,7 @@ const IntegrationsPage: React.FC = () => {
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="MyShop"
                               maxLength={11}
+                              disabled={!navigator.onLine}
                           />
                           <p className="text-[10px] text-gray-400">Max 11 Alphanumeric characters.</p>
                       </div>
@@ -169,6 +193,7 @@ const IntegrationsPage: React.FC = () => {
                                   onChange={(e) => handleUpdate('smsAccountSid', e.target.value)}
                                   className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                                   placeholder="AC..."
+                                  disabled={!navigator.onLine}
                               />
                           </div>
                           <div className="space-y-1">
@@ -179,6 +204,7 @@ const IntegrationsPage: React.FC = () => {
                                   onChange={(e) => handleUpdate('smsAuthToken', e.target.value)}
                                   className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                                   placeholder="Token"
+                                  disabled={!navigator.onLine}
                               />
                           </div>
                       </div>
@@ -190,6 +216,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('smsFromNumber', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="+1234567890 or MyShop"
+                              disabled={!navigator.onLine}
                           />
                       </div>
                   </div>
@@ -205,6 +232,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('smsAuthToken', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="Live API Key"
+                              disabled={!navigator.onLine}
                           />
                       </div>
                       <div className="space-y-1">
@@ -215,6 +243,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('smsFromNumber', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none"
                               placeholder="MyShop"
+                              disabled={!navigator.onLine}
                           />
                       </div>
                   </div>
@@ -224,20 +253,27 @@ const IntegrationsPage: React.FC = () => {
       }
   };
 
-  if (initialLoad) return <div className="p-10 text-center text-gray-400 animate-pulse">Syncing integrations with cloud database...</div>;
+  if (initialLoad) return <div className="p-10 text-center text-gray-400 animate-pulse">Loading integrations...</div>;
   if (!localSettings) return <div className="p-10 text-center text-red-500 font-bold">Failed to load integration settings.</div>;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
 
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Integrations</h1>
-        <p className="text-gray-500 text-sm">Manage cloud-synced third-party connections and APIs.</p>
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Integrations</h1>
+          <p className="text-gray-500 text-sm">Manage cloud-synced third-party connections and APIs.</p>
+        </div>
+        {!navigator.onLine && (
+          <div className="flex items-center gap-2 bg-red-50 text-red-600 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-bold">
+            <WifiOff size={14} /> Offline (Read-Only)
+          </div>
+        )}
       </div>
 
       {/* --- 1. WHATSAPP INTEGRATION CARD --- */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all hover:shadow-md">
+      <div className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${navigator.onLine ? 'border-gray-200 hover:shadow-md' : 'border-gray-200 opacity-90'}`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center text-green-600">
@@ -254,8 +290,9 @@ const IntegrationsPage: React.FC = () => {
                 {localSettings.whatsappEnabled ? 'Active' : 'Disabled'}
              </span>
              <button
-               onClick={() => handleUpdate('whatsappEnabled', !localSettings.whatsappEnabled)}
-               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.whatsappEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
+               onClick={() => navigator.onLine && handleUpdate('whatsappEnabled', !localSettings.whatsappEnabled)}
+               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.whatsappEnabled ? 'bg-green-500' : 'bg-gray-300'} ${!navigator.onLine && 'cursor-not-allowed opacity-50'}`}
+               disabled={!navigator.onLine}
              >
                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${localSettings.whatsappEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
              </button>
@@ -274,6 +311,7 @@ const IntegrationsPage: React.FC = () => {
                             onChange={(e) => handleUpdate('whatsappPhoneId', e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-green-500 outline-none"
                             placeholder="e.g. 10xxxxxxxxxxxxx"
+                            disabled={!navigator.onLine}
                           />
                       </div>
                       <div className="space-y-1">
@@ -284,6 +322,7 @@ const IntegrationsPage: React.FC = () => {
                             onChange={(e) => handleUpdate('whatsappToken', e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-green-500 outline-none"
                             placeholder="EAAG..."
+                            disabled={!navigator.onLine}
                           />
                       </div>
                   </div>
@@ -293,7 +332,7 @@ const IntegrationsPage: React.FC = () => {
       </div>
 
       {/* --- 2. EMAIL INTEGRATION CARD --- */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all hover:shadow-md">
+      <div className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${navigator.onLine ? 'border-gray-200 hover:shadow-md' : 'border-gray-200 opacity-90'}`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600">
@@ -310,8 +349,9 @@ const IntegrationsPage: React.FC = () => {
                 {localSettings.emailEnabled ? 'Active' : 'Disabled'}
              </span>
              <button
-               onClick={() => handleUpdate('emailEnabled', !localSettings.emailEnabled)}
-               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.emailEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
+               onClick={() => navigator.onLine && handleUpdate('emailEnabled', !localSettings.emailEnabled)}
+               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.emailEnabled ? 'bg-green-500' : 'bg-gray-300'} ${!navigator.onLine && 'cursor-not-allowed opacity-50'}`}
+               disabled={!navigator.onLine}
              >
                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${localSettings.emailEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
              </button>
@@ -329,8 +369,8 @@ const IntegrationsPage: React.FC = () => {
                           onChange={(e) => handleUpdate('emailApiKey', e.target.value)}
                           className="w-full p-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                           placeholder="xkeysib-..."
+                          disabled={!navigator.onLine}
                       />
-                      <p className="text-[10px] text-gray-400 mt-1">Get your free key at <a href="https://brevo.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">brevo.com</a></p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -341,6 +381,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('emailSenderName', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                               placeholder="My Store"
+                              disabled={!navigator.onLine}
                           />
                       </div>
                       <div>
@@ -351,6 +392,7 @@ const IntegrationsPage: React.FC = () => {
                               onChange={(e) => handleUpdate('emailSenderAddress', e.target.value)}
                               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                               placeholder="receipts@mystore.com"
+                              disabled={!navigator.onLine}
                           />
                       </div>
                   </div>
@@ -360,7 +402,7 @@ const IntegrationsPage: React.FC = () => {
       </div>
 
       {/* --- 3. SMS INTEGRATION CARD --- */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition-all hover:shadow-md">
+      <div className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${navigator.onLine ? 'border-gray-200 hover:shadow-md' : 'border-gray-200 opacity-90'}`}>
         <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center text-purple-600">
@@ -377,8 +419,9 @@ const IntegrationsPage: React.FC = () => {
                 {localSettings.smsEnabled ? 'Active' : 'Disabled'}
              </span>
              <button
-               onClick={() => handleUpdate('smsEnabled', !localSettings.smsEnabled)}
-               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.smsEnabled ? 'bg-green-500' : 'bg-gray-300'}`}
+               onClick={() => navigator.onLine && handleUpdate('smsEnabled', !localSettings.smsEnabled)}
+               className={`w-12 h-6 rounded-full p-1 transition-colors duration-300 ${localSettings.smsEnabled ? 'bg-green-500' : 'bg-gray-300'} ${!navigator.onLine && 'cursor-not-allowed opacity-50'}`}
+               disabled={!navigator.onLine}
              >
                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${localSettings.smsEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
              </button>
@@ -395,6 +438,7 @@ const IntegrationsPage: React.FC = () => {
                           value={localSettings.smsProvider || 'textlk'}
                           onChange={(e) => handleUpdate('smsProvider', e.target.value)}
                           className="w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                          disabled={!navigator.onLine}
                       >
                           <option value="textlk">Text.lk (Best for No-BR in SL)</option>
                           <option value="brevo">Brevo (Easy / Limited)</option>
@@ -424,8 +468,9 @@ const IntegrationsPage: React.FC = () => {
       <div className="flex justify-end pt-4">
           <button
               onClick={handleSave}
-              disabled={loading}
-              className="flex items-center gap-2 px-8 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-all active:scale-95 disabled:opacity-50 shadow-lg"
+              disabled={loading || !navigator.onLine}
+              className={`flex items-center gap-2 px-8 py-3 font-bold rounded-xl transition-all shadow-lg
+                ${!navigator.onLine ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-black active:scale-95'}`}
           >
               {loading ? 'Saving to Cloud...' : success ? 'Settings Synced!' : 'Save Integrations'}
               {success ? <CheckCircle size={20}/> : <Save size={20}/>}

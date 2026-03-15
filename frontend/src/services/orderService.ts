@@ -28,6 +28,7 @@ export const orderService = {
    * Path: POST /api/orders
    */
   create: async (orderData: any) => {
+    // Note: If the app is offline, the CheckoutModal intercepts this and uses window.electronAPI instead!
     const response = await api.post('/orders', orderData);
     return response.data;
   },
@@ -37,9 +38,25 @@ export const orderService = {
    * Path: GET /api/orders
    */
   getAllOrders: async (): Promise<Order[]> => {
-    const response = await api.get('/orders');
-    // ✅ Transform data to be compatible with existing UI components
-    return response.data.map((order: any) => ({
+    let rawData: any[] = [];
+
+    // 🌐 NETWORK INTERCEPTOR
+    if (navigator.onLine) {
+      // 🟢 ONLINE: Fetch from Render API
+      const response = await api.get('/orders');
+      rawData = response.data;
+    } else {
+      // 🔴 OFFLINE: Fetch from SQLite Cache
+      if (window.electronAPI) {
+        const cachedResponse = await window.electronAPI.getCache('orders');
+        if (cachedResponse.success && cachedResponse.data) {
+          rawData = cachedResponse.data;
+        }
+      }
+    }
+
+    // ✅ Transform data to be compatible with existing UI components (Runs for BOTH online and offline data)
+    return rawData.map((order: any) => ({
       ...order,
       timestamp: order.created_at, // Maps PostgreSQL date to old Dexie 'timestamp' name
       total: Number(order.total_amount), // Ensures calculations don't break on strings
@@ -52,8 +69,24 @@ export const orderService = {
    * Path: GET /api/orders/:id/items
    */
   getOrderItems: async (orderId: number): Promise<OrderItem[]> => {
-    const response = await api.get(`/orders/${orderId}/items`);
-    return response.data;
+    let itemsData: OrderItem[] = [];
+
+    // 🌐 NETWORK INTERCEPTOR
+    if (navigator.onLine) {
+      // 🟢 ONLINE: Fetch from Render API
+      const response = await api.get(`/orders/${orderId}/items`);
+      itemsData = response.data;
+    } else {
+      // 🔴 OFFLINE: Fetch from SQLite Cache
+      if (window.electronAPI) {
+        const cachedResponse = await window.electronAPI.getCache(`order_items_${orderId}`);
+        if (cachedResponse.success && cachedResponse.data) {
+          itemsData = cachedResponse.data;
+        }
+      }
+    }
+
+    return itemsData;
   },
 
   /**
@@ -61,6 +94,11 @@ export const orderService = {
    * Path: POST /api/orders/:id/refund
    */
   refundOrder: async (orderId: number, payload: { type: 'full' | 'partial', items?: any[] }) => {
+    // 🛑 OFFLINE SAFETY BLOCK: Do not allow refunds while offline!
+    if (!navigator.onLine) {
+      throw new Error("Refunds cannot be securely processed in Offline Mode. Please reconnect to the internet to process a refund.");
+    }
+
     const response = await api.post(`/orders/${orderId}/refund`, payload);
     return response.data;
   }

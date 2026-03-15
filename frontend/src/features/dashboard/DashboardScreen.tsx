@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import {
   DollarSign, ShoppingBag, Users, AlertTriangle, TrendingUp,
-  Activity, PackageX, Crown, Clock, RefreshCw, CheckCircle // ✅ ADDED CheckCircle HERE
+  Activity, PackageX, Crown, Clock, RefreshCw, CheckCircle
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import api from '../../api/axiosConfig';
@@ -16,32 +16,48 @@ const DashboardScreen: React.FC = () => {
   const currency = useCurrency();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [trendView, setTrendView] = useState<'7' | '30'>('7'); // Toggle State
+  const [trendView, setTrendView] = useState<'7' | '30'>('7');
 
   const fetchData = async () => {
     try {
       setLoading(true);
 
-      // Fetch Dashboard Stats AND All Products simultaneously
-      const [statsRes, productsRes] = await Promise.all([
-        api.get('/dashboard/stats'),
-        api.get('/products')
-      ]);
+      let dashboardData: any = null;
+      let products: any[] = [];
 
-      const dashboardData = statsRes.data;
-      const products = productsRes.data;
+      // 🌐 NETWORK INTERCEPTOR
+      if (navigator.onLine) {
+        // 🟢 ONLINE: Fetch fresh from Render
+        const [statsRes, productsRes] = await Promise.all([
+          api.get('/dashboard/stats'),
+          api.get('/products')
+        ]);
+        dashboardData = statsRes.data;
+        products = productsRes.data;
+      } else {
+        // 🔴 OFFLINE: Load from local SQLite Cache!
+        if (window.electronAPI) {
+          const cachedStats = await window.electronAPI.getCache('dashboard_stats');
+          const cachedProducts = await window.electronAPI.getCache('products');
 
-      // Calculate Low & Out of Stock items directly from real product data
-      const lowStockItems = products.filter((p: any) => p.stock <= (p.reorderLevel || 5));
+          if (cachedStats.success && cachedStats.data) dashboardData = cachedStats.data;
+          if (cachedProducts.success && cachedProducts.data) products = cachedProducts.data;
+        }
+      }
 
-      // Sort them so Out of Stock (0) items appear at the very top of the list
-      lowStockItems.sort((a: any, b: any) => a.stock - b.stock);
-
-      // Merge the computed stock alerts into the data state
-      setData({ ...dashboardData, lowStockItems });
+      // If we successfully got data (either from cloud or local cache), map it to the UI
+      if (dashboardData && products) {
+        const lowStockItems = products.filter((p: any) => p.stock <= (p.reorderLevel || 5));
+        lowStockItems.sort((a: any, b: any) => a.stock - b.stock);
+        setData({ ...dashboardData, lowStockItems });
+      } else {
+        // Failsafe if offline but no cache exists yet
+        setData(null);
+      }
 
     } catch (e) {
       console.error("Dashboard Sync Failed:", e);
+      setData(null);
     } finally {
       setLoading(false);
     }
@@ -53,10 +69,9 @@ const DashboardScreen: React.FC = () => {
 
   if (loading) return <div className="h-screen flex justify-center items-center text-gray-400 animate-pulse">Loading Analytics Engine...</div>;
 
-  // Safety check to prevent crash if backend returns null
   if (!data) return (
     <div className="p-10 text-center text-red-500 flex flex-col items-center gap-4">
-      <p>System Offline or Connection Failed</p>
+      <p>System Offline or Cache Empty</p>
       <button onClick={fetchData} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold">
         <RefreshCw size={18}/> Retry Connection
       </button>
@@ -64,8 +79,6 @@ const DashboardScreen: React.FC = () => {
   );
 
   const { stats, trends, topProducts, topCustomers, peakTraffic, salesByCategory, lowStockItems } = data;
-
-  // Filter trends based on selection (7 days or full 30 days)
   const visibleTrends = trendView === '7' ? trends.slice(-7) : trends;
 
   return (
@@ -73,34 +86,10 @@ const DashboardScreen: React.FC = () => {
 
       {/* 1. HEADER & KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          icon={DollarSign}
-          label="Total Revenue"
-          value={`${currency}${(stats.totalRevenue || 0).toLocaleString()}`}
-          sub="All-Time Growth"
-          color="bg-emerald-50 text-emerald-600"
-        />
-        <StatCard
-          icon={ShoppingBag}
-          label="Orders Today"
-          value={stats.ordersToday || 0}
-          sub={`Today's Rev: ${currency}${stats.todayRevenue}`}
-          color="bg-blue-50 text-blue-600"
-        />
-        <StatCard
-          icon={Crown}
-          label="Best Seller"
-          value={stats.mostSoldItem || "N/A"}
-          sub="Top Moving Product"
-          color="bg-purple-50 text-purple-600"
-        />
-        <StatCard
-          icon={AlertTriangle}
-          label="Attention Needed"
-          value={`${lowStockItems?.length || 0} Items`}
-          sub="Low / Out of Stock"
-          color="bg-red-50 text-red-600"
-        />
+        <StatCard icon={DollarSign} label="Total Revenue" value={`${currency}${(stats?.totalRevenue || 0).toLocaleString()}`} sub="All-Time Growth" color="bg-emerald-50 text-emerald-600" />
+        <StatCard icon={ShoppingBag} label="Orders Today" value={stats?.ordersToday || 0} sub={`Today's Rev: ${currency}${stats?.todayRevenue || 0}`} color="bg-blue-50 text-blue-600" />
+        <StatCard icon={Crown} label="Best Seller" value={stats?.mostSoldItem || "N/A"} sub="Top Moving Product" color="bg-purple-50 text-purple-600" />
+        <StatCard icon={AlertTriangle} label="Attention Needed" value={`${lowStockItems?.length || 0} Items`} sub="Low / Out of Stock" color="bg-red-50 text-red-600" />
       </div>
 
       {/* 2. MAIN REVENUE TREND CHART */}
@@ -114,7 +103,7 @@ const DashboardScreen: React.FC = () => {
         </div>
         <div className="h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={visibleTrends}>
+            <AreaChart data={visibleTrends || []}>
               <defs>
                 <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
@@ -139,7 +128,7 @@ const DashboardScreen: React.FC = () => {
           <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Crown size={18}/> Top 10 Best-Selling Items</h3>
           <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={topProducts} layout="vertical" margin={{left: 20}}>
+              <BarChart data={topProducts || []} layout="vertical" margin={{left: 20}}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9"/>
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 11}} />
@@ -156,8 +145,8 @@ const DashboardScreen: React.FC = () => {
           <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={salesByCategory} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                  {salesByCategory.map((_:any, index:number) => (
+                <Pie data={salesByCategory || []} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                  {(salesByCategory || []).map((_:any, index:number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -177,7 +166,7 @@ const DashboardScreen: React.FC = () => {
            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Clock size={18}/> Peak Customer Hours</h3>
            <div className="h-[250px]">
              <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={peakTraffic}>
+               <BarChart data={peakTraffic || []}>
                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9"/>
                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 10}} interval={0} angle={-45} textAnchor="end" height={50}/>
                  <Tooltip />
@@ -203,7 +192,7 @@ const DashboardScreen: React.FC = () => {
            </div>
         </div>
 
-        {/* ✅ STOCK ALERTS */}
+        {/* STOCK ALERTS */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
            <div className="flex justify-between items-center mb-4">
              <h3 className="font-bold text-gray-800 flex items-center gap-2"><AlertTriangle size={18} className="text-red-500"/> Stock Alerts</h3>

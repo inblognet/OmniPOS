@@ -15,16 +15,16 @@ import { useCurrency } from '../../hooks/useCurrency';
 import QuickScanModal from './QuickScanModal';
 import VirtualKeyboard from '../../components/VirtualKeyboard';
 
-// ✅ Named Imports
+// Named Imports
 import CheckoutModal from './CheckoutModal';
 import RefundModal from './RefundModal';
 import { ReceiptTemplate } from '../orders/ReceiptTemplate';
 
-// ✅ API Services
+// API Services
 import { productService } from '../../services/productService';
 import { customerService, Customer } from '../../services/customerService';
 
-// ✅ Import CFD Sync Hook
+// Import CFD Sync Hook
 import { useCFDSync } from '../../hooks/useCFDSync.ts';
 
 const PosScreen: React.FC = () => {
@@ -32,10 +32,10 @@ const PosScreen: React.FC = () => {
   const currency = useCurrency();
   const { items: cartItems, customer } = useAppSelector((state) => state.cart);
 
-  // ✅ Initialize CFD Broadcaster
+  // Initialize CFD Broadcaster
   const { broadcast } = useCFDSync();
 
-  // ✅ CFD Toggle State
+  // CFD Toggle State
   const [isCFDEnabled, setIsCFDEnabled] = useState(false);
 
   // --- UI State ---
@@ -73,7 +73,7 @@ const PosScreen: React.FC = () => {
   const roundOff = 0.00;
   const netPayable = grossAmount - totalDiscount + totalTax - roundOff;
 
-  // --- ✅ LAUNCH CFD WINDOW HANDLER ---
+  // --- LAUNCH CFD WINDOW HANDLER ---
   const handleToggleCFD = () => {
     const nextState = !isCFDEnabled;
     setIsCFDEnabled(nextState);
@@ -87,7 +87,7 @@ const PosScreen: React.FC = () => {
     }
   };
 
-  // --- ✅ CFD BROADCASTING LOGIC ---
+  // --- CFD BROADCASTING LOGIC ---
   useEffect(() => {
     if (!isCFDEnabled) {
       broadcast({ type: 'IDLE' });
@@ -110,15 +110,36 @@ const PosScreen: React.FC = () => {
     });
   }, [cartItems, grossAmount, totalTax, totalDiscount, netPayable, totalQty, isCheckoutOpen, lastOrder, customer, isCFDEnabled, broadcast]);
 
+  // --- ✅ OFFLINE-READY DATA LOADER ---
   const loadData = async () => {
     try {
       setLoading(true);
-      const prodData = await productService.getAll();
+      let prodData: any[] = [];
+      let custData: Customer[] = [];
+
+      // 🌐 NETWORK INTERCEPTOR
+      if (navigator.onLine) {
+        // 🟢 ONLINE: Fetch fresh from Render
+        prodData = await productService.getAll();
+        custData = await customerService.getAll();
+      } else {
+        // 🔴 OFFLINE: Load from local SQLite Cache!
+        if (window.electronAPI) {
+          console.log("⚡ Offline detected. Loading catalog from SQLite cache...");
+          const cachedProducts = await window.electronAPI.getCache('products');
+          const cachedCustomers = await window.electronAPI.getCache('customers');
+
+          if (cachedProducts.success && cachedProducts.data) prodData = cachedProducts.data;
+          if (cachedCustomers.success && cachedCustomers.data) custData = cachedCustomers.data;
+        }
+      }
+
       setProducts(prodData.filter(p => p.isActive !== false));
-      const custData = await customerService.getAll();
       setCustomers(custData);
+
       const extractedCats = Array.from(new Set(prodData.map(p => p.category).filter(Boolean))).map((cat, idx) => ({ id: idx, name: cat as string }));
       setCategories(extractedCats as any);
+
     } catch (error) {
       console.error("Failed to load POS data", error);
     } finally {
@@ -211,7 +232,7 @@ const PosScreen: React.FC = () => {
     setTimeout(() => { window.print(); setLastOrder(null); loadData(); }, 500);
   };
 
-  // ✅ Virtual Keyboard Handlers
+  // Virtual Keyboard Handlers
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     if (!activeModal && !editingProduct) {
         activeInputRef.current = e.target;
@@ -311,12 +332,12 @@ const PosScreen: React.FC = () => {
                 ) : (
                     <input
                         type="text"
-                        name="customerSearchInput" // ✅ Fix: Links to virtual keyboard logic
+                        name="customerSearchInput"
                         placeholder="Search Customer..."
                         className="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-lg leading-5 bg-gray-50 outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm h-full"
                         value={customerSearch}
                         onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }}
-                        onFocus={(e) => { handleInputFocus(e); setShowCustomerDropdown(true); }} // ✅ Trigger keyboard focus
+                        onFocus={(e) => { handleInputFocus(e); setShowCustomerDropdown(true); }}
                     />
                 )}
                 {/* Cloud Customer Dropdown */}
@@ -367,7 +388,7 @@ const PosScreen: React.FC = () => {
                 {showFilterDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>}
             </div>
 
-            {/* ✅ CFD TOGGLE & LAUNCH BUTTON */}
+            {/* CFD TOGGLE & LAUNCH BUTTON */}
             <button
                 onClick={handleToggleCFD}
                 className={`h-full px-4 rounded-lg border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${
@@ -385,7 +406,7 @@ const PosScreen: React.FC = () => {
           {selectedCategories.length > 0 && ( <div className="flex flex-wrap gap-2 animate-in fade-in slide-in-from-top-1"> {selectedCategories.map(cat => ( <button key={cat} onClick={() => toggleCategory(cat)} className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-md text-xs font-bold hover:bg-blue-200 transition-colors border border-blue-200"> {cat} <X size={12}/> </button> ))} <button onClick={() => setSelectedCategories([])} className="text-xs text-gray-500 underline hover:text-gray-700 px-2">Reset</button> </div> )}
         </div>
 
-        {/* ✅ RESTORED: Current Order Items List */}
+        {/* Current Order Items List */}
         <div className="bg-transparent border-b border-gray-200 h-48 flex flex-col shrink-0">
             <div className="px-4 py-2 bg-transparent border-b border-gray-200 flex justify-between items-center">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Current Order Items ({cartItems.length})</h3>
@@ -401,7 +422,7 @@ const PosScreen: React.FC = () => {
             </div>
         </div>
 
-        {/* ✅ RESTORED: LIVE ORDER SUMMARY */}
+        {/* LIVE ORDER SUMMARY */}
         <div className="bg-white border-t border-b border-gray-200 p-4 shadow-sm z-10">
             <div className="flex justify-between items-end">
                 <div className="flex gap-6 text-sm text-gray-600">
@@ -437,7 +458,7 @@ const PosScreen: React.FC = () => {
 
         {/* Product Grid */}
         <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
-          {loading ? <div className="h-full flex items-center justify-center text-gray-400">Loading products from cloud...</div> : (
+          {loading ? <div className="h-full flex items-center justify-center text-gray-400">Loading products...</div> : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filteredProducts.map((product) => {
                 const isOutOfStock = product.type === 'Stock' && product.stock <= 0 && !product.allowNegativeStock;
@@ -492,7 +513,7 @@ const PosScreen: React.FC = () => {
             onInputFocus={handleInputFocus}
             onCheckout={handleCheckoutClick}
 
-            // ✅ Passing down the modal handlers and active item state
+            // Passing down the modal handlers and active item state
             selectedCartItemId={selectedCartItemId}
             onOpenControlModal={openControlModal}
             onRefundClick={handleRefundClick}

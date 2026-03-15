@@ -17,7 +17,7 @@ import { sendWhatsAppReceipt } from '../../services/whatsapp';
 import { sendEmailReceipt } from '../../services/email';
 import { sendSmsReceipt } from '../../services/sms';
 
-// ✅ Import CFD Sync Hook
+// Import CFD Sync Hook
 import { useCFDSync } from '../../hooks/useCFDSync.ts';
 
 interface CheckoutModalProps {
@@ -34,7 +34,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
   const currency = useCurrency();
   const [step, setStep] = useState(1);
 
-  // ✅ Initialize CFD Broadcaster/Listener
+  // Initialize CFD Broadcaster/Listener
   const { cfdState, broadcast } = useCFDSync();
 
   // --- Data State ---
@@ -160,15 +160,13 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
     return () => clearTimeout(timer);
   }, [step, isOpen, finalTotal, sendWhatsapp, sendEmail, sendSms]);
 
-  // --- ✅ NEW: LISTEN FOR CFD CUSTOMER INPUT ---
+  // --- LISTEN FOR CFD CUSTOMER INPUT ---
   useEffect(() => {
-    // Typecast to any here to guarantee TS bypasses cache checks
     const state = cfdState as any;
 
     if (isOpen && state.type === 'CUSTOMER_INPUT_DONE' && state.customerInput) {
         const { customer: cfdCust, receipt } = state.customerInput;
 
-        // 1. Process Customer Data
         if (cfdCust && !cfdCust.isGuest) {
              const matchedCustomer = cloudCustomers.find(c =>
                  (cfdCust.phone && c.phone === cfdCust.phone) ||
@@ -194,7 +192,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
              setSelectedCustomer(null);
         }
 
-        // 2. Process Receipt Preferences
         setSendWhatsapp(false); setSendEmail(false); setSendSms(false);
         setStep5Selection(receipt.method as any);
 
@@ -209,7 +206,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
             setSmsPhone(receipt.destination);
         }
 
-        // 3. Skip right to step 5 (Finalize) and trigger it automatically!
         setStep(5);
         setTimeout(() => {
             document.getElementById('auto-complete-btn')?.click();
@@ -217,7 +213,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
     }
   }, [cfdState, isOpen, cloudCustomers]);
 
-  // --- Finalize ---
+  // --- ✅ OFFLINE-READY FINALIZE FUNCTION ---
   const handleFinalize = useCallback(async () => {
     if (isProcessing) return;
     setIsProcessing(true);
@@ -236,8 +232,26 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         }))
       };
 
-      const newOrder = await orderService.create(orderPayload);
-      const orderId = newOrder.id;
+      let newOrder: any;
+      let orderId: string;
+
+      // 🌐 THE MAGIC NETWORK INTERCEPT
+      if (navigator.onLine) {
+        // 🟢 ONLINE: Send to your Render API
+        newOrder = await orderService.create(orderPayload);
+        orderId = newOrder.id;
+      } else {
+        // 🔴 OFFLINE: Send to your Local SQLite Database!
+        if (window.electronAPI) {
+          const response = await window.electronAPI.saveOfflineOrder(orderPayload);
+          if (!response.success) throw new Error(response.error);
+
+          newOrder = { id: response.id, ...orderPayload, isOffline: true };
+          orderId = response.id as string;
+        } else {
+          throw new Error("Cannot save offline. Desktop database not connected.");
+        }
+      }
 
       const receiptPayload = {
         storeName: settings?.storeName || 'Store',
@@ -252,46 +266,50 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         }
       };
 
-      if (sendWhatsapp && waPhone && settings?.whatsappEnabled) {
-        setWaStatus('sending');
-        const result = await sendWhatsAppReceipt(waPhone, receiptPayload);
-        setWaStatus(result.ok ? 'success' : 'error');
-      }
+      // 📱 DIGITAL RECEIPTS (Only run if we have internet!)
+      if (navigator.onLine) {
+        if (sendWhatsapp && waPhone && settings?.whatsappEnabled) {
+          setWaStatus('sending');
+          const result = await sendWhatsAppReceipt(waPhone, receiptPayload);
+          setWaStatus(result.ok ? 'success' : 'error');
+        }
 
-      if (sendEmail && emailAddress && settings?.emailEnabled) {
-        setEmailStatus('sending');
-        const result = await sendEmailReceipt({
-          ...receiptPayload,
-          recipientEmail: emailAddress,
-          recipientName: selectedCustomer?.name || 'Valued Customer',
-          total: `${currency}${finalTotal.toFixed(2)}`,
-          orderId: orderId
-        });
-        setEmailStatus(result.ok ? 'success' : 'error');
-      }
-
-      if (sendSms && smsPhone && settings?.smsEnabled) {
-        setSmsStatus('sending');
-        const result = await sendSmsReceipt({
-          recipientPhone: smsPhone,
-          data: {
-            orderId: orderId,
-            storeName: settings.storeName,
-            date: new Date().toLocaleDateString(),
+        if (sendEmail && emailAddress && settings?.emailEnabled) {
+          setEmailStatus('sending');
+          const result = await sendEmailReceipt({
+            ...receiptPayload,
+            recipientEmail: emailAddress,
+            recipientName: selectedCustomer?.name || 'Valued Customer',
             total: `${currency}${finalTotal.toFixed(2)}`,
-            paidAmount: paidAmount,
-            change: changeDue.toString(),
-            items: receiptPayload.items,
-            customerName: selectedCustomer?.name,
-            pointsBalance: (selectedCustomer?.loyaltyPoints || 0) + pointsToEarn
-          }
-        });
-        setSmsStatus(result.ok ? 'success' : 'error');
+            orderId: orderId
+          });
+          setEmailStatus(result.ok ? 'success' : 'error');
+        }
+
+        if (sendSms && smsPhone && settings?.smsEnabled) {
+          setSmsStatus('sending');
+          const result = await sendSmsReceipt({
+            recipientPhone: smsPhone,
+            data: {
+              orderId: orderId,
+              storeName: settings.storeName,
+              date: new Date().toLocaleDateString(),
+              total: `${currency}${finalTotal.toFixed(2)}`,
+              paidAmount: paidAmount,
+              change: changeDue.toString(),
+              items: receiptPayload.items,
+              customerName: selectedCustomer?.name,
+              pointsBalance: (selectedCustomer?.loyaltyPoints || 0) + pointsToEarn
+            }
+          });
+          setSmsStatus(result.ok ? 'success' : 'error');
+        }
       }
 
-      // Tell CFD we succeeded! Cast as any to bypass TS checks
+      // Tell CFD we succeeded!
       broadcast({ type: 'CHECKOUT_SUCCESS' } as any);
 
+      // Finish and clear cart!
       setTimeout(() => {
         onComplete({
           ...newOrder,
@@ -308,7 +326,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
 
     } catch (error) {
       console.error("Checkout Failed:", error);
-      alert("❌ Failed to create order.");
+      alert("❌ Failed to create order. Please check system connection.");
       setIsProcessing(false);
     }
   }, [
@@ -471,7 +489,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
           <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
               Checkout <span className="text-gray-400 text-lg font-normal">Step {step}/5</span>
-              {/* ✅ CFD Status Indicator */}
               {((cfdState as any).type === 'CUSTOMER_INPUT_DONE') && <span className="ml-2 text-xs bg-indigo-600 text-white px-2 py-1 rounded-full animate-pulse">CFD Customer Ready</span>}
             </h2>
             <div className="text-sm text-gray-400 mt-1">{itemsCount} Items • Total: {currency}{finalTotal.toFixed(2)}</div>
@@ -491,7 +508,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
             <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4">
               <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg font-bold text-gray-700 flex items-center gap-2"><User /> Select Customer</h3>
-                  {/* Notice allowing cashier to skip if customer is using CFD */}
                   <span className="text-xs font-bold text-indigo-500 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">Customer filling details on display...</span>
               </div>
 
@@ -578,41 +594,44 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
                 <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center animate-bounce"><Printer size={40} /></div>
               </div>
               <h2 className="text-2xl font-black text-gray-900 mb-1">Ready to Print</h2>
-              <p className="text-gray-500 text-sm mb-6">Receipt generated. Confirm to complete sale.</p>
+
+              {/* Dynamic Subtitle based on Network Status */}
+              <p className={`text-sm mb-6 font-bold ${!navigator.onLine ? 'text-red-500' : 'text-gray-500'}`}>
+                {!navigator.onLine ? "⚠️ Offline Mode: Order will be saved locally. Digital receipts disabled." : "Receipt generated. Confirm to complete sale."}
+              </p>
 
               <div className="w-full max-w-md space-y-3 h-auto max-h-[300px] overflow-y-auto pr-2">
-                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'whatsapp' ? 'border-green-500 ring-2 ring-green-100' : 'border-gray-200'}`} onClick={() => setStep5Selection('whatsapp')}>
+                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'whatsapp' ? 'border-green-500 ring-2 ring-green-100' : 'border-gray-200'} ${!navigator.onLine && 'opacity-50 pointer-events-none'}`} onClick={() => navigator.onLine && setStep5Selection('whatsapp')}>
                   <label className="flex items-center justify-between cursor-pointer mb-2">
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><MessageSquare className="text-green-600" size={18}/><span>Send WhatsApp Receipt</span></div>
                     {waStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {waStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-green-600" checked={sendWhatsapp} onChange={e => setSendWhatsapp(e.target.checked)} />
+                    <input type="checkbox" className="w-4 h-4 accent-green-600" checked={sendWhatsapp} onChange={e => navigator.onLine && setSendWhatsapp(e.target.checked)} disabled={!navigator.onLine} />
                   </label>
-                  {sendWhatsapp && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={phoneInputRef} type="text" placeholder="9477xxxxxxx" value={waPhone} onChange={e => setWaPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-green-500 outline-none" /></div>}
+                  {sendWhatsapp && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={phoneInputRef} type="text" placeholder="9477xxxxxxx" value={waPhone} onChange={e => setWaPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-green-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
 
-                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'email' ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'}`} onClick={() => setStep5Selection('email')}>
+                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'email' ? 'border-blue-500 ring-2 ring-blue-100' : 'border-gray-200'} ${!navigator.onLine && 'opacity-50 pointer-events-none'}`} onClick={() => navigator.onLine && setStep5Selection('email')}>
                   <label className="flex items-center justify-between cursor-pointer mb-2">
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><Mail className="text-blue-600" size={18}/><span>Send Email Receipt</span></div>
                     {emailStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {emailStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-blue-600" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} />
+                    <input type="checkbox" className="w-4 h-4 accent-blue-600" checked={sendEmail} onChange={e => navigator.onLine && setSendEmail(e.target.checked)} disabled={!navigator.onLine} />
                   </label>
-                  {sendEmail && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={emailInputRef} type="email" placeholder="customer@example.com" value={emailAddress} onChange={e => setEmailAddress(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>}
+                  {sendEmail && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={emailInputRef} type="email" placeholder="customer@example.com" value={emailAddress} onChange={e => setEmailAddress(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
 
-                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'sms' ? 'border-purple-500 ring-2 ring-purple-100' : 'border-gray-200'}`} onClick={() => setStep5Selection('sms')}>
+                <div className={`bg-gray-50 border rounded-xl p-4 text-left transition-all ${step5Selection === 'sms' ? 'border-purple-500 ring-2 ring-purple-100' : 'border-gray-200'} ${!navigator.onLine && 'opacity-50 pointer-events-none'}`} onClick={() => navigator.onLine && setStep5Selection('sms')}>
                   <label className="flex items-center justify-between cursor-pointer mb-2">
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><Smartphone className="text-purple-600" size={18}/><span>Send SMS Receipt</span></div>
                     {smsStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {smsStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={sendSms} onChange={e => setSendSms(e.target.checked)} />
+                    <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={sendSms} onChange={e => navigator.onLine && setSendSms(e.target.checked)} disabled={!navigator.onLine} />
                   </label>
-                  {sendSms && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={smsInputRef} type="text" placeholder="9477xxxxxxx" value={smsPhone} onChange={e => setSmsPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none" /></div>}
+                  {sendSms && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={smsInputRef} type="text" placeholder="9477xxxxxxx" value={smsPhone} onChange={e => setSmsPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
               </div>
 
-              {/* ✅ Added ID to button so useEffect can auto-click it */}
               <button id="auto-complete-btn" onClick={handleFinalize} disabled={isProcessing} className="mt-6 bg-gray-900 hover:bg-black text-white px-10 py-4 rounded-xl font-bold text-lg shadow-xl flex items-center gap-3 transition-transform active:scale-95 disabled:opacity-70">
                 {isProcessing ? <><Loader2 className="animate-spin" /> Processing...</> : <><CheckCircle size={24} /> Complete Sale (Enter)</>}
               </button>

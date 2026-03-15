@@ -2,6 +2,9 @@ import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import MainLayout from './layouts/MainLayout';
 import { ThemeManager } from './components/ThemeManager';
 
+// ✅ Import the new AutoSync Engine (Adjust the path if you placed it somewhere else!)
+import AutoSync from './components/AutoSync';
+
 // Feature Screens
 import DashboardScreen from './features/dashboard/DashboardScreen';
 import PosScreen from './features/pos/PosScreen';
@@ -15,10 +18,10 @@ import CFDPanelScreen from './features/cfd/CFDPanelScreen.tsx';
 import CFDDisplayScreen from './features/cfd/CFDDisplayScreen.tsx';
 import UsersScreen from './features/users/UsersScreen';
 
-// ✅ Import the new Login Screen
+// Import the Login Screen
 import Login from './features/auth/Login';
 
-// ✅ Frontend Bouncer: Checks for the VIP token
+// Frontend Bouncer: Checks for the VIP token
 const ProtectedRoute = () => {
   const token = localStorage.getItem('omnipos_token');
 
@@ -35,6 +38,9 @@ function App() {
   return (
     <HashRouter>
       <ThemeManager />
+
+      {/* ✅ The AutoSync Engine runs globally in the background! */}
+      <AutoSync />
 
       <Routes>
         {/* 🔓 PUBLIC ROUTES (Anyone can access these without logging in) */}

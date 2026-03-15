@@ -1,3 +1,9 @@
 node_modules
 dist
 .env
+# Electron Build Folders
+dist/
+dist-electron/
+release/
+*.exe
+*.db

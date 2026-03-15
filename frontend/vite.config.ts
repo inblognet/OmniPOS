@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true,
+    open: false, // Keeps Vite from opening a Chrome tab
   },
   build: {
     outDir: 'dist',
