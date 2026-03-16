@@ -3,19 +3,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, Product, ProductBatch } from '../../db/db';
 import { useInventoryLogic } from '../../hooks/useInventoryLogic';
 import { PRESETS, BusinessType } from '../../config/inventoryConfig';
-import { productService, Category } from '../../services/productService'; // ✅ Added Category import
+import { productService, Category } from '../../services/productService';
 import api from '../../api/axiosConfig';
 import Barcode from 'react-barcode';
 import { QRCodeSVG } from 'qrcode.react';
+import * as XLSX from 'xlsx'; // ✅ NEW: Enterprise Excel Library
 import {
   Search, Plus, Edit, Trash2, X, Save,
   Tag, DollarSign, Box, Layers, AlertTriangle, CheckCircle, Ban, RefreshCw, FolderTree, ChevronDown, Settings, Calendar,
   Scan, QrCode, Printer, CheckSquare, Square, PackagePlus,
-  Activity, AlertOctagon, LayoutGrid, Archive, List
+  Activity, AlertOctagon, LayoutGrid, Archive, List, Download, Upload, FileSpreadsheet // ✅ Added Excel Icons
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
-// ✅ Interface for the Real Log Data
+// Interface for the Real Log Data
 interface DamageLog {
   id: number;
   name: string;
@@ -24,7 +25,7 @@ interface DamageLog {
   created_at: string;
 }
 
-// ✅ Extended interface
+// Extended interface
 interface ExtendedProduct extends Product {
   latestDamageReason?: string;
 }
@@ -39,20 +40,21 @@ const InventoryScreen: React.FC = () => {
 
   // --- Data State ---
   const [products, setProducts] = useState<ExtendedProduct[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]); // ✅ Replaced Dexie live query with state
+  const [categories, setCategories] = useState<Category[]>([]);
   const [damageLogs, setDamageLogs] = useState<DamageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ LOAD PRODUCTS & CATEGORIES FROM CLOUD
+  // ✅ EXCEL IMPORT/EXPORT STATE
+  const [showExcelMenu, setShowExcelMenu] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // LOAD PRODUCTS & CATEGORIES FROM CLOUD
   const loadData = async () => {
     try {
       setLoading(true);
-
-      // Load Categories
       const cats = await productService.getCategories();
       setCategories(cats);
-
-      // Load Products
       const data = await productService.getAll();
       setProducts(prevProducts => {
         return data.map((newItem: Product) => {
@@ -73,7 +75,6 @@ const InventoryScreen: React.FC = () => {
     loadData();
   }, []);
 
-  // ✅ FETCH REAL LOGS FROM DATABASE
   const loadDamageLogs = async () => {
     try {
       const res = await api.get('/products/damage/logs');
@@ -92,18 +93,15 @@ const InventoryScreen: React.FC = () => {
   const [selectedPresetKey, setSelectedPresetKey] = useState<BusinessType>('General_Retail');
   const [featureOverrides, setFeatureOverrides] = useState<any>({});
 
-  // Category UI State
   const [showCatDropdown, setShowCatDropdown] = useState(false);
   const [newCatName, setNewCatName] = useState('');
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
 
-  // --- Damage Reporting State ---
   const [showDamageModal, setShowDamageModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [damageQty, setDamageQty] = useState(1);
   const [damageNote, setDamageNote] = useState('');
 
-  // --- Barcode State ---
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const [barcodeCategoryFilter, setBarcodeCategoryFilter] = useState('');
   const [selectedBarcodeIds, setSelectedBarcodeIds] = useState<number[]>([]);
@@ -114,7 +112,6 @@ const InventoryScreen: React.FC = () => {
 
   const [activeStatModal, setActiveStatModal] = useState<'products' | 'categories' | 'stock' | 'expired' | 'damaged' | null>(null);
 
-  // ✅ Fetch logs automatically when the user opens the "Damaged Items" modal
   useEffect(() => {
     if (activeStatModal === 'damaged') {
       loadDamageLogs();
@@ -128,15 +125,12 @@ const InventoryScreen: React.FC = () => {
     costPrice: 0, price: 0, wholesalePrice: 0, minSellingPrice: 0,
     isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false,
     stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false,
-    totalQty: 0, damagedQty: 0, expiredQty: 0,
-    batches: [],
-    createdAt: '', updatedAt: ''
+    totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: '', updatedAt: ''
   });
 
   const [newBatch, setNewBatch] = useState<ProductBatch>({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' });
   const [editingBatchId, setEditingBatchId] = useState<string | null>(null);
 
-  // --- Metrics ---
   const totalProducts = products.length;
   const totalCategories = categories.length;
   const totalDamagedItems = products.reduce((acc, p) => acc + (p.damagedQty || 0), 0);
@@ -144,7 +138,6 @@ const InventoryScreen: React.FC = () => {
   const expiredBatchesList = products.flatMap(p => (p.batches || []).filter(b => b.expiryDate && new Date(b.expiryDate) < new Date()).map(b => ({ productName: p.name, ...b })));
   const totalExpiredItems = expiredBatchesList.reduce((acc, b) => acc + b.quantity, 0);
 
-  // Filter Logic
   const filteredProducts = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.sku?.toLowerCase().includes(search.toLowerCase()) ||
@@ -156,6 +149,180 @@ const InventoryScreen: React.FC = () => {
     const matchesCategory = barcodeCategoryFilter ? p.category.includes(barcodeCategoryFilter) : true;
     return matchesSearch && matchesCategory && p.barcode;
   });
+
+  // --- EXCEL LOGIC START ---
+
+  const handleDownloadTemplate = () => {
+    // 1. Define strict headers so the import doesn't corrupt advanced features
+    const templateData = [{
+      "Name*": "Example Product",
+      "Category": "General",
+      "Price*": 15.99,
+      "CostPrice": 8.00,
+      "Stock": 50,
+      "Unit": "pcs",
+      "SKU": "EX-001",
+      "Barcode": "123456789"
+    }];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+
+    // Add instruction sheet
+    const instructionsData = [
+      ["INSTRUCTIONS FOR BULK IMPORT"],
+      ["1. Columns marked with * are REQUIRED."],
+      ["2. Do not change the column headers (Row 1)."],
+      ["3. Category: Separate multiple categories with a comma (e.g., Summer, Sale)."],
+      ["4. Advanced details (Expiry, Serial Numbers) must be added manually inside the app for safety."],
+    ];
+    const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData);
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.utils.book_append_sheet(wb, wsInstructions, "Instructions");
+
+    XLSX.writeFile(wb, "OmniPOS_Inventory_Template.xlsx");
+    setShowExcelMenu(false);
+  };
+
+  const handleExportInventory = () => {
+    const exportData = products.map(p => ({
+      ID: p.id,
+      Name: p.name,
+      Category: p.category || 'Uncategorized',
+      SKU: p.sku || '',
+      Barcode: p.barcode || '',
+      Price: p.price,
+      CostPrice: p.costPrice || 0,
+      Stock: p.stock,
+      DamagedQty: p.damagedQty || 0,
+      Unit: p.unit,
+      IsActive: p.isActive ? 'Yes' : 'No'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Current Inventory");
+    XLSX.writeFile(wb, `OmniPOS_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+    setShowExcelMenu(false);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        // Convert to JSON
+        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+        if (rawJson.length === 0) {
+          alert("The uploaded Excel file is empty.");
+          setIsImporting(false);
+          return;
+        }
+
+        let successCount = 0;
+        let failCount = 0;
+
+        // Process sequentially to not overload the backend
+        for (const row of rawJson) {
+          try {
+            const name = row['Name*'] || row['Name'];
+            const price = parseFloat(row['Price*'] || row['Price']);
+
+            // STRICT VALIDATION
+            if (!name || isNaN(price)) {
+              failCount++;
+              continue;
+            }
+
+            const stockVal = parseFloat(row['Stock']) || 0;
+            const category = row['Category'] || 'Uncategorized';
+
+            // SAFETY NET: If Expiry Tracking is ON, raw stock breaks the app.
+            // We must create a dummy batch for them.
+            const batches: ProductBatch[] = [];
+            if (config.features.expiryTracking && stockVal > 0) {
+              batches.push({
+                id: Date.now().toString() + Math.random().toString(),
+                batchNumber: 'INITIAL-IMPORT',
+                quantity: stockVal,
+                issueDate: new Date().toISOString()
+              });
+            }
+
+const payload: Omit<Product, 'id'> = {
+              name: String(name).trim(),
+              price: price,
+              costPrice: parseFloat(row['CostPrice']) || 0,
+              wholesalePrice: 0,       // ✅ Added missing default
+              minSellingPrice: 0,    // ✅ Added missing default
+              stock: stockVal,
+              category: String(category).trim(),
+              brand: '',             // ✅ Added missing default
+              sku: row['SKU'] ? String(row['SKU']).trim() : '',
+              barcode: row['Barcode'] ? String(row['Barcode']).trim() : '',
+              unit: row['Unit'] ? String(row['Unit']).trim() : config.defaultUnit || 'pcs',
+              fractionalAllowed: false, // ✅ FIXED: The missing property TypeScript was yelling about!
+
+              // Safe defaults for advanced features
+              type: 'Stock',
+              variantGroup: '',      // ✅ Added missing default
+              variantName: '',       // ✅ Added missing default
+              serialNumber: '',      // ✅ Added missing default
+              stockIssueDate: '',
+              stockExpiryDate: '',
+              batchNumber: '',
+              isActive: true,
+              damagedQty: 0,
+              expiredQty: 0,
+              totalQty: stockVal,
+              reorderLevel: 5,
+              maxStockLevel: 100,
+              allowDiscount: true,
+              isTaxIncluded: false,
+              allowNegativeStock: false,
+              batches: batches,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+
+            // Call your ultra-secure backend service
+            await productService.create(payload);
+            successCount++;
+
+          } catch (err) {
+            failCount++;
+            console.error("Failed to import row", row, err);
+          }
+        }
+
+        alert(`Import Complete!\n✅ Successfully added: ${successCount}\n❌ Failed/Skipped: ${failCount} (Check if Name/Price were missing)`);
+
+        // Reload UI
+        setShowExcelMenu(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        await loadData();
+
+      } catch (err) {
+        console.error("Excel Read Error", err);
+        alert("Failed to read the Excel file. Please ensure it is a valid .xlsx template.");
+      } finally {
+        setIsImporting(false);
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+  // --- EXCEL LOGIC END ---
 
   // --- Handlers ---
   const handleAutoGenerateIdentifiers = () => {
@@ -242,7 +409,6 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  // --- Batch Helpers ---
   const startEditBatch = (batch: ProductBatch) => { setNewBatch({ ...batch }); setEditingBatchId(batch.id); };
   const cancelEditBatch = () => { setNewBatch({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' }); setEditingBatchId(null); };
   const removeBatch = (batchId: string) => {
@@ -259,7 +425,6 @@ const InventoryScreen: React.FC = () => {
     setNewBatch({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' }); setEditingBatchId(null);
   };
 
-  // ✅ NEW: CLOUD CATEGORY HELPERS
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
@@ -289,15 +454,12 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  const startEditCategory = (cat: Category) => { setNewCatName(cat.name); setEditingCatId(cat.id!); };
-
   const toggleCategorySelection = (catName: string) => {
     const current = formData.category ? formData.category.split(',').map(s => s.trim()).filter(Boolean) : [];
     const updated = current.includes(catName) ? current.filter(c => c !== catName) : [...current, catName];
     setFormData({ ...formData, category: updated.join(', ') });
   };
 
-  // --- Printing Helpers (FIXED TIMING ISSUE) ---
   const toggleBarcodeSelection = (id: number) => { setSelectedBarcodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
   const selectAllBarcodes = () => { if (selectedBarcodeIds.length === barcodeFilteredProducts.length) setSelectedBarcodeIds([]); else setSelectedBarcodeIds(barcodeFilteredProducts.map(p => p.id!)); };
 
@@ -310,7 +472,6 @@ const InventoryScreen: React.FC = () => {
       items.forEach(i => win.document.write('<div class="card"><div>'+i.name+'</div><img src="https://bwipjs-api.metafloor.com/?bcid='+(printType==='barcode'?'code128':'qrcode')+'&text='+i.barcode+'&scale=2" /><div>'+currency+i.price+'</div></div>'));
       win.document.write('</div></body></html>');
       win.document.close();
-      // Increased timeout to allow image rendering
       setTimeout(() => win.print(), 800);
     }
   };
@@ -321,7 +482,6 @@ const InventoryScreen: React.FC = () => {
       if (win) {
         win.document.write('<html><body>'+printRef.current.innerHTML+'</body></html>');
         win.document.close();
-        // Added timeout to allow component rendering before print dialog opens
         setTimeout(() => win.print(), 500);
       }
     }
@@ -335,7 +495,16 @@ const InventoryScreen: React.FC = () => {
   if (loading && products.length === 0) return <div className="h-full flex items-center justify-center text-gray-400 animate-pulse">Syncing Inventory...</div>;
 
   return (
-    <div className="h-full flex flex-col bg-gray-50 p-6 overflow-y-auto">
+    <div className="h-full flex flex-col bg-gray-50 p-6 overflow-y-auto relative">
+
+      {/* ✅ IMPORT LOADING OVERLAY (Protects DB from being clicked during upload) */}
+      {isImporting && (
+        <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
+           <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
+           <h2 className="text-xl font-bold text-gray-800">Processing Excel Import...</h2>
+           <p className="text-gray-500 mt-2">Please wait. Securing bulk products to the cloud.</p>
+        </div>
+      )}
 
       {/* --- HEADER --- */}
       <div className="flex justify-between items-center mb-6">
@@ -343,8 +512,36 @@ const InventoryScreen: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Box className="text-blue-600" /> Inventory Management <span className="text-xs font-normal bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full">{config.name}</span></h1>
           <p className="text-gray-500 text-sm mt-1">Manage stock, pricing, and details.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
           <button onClick={handleOpenConfig} className="bg-white border px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm"><Settings size={18} /> Configure Shop</button>
+
+          {/* ✅ NEW: EXCEL BULK TOOLS MENU */}
+          <div className="relative">
+            <button onClick={() => setShowExcelMenu(!showExcelMenu)} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 hover:bg-emerald-700">
+              <FileSpreadsheet size={18} /> Bulk Tools <ChevronDown size={14} />
+            </button>
+
+            {showExcelMenu && (
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                <button onClick={handleDownloadTemplate} className="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 flex items-center gap-2 border-b">
+                  <Download size={16} /> 1. Download Blank Template
+                </button>
+                <div className="relative">
+                   <button className="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 border-b">
+                     <Upload size={16} /> 2. Upload Completed File
+                   </button>
+                   {/* Hidden file input */}
+                   <input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleImportExcel} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </div>
+                <button onClick={handleExportInventory} className="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                  <Archive size={16} /> 3. Export Current Inventory
+                </button>
+              </div>
+            )}
+            {/* Click outside to close */}
+            {showExcelMenu && <div className="fixed inset-0 z-40" onClick={() => setShowExcelMenu(false)}></div>}
+          </div>
+
           <button onClick={openCreateModal} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95"><Plus size={20} /> Add Product</button>
         </div>
       </div>
@@ -567,13 +764,10 @@ const InventoryScreen: React.FC = () => {
                       {activeStatModal === 'categories' && <><th className="p-4">Category Name</th><th className="p-4 text-right">Items Count</th></>}
                       {activeStatModal === 'stock' && <><th className="p-4">Product Name</th><th className="p-4 text-right">Available Qty</th></>}
                       {activeStatModal === 'expired' && <><th className="p-4">Product Name</th><th className="p-4">Batch Number</th><th className="p-4 text-center">Expiry Date</th><th className="p-4 text-right">Expired Qty</th></>}
-
-                      {/* ✅ HEADER FOR DAMAGE LOGS */}
                       {activeStatModal === 'damaged' && <><th className="p-4">Product Name</th><th className="p-4">Date/Time</th><th className="p-4">Reason / Note</th><th className="p-4 text-right">Damaged Qty</th></>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
-                    {/* ... other modalities ... */}
                     {activeStatModal === 'products' && products.map(p => (
                       <tr key={p.id} className="hover:bg-gray-50">
                         <td className="p-4 font-medium">{p.name}</td>
@@ -606,7 +800,6 @@ const InventoryScreen: React.FC = () => {
                       </tr>
                     )) : activeStatModal === 'expired' && <tr><td colSpan={4} className="p-8 text-center text-gray-400">No expired items found.</td></tr>}
 
-                    {/* ✅ DISPLAY ACTUAL LOGS FROM BACKEND */}
                     {activeStatModal === 'damaged' && damageLogs.length > 0 ? damageLogs.map((log) => (
                         <tr key={log.id} className="hover:bg-red-50">
                           <td className="p-4 font-medium">{log.name}</td>

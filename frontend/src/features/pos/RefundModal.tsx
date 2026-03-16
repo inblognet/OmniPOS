@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Search, RotateCcw, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import { orderService } from '../../services/orderService';
+import VirtualKeyboard from '../../components/VirtualKeyboard'; // ✅ Imported Virtual Keyboard
 
 interface RefundModalProps {
     isOpen: boolean;
@@ -20,8 +21,8 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
     const [error, setError] = useState('');
 
     // 1. Search for Order
-    const handleSearch = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSearch = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         if (!searchId) return;
 
         setLoading(true);
@@ -51,6 +52,19 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
         } finally {
             setLoading(false);
         }
+    };
+
+    // --- ✅ VIRTUAL KEYBOARD HANDLERS ---
+    const handleVirtualKeyPress = (key: string) => {
+        setSearchId(prev => prev + key);
+    };
+
+    const handleVirtualBackspace = () => {
+        setSearchId(prev => prev.slice(0, -1));
+    };
+
+    const handleVirtualEnter = () => {
+        handleSearch(); // Automatically trigger search when Enter is pressed on the keypad
     };
 
     // 2. Toggle Item Selection
@@ -115,7 +129,7 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
 
     return (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95">
-            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
                 {/* Header */}
                 <div className="bg-gray-900 text-white p-4 flex justify-between items-center">
@@ -129,7 +143,7 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
                 <div className="p-6 flex-1 overflow-y-auto">
 
                     {/* Search Box */}
-                    <form onSubmit={handleSearch} className="relative mb-6">
+                    <form onSubmit={handleSearch} className="relative mb-4">
                         <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Original Order ID</label>
                         <div className="flex gap-2">
                             <div className="relative flex-1">
@@ -137,46 +151,59 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
                                 <input
                                     type="text"
                                     autoFocus
-                                    className="w-full pl-10 pr-4 py-2 border-2 border-gray-200 rounded-xl focus:border-red-500 outline-none font-bold text-gray-800"
+                                    className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-red-500 outline-none font-bold text-gray-800 text-lg"
                                     placeholder="e.g. 24"
                                     value={searchId}
                                     onChange={e => setSearchId(e.target.value)}
                                 />
                             </div>
-                            <button type="submit" disabled={loading} className="px-4 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200">
+                            <button type="submit" disabled={loading} className="px-6 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors">
                                 {loading ? <Loader2 className="animate-spin"/> : 'Find'}
                             </button>
                         </div>
                         {error && <p className="text-red-500 text-xs mt-2 font-bold flex items-center gap-1"><AlertTriangle size={12}/> {error}</p>}
                     </form>
 
+                    {/* ✅ VIRTUAL KEYPAD (Hides when order is found) */}
+                    {!order && (
+                        <div className="mt-4 flex justify-center bg-gray-50 p-4 rounded-xl border border-gray-100">
+                            <VirtualKeyboard
+                                layout="numeric"
+                                onKeyPress={handleVirtualKeyPress}
+                                onBackspace={handleVirtualBackspace}
+                                onEnter={handleVirtualEnter}
+                                className="bg-transparent border-none shadow-none"
+                            />
+                        </div>
+                    )}
+
                     {/* Order Details */}
                     {order && (
-                        <div className="animate-in slide-in-from-bottom-2">
-                            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 mb-4 text-sm">
-                                <div className="flex justify-between"><span>Date:</span> <span className="font-bold">{new Date(order.created_at || order.timestamp).toLocaleDateString()}</span></div>
-                                <div className="flex justify-between"><span>Customer:</span> <span className="font-bold">{order.customer_name || 'Walk-in'}</span></div>
-                                <div className="flex justify-between text-blue-600 border-t border-gray-200 mt-2 pt-1"><span>Total Paid:</span> <span className="font-bold">{currency}{Number(order.total_amount).toFixed(2)}</span></div>
+                        <div className="animate-in slide-in-from-bottom-2 mt-4">
+                            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 text-sm shadow-inner">
+                                <div className="flex justify-between mb-2"><span className="text-gray-500">Date:</span> <span className="font-bold">{new Date(order.created_at || order.timestamp).toLocaleDateString()}</span></div>
+                                <div className="flex justify-between mb-2"><span className="text-gray-500">Customer:</span> <span className="font-bold">{order.customer_name || 'Walk-in'}</span></div>
+                                <div className="flex justify-between text-red-600 border-t border-gray-200 mt-3 pt-3 text-base"><span>Total Paid:</span> <span className="font-black">{currency}{Number(order.total_amount).toFixed(2)}</span></div>
                             </div>
 
-                            <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">Select Items to Refund</h4>
-                            <div className="space-y-2 mb-6">
+                            <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Select Items to Refund</h4>
+                            <div className="space-y-2 mb-2">
                                 {order.items && order.items.map((item: any, idx: number) => (
                                     <div
                                         key={idx}
                                         onClick={() => toggleItem(idx)}
-                                        className={`flex justify-between items-center p-3 rounded-lg border cursor-pointer transition-all ${selectedItems.includes(idx) ? 'bg-red-50 border-red-500 ring-1 ring-red-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                                        className={`flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all ${selectedItems.includes(idx) ? 'bg-red-50 border-red-500 ring-2 ring-red-200 shadow-sm' : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-5 h-5 rounded border flex items-center justify-center ${selectedItems.includes(idx) ? 'bg-red-500 border-red-500 text-white' : 'border-gray-300'}`}>
+                                            <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${selectedItems.includes(idx) ? 'bg-red-500 border-red-500 text-white' : 'border-gray-300 bg-white'}`}>
                                                 {selectedItems.includes(idx) && <CheckCircle size={14}/>}
                                             </div>
                                             <div>
                                                 <div className="font-bold text-gray-800">{item.name}</div>
-                                                <div className="text-xs text-gray-500">{item.quantity} x {currency}{item.price}</div>
+                                                <div className="text-xs font-medium text-gray-500 mt-0.5">{item.quantity} x {currency}{item.price}</div>
                                             </div>
                                         </div>
-                                        <div className="font-bold text-gray-700">
+                                        <div className="font-black text-gray-800">
                                             {currency}{(item.quantity * item.price).toFixed(2)}
                                         </div>
                                     </div>
@@ -188,18 +215,18 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
 
                 {/* Footer Actions */}
                 {order && (
-                    <div className="p-4 bg-gray-50 border-t border-gray-200 grid grid-cols-2 gap-3">
+                    <div className="p-5 bg-gray-50 border-t border-gray-200 grid grid-cols-2 gap-3 shrink-0">
                         <button
                             onClick={() => processRefund(false)}
                             disabled={processing || selectedItems.length === 0}
-                            className="py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-100 disabled:opacity-50"
+                            className="py-3.5 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold hover:bg-gray-100 disabled:opacity-50 transition-colors shadow-sm"
                         >
                             Refund Selected ({selectedItems.length})
                         </button>
                         <button
                             onClick={() => processRefund(true)}
                             disabled={processing}
-                            className="py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                            className="py-3.5 bg-red-600 text-white rounded-xl font-black hover:bg-red-700 shadow-md flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
                         >
                             {processing ? <Loader2 className="animate-spin"/> : 'Refund Whole Order'}
                         </button>
