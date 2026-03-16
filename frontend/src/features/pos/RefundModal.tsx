@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Search, RotateCcw, CheckCircle, AlertTriangle, Loader2 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import { orderService } from '../../services/orderService';
@@ -19,6 +19,18 @@ const RefundModal: React.FC<RefundModalProps> = ({ isOpen, onClose, onRefundComp
     const [selectedItems, setSelectedItems] = useState<number[]>([]); // Array of item indexes
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState('');
+
+    // ✅ NEW: Listen for ESC key to close the modal
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && isOpen) {
+                onClose();
+            }
+        };
+
+        window.addEventListener('keydown', handleEsc);
+        return () => window.removeEventListener('keydown', handleEsc);
+    }, [isOpen, onClose]);
 
     // 1. Search for Order
     const handleSearch = async (e?: React.FormEvent) => {

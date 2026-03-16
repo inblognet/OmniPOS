@@ -330,18 +330,18 @@ const CartPanel: React.FC<CartPanelProps> = ({
       </div>
 
       <div className="grid grid-cols-4 gap-1.5 mb-2 shrink-0">
-        <GridBtn icon={PauseCircle} label="Hold" colorClass="text-orange-500" onClick={() => dispatch(holdSale())} />
-        <GridBtn icon={PlayCircle} label="Resume" colorClass="text-blue-500" onClick={handleResumeHeld} />
-        <GridBtn icon={Save} label="Save" colorClass="text-green-500" onClick={() => dispatch(holdSale())} />
-        <GridBtn icon={List} label="Records" colorClass="text-purple-500" onClick={() => setShowRecords(true)} />
-        <GridBtn icon={Search} label="Search" colorClass="text-blue-600" onClick={() => setShowItemSearch(true)} />
-        <GridBtn icon={Package} label="Custom" colorClass="text-pink-500" onClick={() => setShowCustomItemModal(true)} />
-        <GridBtn icon={Scale} label="Calc" colorClass="text-purple-600" onClick={() => setShowInternalUnitCalc(true)} />
-        <GridBtn icon={RotateCcw} label="Refund" colorClass="text-red-500" onClick={onRefundClick} />
-        <GridBtn icon={UserPlus} label="Cust +" colorClass="text-emerald-500" onClick={handleOpenAddCustomer} />
-        <GridBtn icon={Edit3} label="Cust Edit" colorClass="text-teal-500" onClick={handleOpenEditCustomer} />
+        <GridBtn icon={PauseCircle} label="Hold (F8)" colorClass="text-orange-500" onClick={() => dispatch(holdSale())} />
+        <GridBtn icon={PlayCircle} label="Resume (F9)" colorClass="text-blue-500" onClick={handleResumeHeld} />
+        <GridBtn icon={Save} label="Save (F8)" colorClass="text-green-500" onClick={() => dispatch(holdSale())} />
+        <GridBtn icon={List} label="Records (F10)" colorClass="text-purple-500" onClick={() => setShowRecords(true)} />
+        <GridBtn icon={Search} label="Search (F2)" colorClass="text-blue-600" onClick={() => setShowItemSearch(true)} />
+        <GridBtn icon={Package} label="Custom (F3)" colorClass="text-pink-500" onClick={() => setShowCustomItemModal(true)} />
+        <GridBtn icon={Scale} label="Calc (F6)" colorClass="text-purple-600" onClick={() => setShowInternalUnitCalc(true)} />
+        <GridBtn icon={RotateCcw} label="Refund (F4)" colorClass="text-red-500" onClick={onRefundClick} />
+        <GridBtn icon={UserPlus} label="Cust+ (F7)" colorClass="text-emerald-500" onClick={handleOpenAddCustomer} />
+        <GridBtn icon={Edit3} label="Cust Edit (F1)" colorClass="text-teal-500" onClick={handleOpenEditCustomer} />
         <GridBtn icon={FileText} label="Reprint" colorClass="text-gray-600" onClick={onReprintClick} />
-        <GridBtn icon={Trash2} label="Clear" colorClass="text-red-600" onClick={() => dispatch(clearCart())} />
+        <GridBtn icon={Trash2} label="Clear (DEL)" colorClass="text-red-600" onClick={() => dispatch(clearCart())} />
       </div>
 
       <button
