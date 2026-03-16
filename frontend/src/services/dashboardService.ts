@@ -1,41 +1,50 @@
 // ✅ Import the configured axios instance
 import api from '../api/axiosConfig';
 
-// ✅ Updated Interface to match the new Backend Controller structure
+// ✅ CRITICAL FIX: Interface perfectly maps to backend dashboardController.js
 export interface DashboardStats {
   stats: {
     totalRevenue: number;
+    todayRevenue: number;
     ordersToday: number;
     totalCustomers: number;
-    lowStockAlerts: number;
+    lowStock: number;
+    outOfStock: number;
+    mostSoldItem: string;
   };
-  revenueChart: {
+  trends: {
     date: string;
-    value: number
+    value: number;
   }[];
-  hourlyChart: {
+  topProducts: {
     name: string;
-    value: number
+    value: number;
   }[];
-  categoryChart: {
+  topCustomers: {
     name: string;
-    value: number
+    value: number;
   }[];
-  recentTransactions: {
-    id: number;
-    customer: string;
-    amount: number;
-    status: string;
-    time: string;
+  peakTraffic: {
+    name: string;
+    value: number;
+  }[];
+  salesByCategory: {
+    name: string;
+    value: number;
+  }[];
+  deadStock: {
+    name: string;
+    value: number;
   }[];
 }
 
 export const dashboardService = {
   getStats: async (): Promise<DashboardStats> => {
     /** * ✅ Action: Fetch Business Intelligence
-     * Path: GET http://localhost:5500/api/dashboard/stats
-     * Note: The backend now returns a nested object { stats, revenueChart, ... }
+     * Path: GET /api/dashboard/stats
      */
+    // If offline, you might want to wrap this in a try/catch or an offline check
+    // to return cached data, just like your other services!
     const response = await api.get('/dashboard/stats');
     return response.data;
   }

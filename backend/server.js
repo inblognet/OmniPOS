@@ -19,9 +19,10 @@ const app = express();
 
 // --- MIDDLEWARE ---
 
-// 1. Request Logger (First Priority)
+// 1. Request Logger (Fixed to Sri Lanka Local Time for Render)
 app.use((req, res, next) => {
-  console.log(`📡 [${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+  const localTime = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo' });
+  console.log(`📡 [${localTime}] ${req.method} ${req.url}`);
   next();
 });
 

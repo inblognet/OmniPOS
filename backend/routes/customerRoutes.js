@@ -1,29 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const customerController = require('../controllers/customerController');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware'); // ✅ 1. Bring the bouncer back!
 
-/**
- * Route: GET /api/customers
- * Action: Fetches all customer records and loyalty stats.
- */
+// ✅ 2. Global Check: You MUST be logged in to touch customer data
+router.use(protect);
+
+// --- CASHIER ROUTES ---
+// Cashiers need to search, add, and update customers during checkout
 router.get('/', customerController.getCustomers);
-
-/**
- * Route: POST /api/customers
- * Action: Registers a new customer into the cloud database.
- */
 router.post('/', customerController.addCustomer);
-
-/**
- * Route: PUT /api/customers/:id
- * Action: Updates customer info or manually adjusts loyalty points.
- */
 router.put('/:id', customerController.updateCustomer);
 
-/**
- * Route: DELETE /api/customers/:id
- * Action: Removes a customer profile from the system.
- */
-router.delete('/:id', customerController.deleteCustomer);
+// --- MANAGER/ADMIN ROUTES ---
+// 🔒 DANGER ZONE: Only Admin/Manager can permanently delete customer records
+router.delete('/:id', authorizeRoles('admin', 'manager'), customerController.deleteCustomer);
 
 module.exports = router;

@@ -1,18 +1,18 @@
 const bcrypt = require('bcryptjs');
 const db = require('../config/db');
 
-exports.getAllUsers = async (req, res) => {
+exports.getAllUsers = async (req, res, next) => {
   try {
-    // Fetch all users but DO NOT return their passwords!
+    // ✅ Fetch all users but DO NOT return their passwords!
     const result = await db.query('SELECT id, name, email, role FROM users ORDER BY id ASC');
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching users:", error);
-    res.status(500).json({ message: 'Server error' });
+    next(error); // ✅ Passed to global error handler
   }
 };
 
-exports.createUser = async (req, res) => {
+exports.createUser = async (req, res, next) => {
   try {
     const { name, email, password, role } = req.body;
 
@@ -35,15 +35,15 @@ exports.createUser = async (req, res) => {
     res.status(201).json(newUser.rows[0]);
   } catch (error) {
     console.error("Error creating user:", error);
-    res.status(500).json({ message: 'Server error' });
+    next(error); // ✅ Passed to global error handler
   }
 };
 
-exports.deleteUser = async (req, res) => {
+exports.deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Prevent the admin from deleting themselves!
+    // ✅ Prevent the admin from deleting themselves!
     if (req.user.id === parseInt(id)) {
       return res.status(400).json({ message: 'You cannot delete your own account.' });
     }
@@ -52,6 +52,6 @@ exports.deleteUser = async (req, res) => {
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
     console.error("Error deleting user:", error);
-    res.status(500).json({ message: 'Server error' });
+    next(error); // ✅ Passed to global error handler
   }
 };

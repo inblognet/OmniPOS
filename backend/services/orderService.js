@@ -2,12 +2,10 @@ const db = require('../config/db');
 
 /**
  * ✅ CREATE ORDER: Robust transaction-based logic
- * Handles stock reduction and customer loyalty updates in one atomic step.
  */
 const createOrder = async (orderData) => {
   const { customerId, total, totalAmount, paymentMethod, items, pointsRedeemed, pointsEarned } = orderData;
 
-  // 1. Calculate/Validate Total
   let finalTotal = total || totalAmount;
   if (!finalTotal && items && items.length > 0) {
     finalTotal = items.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
@@ -18,7 +16,7 @@ const createOrder = async (orderData) => {
   const client = await db.pool.connect();
 
   try {
-    await client.query('BEGIN'); // Start Transaction
+    await client.query('BEGIN');
 
     // 2. Insert Main Order Record
     const orderQuery = `
@@ -41,8 +39,6 @@ const createOrder = async (orderData) => {
           `INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)`,
           [savedOrder.id, item.productId, item.quantity, item.price]
         );
-
-        // Deduct stock from products table
         await client.query(
           `UPDATE products SET stock = stock - $1 WHERE id = $2`,
           [item.quantity, item.productId]
@@ -50,7 +46,7 @@ const createOrder = async (orderData) => {
       }
     }
 
-    // 4. Update Customer Loyalty & Spending Stats
+    // 4. Update Customer Loyalty
     if (customerId) {
         const redeemed = pointsRedeemed || 0;
         const earned = pointsEarned || 0;
@@ -60,17 +56,17 @@ const createOrder = async (orderData) => {
              SET loyalty_points = GREATEST(0, loyalty_points - $1 + $2),
                  total_spend = total_spend + $3,
                  total_purchases = total_purchases + 1,
-                 last_visit = NOW()
+                 last_purchase_date = NOW() /* ✅ FIXED THE TYPO HERE! */
              WHERE id = $4`,
             [redeemed, earned, finalTotal, customerId]
         );
     }
 
-    await client.query('COMMIT'); // Finalize changes
+    await client.query('COMMIT');
     return savedOrder;
 
   } catch (e) {
-    await client.query('ROLLBACK'); // Undo everything on failure
+    await client.query('ROLLBACK');
     console.error("❌ SQL Transaction Failed:", e);
     throw e;
   } finally {
@@ -79,7 +75,7 @@ const createOrder = async (orderData) => {
 };
 
 /**
- * ✅ FETCH ALL: Re-synced to include the JSON 'items' column
+ * ✅ FETCH ALL
  */
 const getAllOrders = async () => {
   const query = `
@@ -104,57 +100,57 @@ const getOrderItems = async (orderId) => {
 };
 
 /**
- * ✅ PROCESS REFUND: Handles full and partial refunds, returning items to stock.
+ * ✅ PROCESS REFUND: Now protected by a SQL Transaction!
  */
 const processRefund = async (orderId, refundData) => {
     const { type, items } = refundData;
+    const client = await db.pool.connect();
 
-    if (type === 'full') {
-        // 1. Get all items in the order
-        const result = await db.query('SELECT product_id, quantity FROM order_items WHERE order_id = $1', [orderId]);
-        const orderItems = result.rows;
+    try {
+        await client.query('BEGIN'); // Start Transaction
 
-        // 2. Restore stock for every item
-        for (let item of orderItems) {
-            await db.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
+        if (type === 'full') {
+            const result = await client.query('SELECT product_id, quantity FROM order_items WHERE order_id = $1', [orderId]);
+            const orderItems = result.rows;
+
+            for (let item of orderItems) {
+                await client.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
+            }
+            await client.query("UPDATE orders SET status = 'refunded' WHERE id = $1", [orderId]);
+
+        } else if (type === 'partial') {
+            let refundTotal = 0;
+
+            for (let item of items) {
+                const pId = item.productId || item.product_id;
+                await client.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, pId]);
+                refundTotal += (Number(item.price) * Number(item.quantity));
+                await client.query('DELETE FROM order_items WHERE order_id = $1 AND product_id = $2', [orderId, pId]);
+            }
+
+            await client.query('UPDATE orders SET total_amount = total_amount - $1 WHERE id = $2', [refundTotal, orderId]);
+
+            const check = await client.query('SELECT COUNT(*) FROM order_items WHERE order_id = $1', [orderId]);
+            if (parseInt(check.rows[0].count) === 0) {
+                await client.query("UPDATE orders SET status = 'refunded' WHERE id = $1", [orderId]);
+            }
         }
 
-        // 3. Mark the order as completely refunded
-        await db.query("UPDATE orders SET status = 'refunded' WHERE id = $1", [orderId]);
+        await client.query('COMMIT'); // Finalize changes
+        return { success: true, message: "Refund processed successfully" };
 
-    } else if (type === 'partial') {
-        let refundTotal = 0;
-
-        for (let item of items) {
-            // Handle naming differences (productId vs product_id)
-            const pId = item.productId || item.product_id;
-
-            // 1. Restore stock for just these specific items
-            await db.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, pId]);
-
-            // Calculate how much money to deduct
-            refundTotal += (Number(item.price) * Number(item.quantity));
-
-            // 2. Remove the refunded item from the order receipt
-            await db.query('DELETE FROM order_items WHERE order_id = $1 AND product_id = $2', [orderId, pId]);
-        }
-
-        // 3. Deduct the refund amount from the total order amount
-        await db.query('UPDATE orders SET total_amount = total_amount - $1 WHERE id = $2', [refundTotal, orderId]);
-
-        // 4. Safety Check: If they refunded all items one-by-one, mark the whole order as refunded
-        const check = await db.query('SELECT COUNT(*) FROM order_items WHERE order_id = $1', [orderId]);
-        if (parseInt(check.rows[0].count) === 0) {
-            await db.query("UPDATE orders SET status = 'refunded' WHERE id = $1", [orderId]);
-        }
+    } catch (e) {
+        await client.query('ROLLBACK'); // Undo everything on failure
+        console.error("❌ Refund Transaction Failed:", e);
+        throw e;
+    } finally {
+        client.release();
     }
-
-    return { success: true, message: "Refund processed successfully" };
 };
 
 module.exports = {
     createOrder,
     getAllOrders,
     getOrderItems,
-    processRefund // ✅ Ensure the new function is exported
+    processRefund
 };

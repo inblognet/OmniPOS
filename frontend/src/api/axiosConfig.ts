@@ -1,15 +1,15 @@
 import axios from 'axios';
 
 const axiosInstance = axios.create({
-  // ✅ Live Render Production Backend
-  baseURL: 'https://omnipos-backend.onrender.com/api',
+  // ✅ Dynamically switches between Localhost (Dev) and Render (Production)
+  baseURL: import.meta.env.VITE_API_URL || 'https://omnipos-backend.onrender.com/api',
   headers: {
     'Content-Type': 'application/json',
   }
   // ❌ DELETED: withCredentials: true (This breaks Electron CORS!)
 });
 
-// ✅ NEW: Request Interceptor to attach the JWT token automatically
+// ✅ Request Interceptor to attach the JWT token automatically
 axiosInstance.interceptors.request.use(
   (config) => {
     // 1. Grab the token we saved during login
@@ -27,7 +27,7 @@ axiosInstance.interceptors.request.use(
   }
 );
 
-// ✅ NEW: Response Interceptor to handle expired tokens
+// ✅ Response Interceptor to handle expired tokens
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -39,7 +39,7 @@ axiosInstance.interceptors.response.use(
       localStorage.removeItem('omnipos_token');
       localStorage.removeItem('omnipos_user');
 
-      // Redirect back to the login screen (using HashRouter format)
+      // Redirect back to the login screen (using HashRouter format for Electron)
       window.location.href = '#/login';
     }
     return Promise.reject(error);

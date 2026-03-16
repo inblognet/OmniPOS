@@ -1,17 +1,13 @@
 const db = require('../config/db');
 
 /**
- * ✅ FETCH SALES DATA (Safe Version)
- * We removed 'refunded_amount' from the direct selection to prevent 500 Errors
- * if the column doesn't exist in your database yet.
+ * ✅ FETCH SALES DATA (Timezone-Safe Version)
+ * We removed 'refunded_amount' from the direct selection to prevent 500 Errors.
  */
 const getSalesData = async (startDate, endDate) => {
-  // Ensure the end date covers the entire last day
-  const start = new Date(startDate).toISOString();
-  const end = new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString();
-
-  // ⚠️ CRITICAL FIX: We use '0 as "refundedAmount"' to prevent crashes
-  // if your database schema hasn't been migrated to include refunds yet.
+  // ⚠️ CRITICAL FIX: We let PostgreSQL handle the date boundaries!
+  // Casting to ::date and adding 1 day ensures we get exactly the whole day,
+  // totally bypassing the Render UTC vs Local timezone offset trap.
   const query = `
     SELECT
       id,
@@ -21,22 +17,23 @@ const getSalesData = async (startDate, endDate) => {
       payment_method as "paymentMethod",
       0 as "refundedAmount"
     FROM orders
-    WHERE created_at BETWEEN $1 AND $2
+    WHERE created_at >= $1::date
+    AND created_at < $2::date + interval '1 day'
     AND status != 'cancelled'
     ORDER BY created_at DESC
   `;
 
   try {
-    const { rows } = await db.query(query, [start, end]);
+    const { rows } = await db.query(query, [startDate, endDate]);
     return rows;
   } catch (err) {
     console.error("❌ SQL Error in getSalesData:", err.message);
-    throw err; // This will show up in your terminal logs now
+    throw err; // This will show up in your terminal logs
   }
 };
 
 /**
- * ✅ FETCH INVENTORY DATA
+ * ✅ FETCH INVENTORY DATA (Now with Error Handling!)
  */
 const getInventoryData = async () => {
   const query = `
@@ -51,8 +48,13 @@ const getInventoryData = async () => {
     ORDER BY name ASC
   `;
 
-  const { rows } = await db.query(query);
-  return rows;
+  try {
+    const { rows } = await db.query(query);
+    return rows;
+  } catch (err) {
+    console.error("❌ SQL Error in getInventoryData:", err.message);
+    throw err;
+  }
 };
 
 module.exports = {

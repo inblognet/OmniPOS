@@ -146,29 +146,39 @@ const deleteProduct = async (id) => {
   }
 };
 
-// ✅ REPORT DAMAGE: Updates stock, increases damaged_qty, and logs the reason
+// ✅ REPORT DAMAGE: Protected by a SQL Transaction for Inventory Integrity
 const reportDamage = async (id, qty, reason) => {
+  if (!db.pool) throw new Error("Database pool not found.");
+  const client = await db.pool.connect();
+
   try {
+    await client.query('BEGIN'); // Start Transaction
+
     // 1. Decrease Stock, Increase Damaged Qty
-    const result = await db.query(`
+    const result = await client.query(`
       UPDATE products
       SET stock = stock - $1, damaged_qty = COALESCE(damaged_qty, 0) + $1
       WHERE id = $2
       RETURNING *
     `, [qty, id]);
 
-    // 2. Log the reason in the new table
+    // 2. Log the reason in the damage logs table
     if (result.rows.length > 0) {
-      await db.query(
+      await client.query(
         'INSERT INTO damage_logs (product_id, qty, reason) VALUES ($1, $2, $3)',
         [id, qty, reason]
       );
     }
 
+    await client.query('COMMIT'); // Finalize changes
     return result.rows[0] ? mapProduct(result.rows[0]) : null;
+
   } catch (error) {
-    console.error("Report Damage Error:", error);
+    await client.query('ROLLBACK'); // Undo stock deduction if log fails
+    console.error("❌ Report Damage Transaction Failed:", error);
     throw error;
+  } finally {
+    client.release();
   }
 };
 

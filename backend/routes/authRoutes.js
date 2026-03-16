@@ -3,9 +3,11 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../config/db');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware'); // ✅ 1. Bring in the bouncer!
 
 // --- 1. REGISTER ROUTE (Create a new user) ---
-router.post('/register', async (req, res) => {
+// 🔒 CRITICAL FIX: Only logged-in Admins can register new staff!
+router.post('/register', protect, authorizeRoles('admin'), async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
@@ -33,6 +35,7 @@ router.post('/register', async (req, res) => {
 });
 
 // --- 2. LOGIN ROUTE (Authenticate user) ---
+// 🟢 PUBLIC: Anyone can try to log in (if they have the right password)
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -55,7 +58,7 @@ router.post('/login', async (req, res) => {
     // Generate JWT
     const token = jwt.sign(
       { id: user.id, role: user.role },
-      process.env.JWT_SECRET, // Make sure this is in your .env file!
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 

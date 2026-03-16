@@ -1,17 +1,19 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
+const { protect, authorizeRoles } = require('../middleware/authMiddleware'); // ✅ 1. Bring the bouncer back!
 
-// ✅ RESTORED: POST /api/orders (Create Order)
+// ✅ 2. Global Check: You MUST be logged in to access anything here
+router.use(protect);
+
+// --- CASHIER ROUTES ---
+// Cashiers need to process sales and view past receipts
 router.post('/', orderController.createOrder);
-
-// GET /api/orders (History)
 router.get('/', orderController.getOrders);
-
-// GET /api/orders/:id/items (Details)
 router.get('/:id/items', orderController.getOrderItems);
 
-// ✅ NEW: POST /api/orders/:id/refund (Process Full/Partial Refund)
-router.post('/:id/refund', orderController.refundOrder);
+// --- MANAGER/ADMIN ROUTES ---
+// 🔒 DANGER ZONE: Protect refunds from unauthorized employee use
+router.post('/:id/refund', authorizeRoles('admin', 'manager'), orderController.refundOrder);
 
 module.exports = router;
