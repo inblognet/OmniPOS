@@ -37,10 +37,13 @@ const CartPanel: React.FC<CartPanelProps> = ({
   const [showRecords, setShowRecords] = useState(false);
   const [recordSearch, setRecordSearch] = useState('');
   const [showCustomItemModal, setShowCustomItemModal] = useState(false);
+
+  // --- Customer Add/Edit Modal State ---
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null);
   const [isSavingCustomer, setIsSavingCustomer] = useState(false);
   const [customerFormData, setCustomerFormData] = useState({ name: '', phone: '', email: '', type: 'Walk-in' as Customer['type'], loyaltyJoined: false });
+  const [activeCustField, setActiveCustField] = useState<'name' | 'phone' | 'email'>('name'); // ✅ Tracks active field for custom keyboard
 
   const [showInternalUnitCalc, setShowInternalUnitCalc] = useState(false);
   const [ucItemName, setUcItemName] = useState('');
@@ -83,11 +86,28 @@ const CartPanel: React.FC<CartPanelProps> = ({
       try { await productService.update(product.id, { ...product, isFavorite: newStatus }); } catch (err) { setCloudProducts(prev => prev.map(p => p.id === product.id ? { ...p, isFavorite: !newStatus } : p)); }
   };
 
-  const handleOpenAddCustomer = () => { setEditingCustomerId(null); setCustomerFormData({ name: '', phone: '', email: '', type: 'Walk-in', loyaltyJoined: false }); setShowCustomerModal(true); };
-  const handleOpenEditCustomer = () => { if (!customer) { alert("Please select a customer first to edit."); return; } setEditingCustomerId(customer.id!); setCustomerFormData({ name: customer.name, phone: (customer as any).phone || '', email: (customer as any).email || '', type: (customer as any).type || 'Walk-in', loyaltyJoined: (customer as any).loyaltyJoined || false }); setShowCustomerModal(true); };
-  const handleSaveCustomer = async (e: React.FormEvent) => {
-      e.preventDefault(); if (!customerFormData.name.trim()) return; setIsSavingCustomer(true);
-      try { let payload: Partial<Customer> = { name: customerFormData.name.trim(), phone: customerFormData.phone, email: customerFormData.email, type: customerFormData.type, loyaltyJoined: customerFormData.loyaltyJoined }; if (editingCustomerId) { const updatedCust = await customerService.update(editingCustomerId, payload); dispatch(setCustomer(updatedCust as any)); } else { const newCust = await customerService.create({ ...(payload as Customer), loyaltyPoints: 0, totalSpend: 0, totalPurchases: 0 }); dispatch(setCustomer(newCust as any)); } setShowCustomerModal(false); } catch (error) { alert("Failed to sync customer."); } finally { setIsSavingCustomer(false); }
+  // ✅ CUSTOMER MODAL HANDLERS
+  const handleOpenAddCustomer = () => { setEditingCustomerId(null); setCustomerFormData({ name: '', phone: '', email: '', type: 'Walk-in', loyaltyJoined: false }); setActiveCustField('name'); setShowCustomerModal(true); };
+  const handleOpenEditCustomer = () => { if (!customer) { alert("Please select a customer first to edit."); return; } setEditingCustomerId(customer.id!); setCustomerFormData({ name: customer.name, phone: (customer as any).phone || '', email: (customer as any).email || '', type: (customer as any).type || 'Walk-in', loyaltyJoined: (customer as any).loyaltyJoined || false }); setActiveCustField('name'); setShowCustomerModal(true); };
+
+  const handleCustKeyPress = (key: string) => {
+      setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField] + key }));
+  };
+  const handleCustBackspace = () => {
+      setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField].slice(0, -1) }));
+  };
+
+  const handleSaveCustomer = async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      if (!customerFormData.name.trim()) return;
+      setIsSavingCustomer(true);
+      try {
+          let payload: Partial<Customer> = { name: customerFormData.name.trim(), phone: customerFormData.phone, email: customerFormData.email, type: customerFormData.type, loyaltyJoined: customerFormData.loyaltyJoined };
+          if (editingCustomerId) { const updatedCust = await customerService.update(editingCustomerId, payload); dispatch(setCustomer(updatedCust as any)); }
+          else { const newCust = await customerService.create({ ...(payload as Customer), loyaltyPoints: 0, totalSpend: 0, totalPurchases: 0 }); dispatch(setCustomer(newCust as any)); }
+          setShowCustomerModal(false);
+      } catch (error) { alert("Failed to sync customer."); }
+      finally { setIsSavingCustomer(false); }
   };
 
   const getNormalizedValue = (val: number, unit: string): number => (unit === 'kg' || unit === 'L') ? val * 1000 : val;
@@ -101,7 +121,6 @@ const CartPanel: React.FC<CartPanelProps> = ({
   const handleRecordKeyPress = (key: string) => setRecordSearch(prev => prev + key);
   const handleRecordBackspace = () => setRecordSearch(prev => prev.slice(0, -1));
 
-  // ✅ FIXED: Re-added missing search key down handler
   const handleItemSearchKeyDown = (e?: React.KeyboardEvent<HTMLInputElement>) => {
       if ((!e || e.key === 'Enter') && filteredItems.length > 0) {
           onAddItem(filteredItems[0]);
@@ -204,18 +223,85 @@ const CartPanel: React.FC<CartPanelProps> = ({
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h3 className="font-bold text-gray-800 flex items-center gap-2"><Package size={18} className="text-blue-600"/> Add Custom Item</h3><button onClick={() => setShowCustomItemModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="p-5 space-y-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Item Name</label><input type="text" autoFocus value={customItemName} onChange={e=>setCustomItemName(e.target.value)} onFocus={onInputFocus} className="w-full px-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium"/></div><div className="flex gap-3"><div className="flex-1"><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Price</label><input type="number" value={customItemPrice} onChange={e=>setCustomItemPrice(e.target.value)} onFocus={onInputFocus} className="w-full px-3 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg"/></div><div className="w-1/3"><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tax</label><button onClick={()=>setCustomItemTax(!customItemTax)} className={`w-full py-3 rounded-xl text-xs font-bold border transition-colors ${customItemTax ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-50 text-gray-400 border-gray-200'}`}>{customItemTax ? 'Tax On' : 'No Tax'}</button></div></div><button onClick={() => { handleAddCustomItem(); setShowCustomItemModal(false); }} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold shadow-xl mt-2 active:scale-95 transition-all">Add to Cart</button></div></div></div>
       )}
 
+      {/* ✅ NEW REDESIGNED CUSTOMER ADD/EDIT MODAL (SPLIT SCREEN WITH KEYBOARD) */}
       {showCustomerModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95"><div className="px-6 py-5 border-b flex justify-between items-center bg-gray-50"><h3 className="font-black text-gray-900 uppercase tracking-tight">{editingCustomerId ? "Update Customer" : "Quick Add Customer"}</h3><button onClick={() => setShowCustomerModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-400"><X size={20} /></button></div><form onSubmit={handleSaveCustomer} className="p-8 space-y-5"><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Customer Name *</label><input type="text" required autoFocus value={customerFormData.name} onFocus={onInputFocus} onChange={(e) => setCustomerFormData({...customerFormData, name: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-800"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Contact Phone</label><input type="tel" value={customerFormData.phone} onFocus={onInputFocus} onChange={(e) => setCustomerFormData({...customerFormData, phone: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-800"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email Address</label><input type="email" value={customerFormData.email} onFocus={onInputFocus} onChange={(e) => setCustomerFormData({...customerFormData, email: e.target.value})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-bold text-gray-800" placeholder="customer@email.com"/></div><div><label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tier Classification</label><select value={customerFormData.type} onChange={(e) => setCustomerFormData({...customerFormData, type: e.target.value as Customer['type']})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold bg-white outline-none focus:ring-2 focus:ring-blue-500"><option value="Walk-in">Walk-in</option><option value="Registered">Registered</option><option value="Member">Member</option><option value="Wholesale">Wholesale</option></select></div><div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 flex items-center justify-between"><span className="text-xs font-black text-blue-900">Enroll in Loyalty Program</span><input type="checkbox" checked={customerFormData.loyaltyJoined} onChange={(e) => setCustomerFormData({...customerFormData, loyaltyJoined: e.target.checked})} className="w-5 h-5 text-blue-600 rounded cursor-pointer"/></div><button type="submit" disabled={isSavingCustomer} className="w-full py-4 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-black transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">{isSavingCustomer ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Save size={18} /> {editingCustomerId ? "Save Changes" : "Create & Select"}</>}</button></form></div></div>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl overflow-hidden animate-in fade-in zoom-in-95 flex flex-col h-[600px]">
+                <div className="px-6 py-5 border-b flex justify-between items-center bg-gray-50 shrink-0">
+                    <h3 className="font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
+                        {editingCustomerId ? <Edit3 className="text-teal-500"/> : <UserPlus className="text-emerald-500"/>}
+                        {editingCustomerId ? "Update Customer" : "Quick Add Customer"}
+                    </h3>
+                    <button onClick={() => setShowCustomerModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-400"><X size={20} /></button>
+                </div>
+                <div className="flex flex-1 overflow-hidden">
+                    {/* LEFT SIDE: Form */}
+                    <div className="w-1/2 p-6 border-r border-gray-100 overflow-y-auto flex flex-col">
+                        <div className="space-y-4 flex-1">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Customer Name *</label>
+                                <input type="text" readOnly value={customerFormData.name} onClick={() => setActiveCustField('name')} className={`w-full px-4 py-3 border-2 rounded-xl outline-none font-bold text-gray-800 cursor-pointer transition-all ${activeCustField === 'name' ? 'border-blue-500 bg-white ring-4 ring-blue-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Contact Phone</label>
+                                <input type="tel" readOnly value={customerFormData.phone} onClick={() => setActiveCustField('phone')} className={`w-full px-4 py-3 border-2 rounded-xl outline-none font-bold text-gray-800 cursor-pointer transition-all ${activeCustField === 'phone' ? 'border-blue-500 bg-white ring-4 ring-blue-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}/>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email Address</label>
+                                <input type="email" readOnly value={customerFormData.email} onClick={() => setActiveCustField('email')} className={`w-full px-4 py-3 border-2 rounded-xl outline-none font-bold text-gray-800 cursor-pointer transition-all ${activeCustField === 'email' ? 'border-blue-500 bg-white ring-4 ring-blue-50' : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}/>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Tier Classification</label>
+                                    <select value={customerFormData.type} onChange={(e) => setCustomerFormData({...customerFormData, type: e.target.value as Customer['type']})} className="w-full px-4 py-3 border-2 border-gray-100 rounded-xl font-bold bg-white outline-none focus:border-blue-500 cursor-pointer">
+                                        <option value="Walk-in">Walk-in</option>
+                                        <option value="Registered">Registered</option>
+                                        <option value="Member">Member</option>
+                                        <option value="Wholesale">Wholesale</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Loyalty Program</label>
+                                    <div className="h-[52px] bg-blue-50/50 px-4 rounded-xl border border-blue-100 flex items-center justify-between cursor-pointer hover:bg-blue-50 transition-colors" onClick={() => setCustomerFormData({...customerFormData, loyaltyJoined: !customerFormData.loyaltyJoined})}>
+                                        <span className="text-sm font-black text-blue-900">Enroll</span>
+                                        <input type="checkbox" readOnly checked={customerFormData.loyaltyJoined} className="w-5 h-5 text-blue-600 rounded cursor-pointer pointer-events-none"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button onClick={() => handleSaveCustomer()} disabled={isSavingCustomer || !customerFormData.name.trim()} className="w-full py-4 mt-4 bg-gray-900 text-white rounded-xl font-black text-sm hover:bg-black transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+                            {isSavingCustomer ? <><Loader2 size={18} className="animate-spin" /> Saving...</> : <><Save size={18} /> {editingCustomerId ? "Save Changes" : "Create & Select"}</>}
+                        </button>
+                    </div>
+
+                    {/* RIGHT SIDE: Keyboard */}
+                    <div className="w-1/2 bg-gray-50 p-4 border-l border-gray-200">
+                        <div className="h-full flex flex-col justify-end">
+                            <VirtualKeyboard
+                                layout={activeCustField === 'phone' ? 'numeric' : 'full'}
+                                onKeyPress={handleCustKeyPress}
+                                onBackspace={handleCustBackspace}
+                                onEnter={() => handleSaveCustomer()}
+                                className="h-full border-none shadow-none bg-transparent"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
       )}
 
+      {/* --- ITEM SEARCH MODAL --- */}
       {showItemSearch && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col h-[700px] animate-in fade-in zoom-in-95"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0"><h3 className="font-bold text-gray-800 flex items-center gap-2"><Search size={18} className="text-blue-600"/> Search Item</h3><button onClick={() => {setShowItemSearch(false); setItemSearchQuery('');}} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="flex flex-1 overflow-hidden"><div className="w-1/2 border-r border-gray-100 flex flex-col bg-gray-50"><div className="p-3 text-xs font-bold text-gray-400 uppercase tracking-wider">Search Results ({filteredItems.length})</div><div className="flex-1 overflow-y-auto p-2">{filteredItems.length === 0 ? <div className="text-center text-gray-400 py-10">Type to search...</div> :<div className="space-y-2">{filteredItems.map(product => (<button key={product.id} onClick={() => onAddItem(product)} className="w-full flex justify-between items-center p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all text-left group"><div><div className="font-bold text-gray-800 group-hover:text-blue-700">{product.name}</div><div className="text-xs text-gray-400">SKU: {product.sku || 'N/A'} • {product.stock} in stock</div></div><div className="font-bold text-gray-600 group-hover:text-blue-600">{currency}{Number(product.price).toFixed(2)}</div></button>))}</div>}</div></div><div className="w-1/2 p-5 flex flex-col bg-white"><div className="mb-4"><label className="block text-xs font-bold text-gray-400 uppercase mb-1">Search Query</label><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} /><input type="text" autoFocus value={itemSearchQuery} onChange={(e) => setItemSearchQuery(e.target.value)} onKeyDown={handleItemSearchKeyDown} placeholder="Type Name, SKU or Barcode..." className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none text-lg font-bold" /></div></div><div className="flex-1"><VirtualKeyboard layout="full" onKeyPress={handleSearchItemKeyPress} onBackspace={handleSearchItemBackspace} onEnter={() => handleItemSearchKeyDown()} className="h-full border-none shadow-none bg-gray-50" /></div></div></div></div></div>
       )}
 
+      {/* --- VIEW RECORDS MODAL --- */}
       {showRecords && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col h-[600px] animate-in fade-in zoom-in-95"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0"><h3 className="font-bold text-gray-800 flex items-center gap-2"><List size={18} className="text-blue-600"/> Sales Records</h3><button onClick={() => {setShowRecords(false); setRecordSearch('');}} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="flex flex-1 overflow-hidden"><div className="w-2/3 flex flex-col border-r border-gray-100"><div className="p-4 border-b border-gray-100 bg-white"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} /><input type="text" placeholder="Search Sale ID (e.g. 24)" value={recordSearch} onChange={(e) => setRecordSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" /></div></div><div className="flex-1 overflow-y-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] sticky top-0"><tr><th className="px-4 py-3">ID</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Items</th><th className="px-4 py-3 text-right">Total</th><th className="px-4 py-3 text-center">Actions</th></tr></thead><tbody className="divide-y divide-gray-100">{recordsLoading ? (<tr><td colSpan={5} className="text-center py-8 text-gray-400"><Loader2 className="animate-spin inline mr-2"/> Loading Records...</td></tr>) : filteredHistory.length === 0 ? (<tr><td colSpan={5} className="text-center py-8 text-gray-400">No records found.</td></tr>) : (filteredHistory.map(order => (<tr key={order.id} className="hover:bg-blue-50 transition-colors group"><td className="px-4 py-3 font-bold text-gray-700">#{order.id}</td><td className="px-4 py-3 text-gray-500 flex items-center gap-1"><Calendar size={12}/> {new Date(order.created_at || order.timestamp).toLocaleDateString()}</td><td className="px-4 py-3 text-gray-600">{(order.items || []).length} items</td><td className="px-4 py-3 text-right font-bold text-gray-800">{currency}{Number(order.total || order.total_amount).toFixed(2)}</td><td className="px-4 py-3 flex justify-center gap-2"><button onClick={() => onReprintClick && onReprintClick()} className="p-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-blue-100 hover:text-blue-600 transition-colors" title="Reprint"><Printer size={14}/></button></td></tr>)))}</tbody></table></div></div><div className="w-1/3 bg-gray-50 p-4"><div className="h-full flex flex-col justify-end"><VirtualKeyboard layout="numeric" onKeyPress={handleRecordKeyPress} onBackspace={handleRecordBackspace} onEnter={() => {}} className="h-full border-none shadow-none bg-transparent" /></div></div></div></div></div>
       )}
 
+      {/* --- UNIT CALCULATOR MODAL --- */}
       {showInternalUnitCalc && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 flex flex-col h-[700px]"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 shrink-0"><h3 className="font-bold text-gray-800 flex items-center gap-2"><Calculator size={18} className="text-purple-600"/> Unit Calculator</h3><button onClick={() => setShowInternalUnitCalc(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="flex flex-1 overflow-hidden"><div className="w-1/2 p-5 border-r border-gray-100 overflow-y-auto flex flex-col gap-4"><div><label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Unit Type</label><div className="flex bg-gray-100 p-1 rounded-lg">{['g', 'kg', 'ml', 'L', 'pcs'].map(u => (<button key={u} onClick={() => setUcUnitType(u)} className={`flex-1 py-1 text-sm font-bold rounded-md transition-all ${ucUnitType === u ? 'bg-white text-purple-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{u}</button>))}</div></div><div><label className="block text-xs font-bold text-gray-500 mb-1">Item Name</label><input type="text" readOnly placeholder="e.g. Loose Rice" value={ucItemName} onClick={() => setActiveUcField('name')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'name' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-gray-500 mb-1">Base Price ($)</label><input type="text" readOnly placeholder="0.00" value={ucBasePrice} onClick={() => setActiveUcField('price')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'price' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div><div><label className="block text-xs font-bold text-gray-500 mb-1">Unit Size ({ucUnitType})</label><input type="text" readOnly placeholder="1" value={ucUnitSize} onClick={() => setActiveUcField('size')} className={`w-full px-3 py-2 border rounded-lg font-bold outline-none cursor-pointer transition-all ${activeUcField === 'size' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div></div><div><label className="block text-xs font-bold text-gray-500 mb-1">Customer Quantity ({ucUnitType})</label><input type="text" readOnly placeholder="0" value={ucQuantity} onClick={() => setActiveUcField('qty')} className={`w-full px-3 py-2 border rounded-lg font-bold text-lg outline-none cursor-pointer transition-all ${activeUcField === 'qty' ? 'border-purple-500 ring-2 ring-purple-100 bg-white' : 'border-gray-300 bg-gray-50'}`} /></div><div className="bg-purple-50 p-3 rounded-lg flex justify-between items-center border border-purple-100 mt-auto"><div className="text-xs text-purple-600 font-medium">Calculated Cost</div><div className="text-xl font-black text-purple-800">{currency}{unitCalcTotal.toFixed(2)}</div></div><button onClick={handleAddUnitItem} disabled={unitCalcTotal <= 0} className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"><Plus size={18} /> Add Calculated Item</button></div><div className="w-1/2 bg-gray-50 p-4 border-l border-gray-200"><div className="h-full flex flex-col justify-end"><VirtualKeyboard layout={activeUcField === 'name' ? 'full' : 'numeric'} onKeyPress={handleUcKeyPress} onBackspace={handleUcBackspace} onEnter={handleAddUnitItem} className="h-full border-none shadow-none bg-transparent" /></div></div></div></div></div>
       )}
