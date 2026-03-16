@@ -7,12 +7,12 @@ import { productService, Category } from '../../services/productService';
 import api from '../../api/axiosConfig';
 import Barcode from 'react-barcode';
 import { QRCodeSVG } from 'qrcode.react';
-import * as XLSX from 'xlsx'; // ✅ NEW: Enterprise Excel Library
+import * as XLSX from 'xlsx'; // ✅ Enterprise Excel Library
 import {
   Search, Plus, Edit, Trash2, X, Save,
   Tag, DollarSign, Box, Layers, AlertTriangle, CheckCircle, Ban, RefreshCw, FolderTree, ChevronDown, Settings, Calendar,
   Scan, QrCode, Printer, CheckSquare, Square, PackagePlus,
-  Activity, AlertOctagon, LayoutGrid, Archive, List, Download, Upload, FileSpreadsheet // ✅ Added Excel Icons
+  Activity, AlertOctagon, LayoutGrid, Archive, List, Download, Upload, FileSpreadsheet
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
@@ -153,7 +153,6 @@ const InventoryScreen: React.FC = () => {
   // --- EXCEL LOGIC START ---
 
   const handleDownloadTemplate = () => {
-    // 1. Define strict headers so the import doesn't corrupt advanced features
     const templateData = [{
       "Name*": "Example Product",
       "Category": "General",
@@ -166,7 +165,6 @@ const InventoryScreen: React.FC = () => {
     }];
     const ws = XLSX.utils.json_to_sheet(templateData);
 
-    // Add instruction sheet
     const instructionsData = [
       ["INSTRUCTIONS FOR BULK IMPORT"],
       ["1. Columns marked with * are REQUIRED."],
@@ -206,6 +204,7 @@ const InventoryScreen: React.FC = () => {
     setShowExcelMenu(false);
   };
 
+  // ✅ UPGRADED: Flexible Excel Importer with Fuzzy Matching
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -220,7 +219,6 @@ const InventoryScreen: React.FC = () => {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
 
-        // Convert to JSON
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet);
 
         if (rawJson.length === 0) {
@@ -232,23 +230,45 @@ const InventoryScreen: React.FC = () => {
         let successCount = 0;
         let failCount = 0;
 
-        // Process sequentially to not overload the backend
+        // Helper function to find a column name using "fuzzy matching" (ignores case and spaces)
+        const findVal = (row: any, ...possibleKeys: string[]) => {
+            const rowKeys = Object.keys(row);
+            for (let pk of possibleKeys) {
+                const pkClean = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+                for (let actualKey of rowKeys) {
+                    const actualClean = actualKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (pkClean === actualClean) {
+                        return row[actualKey];
+                    }
+                }
+            }
+            return undefined;
+        };
+
         for (const row of rawJson) {
           try {
-            const name = row['Name*'] || row['Name'];
-            const price = parseFloat(row['Price*'] || row['Price']);
+            // Flexible Data Extraction
+            const name = findVal(row, 'Name*', 'Name', 'Product Name', 'Item');
+            const rawPrice = findVal(row, 'Price*', 'Price', 'Selling Price', 'Retail Price');
+            const price = parseFloat(rawPrice);
 
-            // STRICT VALIDATION
+            // STRICT VALIDATION: Must have Name and valid Price
             if (!name || isNaN(price)) {
               failCount++;
               continue;
             }
 
-            const stockVal = parseFloat(row['Stock']) || 0;
-            const category = row['Category'] || 'Uncategorized';
+            const rawCost = findVal(row, 'CostPrice', 'Cost Price', 'Cost');
+            const costPrice = parseFloat(rawCost) || 0;
 
-            // SAFETY NET: If Expiry Tracking is ON, raw stock breaks the app.
-            // We must create a dummy batch for them.
+            const rawStock = findVal(row, 'Stock', 'Quantity', 'Qty');
+            const stockVal = parseFloat(rawStock) || 0;
+
+            const category = findVal(row, 'Category', 'Department', 'Group') || 'Uncategorized';
+            const sku = findVal(row, 'SKU', 'Item Code') || '';
+            const barcode = findVal(row, 'Barcode', 'UPC', 'EAN') || '';
+            const unit = findVal(row, 'Unit', 'UOM', 'Measure') || config.defaultUnit || 'pcs';
+
             const batches: ProductBatch[] = [];
             if (config.features.expiryTracking && stockVal > 0) {
               batches.push({
@@ -259,25 +279,24 @@ const InventoryScreen: React.FC = () => {
               });
             }
 
-const payload: Omit<Product, 'id'> = {
+            const payload: Omit<Product, 'id'> = {
               name: String(name).trim(),
               price: price,
-              costPrice: parseFloat(row['CostPrice']) || 0,
-              wholesalePrice: 0,       // ✅ Added missing default
-              minSellingPrice: 0,    // ✅ Added missing default
+              costPrice: costPrice,
+              wholesalePrice: 0,
+              minSellingPrice: 0,
               stock: stockVal,
               category: String(category).trim(),
-              brand: '',             // ✅ Added missing default
-              sku: row['SKU'] ? String(row['SKU']).trim() : '',
-              barcode: row['Barcode'] ? String(row['Barcode']).trim() : '',
-              unit: row['Unit'] ? String(row['Unit']).trim() : config.defaultUnit || 'pcs',
-              fractionalAllowed: false, // ✅ FIXED: The missing property TypeScript was yelling about!
+              brand: '',
+              sku: String(sku).trim(),
+              barcode: String(barcode).trim(),
+              unit: String(unit).trim(),
+              fractionalAllowed: false,
 
-              // Safe defaults for advanced features
               type: 'Stock',
-              variantGroup: '',      // ✅ Added missing default
-              variantName: '',       // ✅ Added missing default
-              serialNumber: '',      // ✅ Added missing default
+              variantGroup: '',
+              variantName: '',
+              serialNumber: '',
               stockIssueDate: '',
               stockExpiryDate: '',
               batchNumber: '',
@@ -295,7 +314,6 @@ const payload: Omit<Product, 'id'> = {
               updatedAt: new Date().toISOString()
             };
 
-            // Call your ultra-secure backend service
             await productService.create(payload);
             successCount++;
 
@@ -307,7 +325,6 @@ const payload: Omit<Product, 'id'> = {
 
         alert(`Import Complete!\n✅ Successfully added: ${successCount}\n❌ Failed/Skipped: ${failCount} (Check if Name/Price were missing)`);
 
-        // Reload UI
         setShowExcelMenu(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         await loadData();
@@ -515,7 +532,7 @@ const payload: Omit<Product, 'id'> = {
         <div className="flex gap-2 relative">
           <button onClick={handleOpenConfig} className="bg-white border px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm"><Settings size={18} /> Configure Shop</button>
 
-          {/* ✅ NEW: EXCEL BULK TOOLS MENU */}
+          {/* ✅ EXCEL BULK TOOLS MENU */}
           <div className="relative">
             <button onClick={() => setShowExcelMenu(!showExcelMenu)} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 hover:bg-emerald-700">
               <FileSpreadsheet size={18} /> Bulk Tools <ChevronDown size={14} />
