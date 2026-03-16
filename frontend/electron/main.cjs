@@ -28,8 +28,8 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: 1920,
+    height: 1080,
     title: "OmniPOS",
     autoHideMenuBar: true,
     icon: path.join(__dirname, '../build/icon.ico'),
