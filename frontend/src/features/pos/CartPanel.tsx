@@ -287,7 +287,7 @@ const CartPanel: React.FC<CartPanelProps> = ({
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-2 mb-2 shadow-inner animate-in fade-in zoom-in-95 duration-200 shrink-0">
             <div className="flex justify-between items-center mb-1">
                 <span className="text-[10px] font-black text-blue-900 uppercase tracking-wider">Item Controls</span>
-                <button onClick={onCancelItem} className="text-[10px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1"><Trash2 size={12}/> Remove</button>
+                <button onClick={onCancelItem} className="text-[10px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1"><Trash2 size={50}/> Remove</button>
             </div>
             <div className="flex gap-2 h-8">
                 <div className="flex bg-white rounded-lg border border-blue-200 overflow-hidden shrink-0 shadow-sm">
