@@ -74,6 +74,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
   const [step5Selection, setStep5Selection] = useState<'none' | 'whatsapp' | 'email' | 'sms'>('none');
   const [showKeyboard, setShowKeyboard] = useState(true);
 
+  const modalRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const paymentInputRef = useRef<HTMLInputElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -140,25 +141,22 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
     }
   }, [isOpen, customer, settings]);
 
-  // --- Auto-Focus ---
+  // --- ✅ Auto-Focus Engine ---
   useEffect(() => {
+    if (!isOpen) return;
     const timer = setTimeout(() => {
-      if (step === 1 && searchInputRef.current) searchInputRef.current.focus();
-      if (step === 3) {
-        if (paidAmount === '') setPaidAmount(finalTotal.toFixed(2));
-        if (paymentInputRef.current) {
-          paymentInputRef.current.focus();
-          paymentInputRef.current.select();
-        }
+      if (step === 1) {
+          searchInputRef.current?.focus(); // Forces focus into Step 1 input
+      } else if (step === 3) {
+          if (paidAmount === '') setPaidAmount(finalTotal.toFixed(2));
+          paymentInputRef.current?.focus();
+          paymentInputRef.current?.select();
+      } else {
+          modalRef.current?.focus(); // Grabs global focus for Steps 2, 4, and 5
       }
-      if (step === 5) {
-        if (sendWhatsapp && phoneInputRef.current) phoneInputRef.current.focus();
-        else if (sendEmail && emailInputRef.current) emailInputRef.current.focus();
-        else if (sendSms && smsInputRef.current) smsInputRef.current.focus();
-      }
-    }, 150);
+    }, 100);
     return () => clearTimeout(timer);
-  }, [step, isOpen, finalTotal, sendWhatsapp, sendEmail, sendSms]);
+  }, [step, isOpen, finalTotal]);
 
   // --- LISTEN FOR CFD CUSTOMER INPUT ---
   useEffect(() => {
@@ -213,7 +211,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
     }
   }, [cfdState, isOpen, cloudCustomers]);
 
-  // --- ✅ OFFLINE-READY FINALIZE FUNCTION ---
+  // --- OFFLINE-READY FINALIZE FUNCTION ---
   const handleFinalize = useCallback(async () => {
     if (isProcessing) return;
     setIsProcessing(true);
@@ -235,13 +233,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
       let newOrder: any;
       let orderId: string;
 
-      // 🌐 THE MAGIC NETWORK INTERCEPT
       if (navigator.onLine) {
-        // 🟢 ONLINE: Send to your Render API
         newOrder = await orderService.create(orderPayload);
         orderId = newOrder.id;
       } else {
-        // 🔴 OFFLINE: Send to your Local SQLite Database!
         if (window.electronAPI) {
           const response = await window.electronAPI.saveOfflineOrder(orderPayload);
           if (!response.success) throw new Error(response.error);
@@ -266,7 +261,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         }
       };
 
-      // 📱 DIGITAL RECEIPTS (Only run if we have internet!)
       if (navigator.onLine) {
         if (sendWhatsapp && waPhone && settings?.whatsappEnabled) {
           setWaStatus('sending');
@@ -306,10 +300,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         }
       }
 
-      // Tell CFD we succeeded!
       broadcast({ type: 'CHECKOUT_SUCCESS' } as any);
 
-      // Finish and clear cart!
       setTimeout(() => {
         onComplete({
           ...newOrder,
@@ -410,79 +402,89 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
     }
   };
 
-  // --- Keyboard Listeners ---
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (step === 5) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          handleFinalize();
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setStep5Selection(prev => {
-            if (prev === 'email') return 'whatsapp';
-            if (prev === 'sms') return 'email';
-            return 'whatsapp';
-          });
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setStep5Selection(prev => {
-            if (prev === 'whatsapp') return 'email';
-            if (prev === 'email') return 'sms';
-            return 'sms';
-          });
-        } else if (e.key === ' ' || e.key === 'Spacebar') {
-          e.preventDefault();
-          if (step5Selection === 'whatsapp' && settings?.whatsappEnabled) setSendWhatsapp(p => !p);
-          if (step5Selection === 'email' && settings?.emailEnabled) setSendEmail(p => !p);
-          if (step5Selection === 'sms' && settings?.smsEnabled) setSendSms(p => !p);
-        }
-      } else {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          goNext();
-        } else if (e.key === 'ArrowRight') {
-          return;
-        }
-      }
+  // --- ✅ NEW KEYBOARD ENGINE ---
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isTextInput = document.activeElement?.tagName === 'INPUT' && document.activeElement?.getAttribute('type') !== 'checkbox';
 
+      // Global ESC = Go Back a Step (or close if on step 1)
       if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        setShowKeyboard(prev => !prev);
-      } else if (e.key === 'Backspace') {
-        if ((step === 1 && document.activeElement === searchInputRef.current) ||
-          (step === 3 && document.activeElement === paymentInputRef.current) ||
-          (step === 5 && (document.activeElement === phoneInputRef.current || document.activeElement === emailInputRef.current || document.activeElement === smsInputRef.current))) {
+          e.preventDefault();
+          goBack();
           return;
-        }
-        e.preventDefault();
-        goBack();
       }
 
-      if (step === 2) {
-        if (e.key === 'ArrowRight') setUsePoints(true);
-        else if (e.key === 'ArrowLeft') setUsePoints(false);
-      } else if (step === 4) {
-        const methods: ('Cash' | 'Card' | 'QR')[] = ['Cash', 'Card', 'QR'];
-        if (e.key === 'ArrowRight') setPaymentMethod(methods[(methods.indexOf(paymentMethod) + 1) % 3]);
-        else if (e.key === 'ArrowLeft') setPaymentMethod(methods[(methods.indexOf(paymentMethod) - 1 + 3) % 3]);
+      if (e.key === 'Home') {
+          e.preventDefault();
+          setShowKeyboard(prev => !prev);
+          return;
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, step, customerSearch, filteredCustomers, paidAmount, finalTotal, paymentMethod, sendWhatsapp, waPhone, sendEmail, emailAddress, sendSms, smsPhone, step5Selection, handleFinalize]);
+
+      // 🛒 STEP 1: Search
+      if (step === 1) {
+          if (e.key === 'Enter') { e.preventDefault(); goNext(); }
+      }
+      // 🎁 STEP 2: Loyalty
+      else if (step === 2) {
+          if (e.key === 'Enter') { e.preventDefault(); goNext(); }
+          if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === ' ') {
+              e.preventDefault();
+              setUsePoints(prev => !prev);
+          }
+      }
+      // 💵 STEP 3: Amount
+      else if (step === 3) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              if (parseFloat(paidAmount || '0') >= finalTotal) goNext();
+          }
+      }
+      // 💳 STEP 4: Method (Arrow Left/Right works here)
+      else if (step === 4) {
+          if (e.key === 'Enter') { e.preventDefault(); goNext(); }
+          const methods: ('Cash' | 'Card' | 'QR')[] = ['Cash', 'Card', 'QR'];
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              setPaymentMethod(methods[(methods.indexOf(paymentMethod) + 1) % 3]);
+          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              setPaymentMethod(methods[(methods.indexOf(paymentMethod) - 1 + 3) % 3]);
+          }
+      }
+      // 📩 STEP 5: Finalize (Up/Down + Space works here)
+      else if (step === 5) {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              if (!isTextInput) handleFinalize();
+              else modalRef.current?.focus(); // Step out of input box
+          } else if (e.key === 'ArrowUp') {
+              if (isTextInput) return;
+              e.preventDefault();
+              setStep5Selection(prev => prev === 'email' ? 'whatsapp' : prev === 'sms' ? 'email' : 'whatsapp');
+          } else if (e.key === 'ArrowDown') {
+              if (isTextInput) return;
+              e.preventDefault();
+              setStep5Selection(prev => prev === 'whatsapp' ? 'email' : prev === 'email' ? 'sms' : 'sms');
+          } else if (e.key === ' ') {
+              if (isTextInput) return;
+              e.preventDefault();
+              if (step5Selection === 'whatsapp' && settings?.whatsappEnabled) { setSendWhatsapp(p => !p); if(!sendWhatsapp) setTimeout(() => phoneInputRef.current?.focus(), 50); }
+              if (step5Selection === 'email' && settings?.emailEnabled) { setSendEmail(p => !p); if(!sendEmail) setTimeout(() => emailInputRef.current?.focus(), 50); }
+              if (step5Selection === 'sms' && settings?.smsEnabled) { setSendSms(p => !p); if(!sendSms) setTimeout(() => smsInputRef.current?.focus(), 50); }
+          }
+      }
+  };
 
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
+    // ✅ FOCUS WRAPPER FOR NAVIGATION ENGINE
+    <div
+      ref={modalRef}
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200 outline-none"
+    >
       <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[700px]">
         {/* Header */}
         <div className="bg-gray-900 text-white p-5 flex justify-between items-center shrink-0">
@@ -494,10 +496,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
             <div className="text-sm text-gray-400 mt-1">{itemsCount} Items • Total: {currency}{finalTotal.toFixed(2)}</div>
           </div>
           <div className="flex items-center gap-4">
-            <button onClick={() => setShowKeyboard(!showKeyboard)} className="flex items-center gap-1 text-xs font-bold bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors">
+            <button onClick={() => setShowKeyboard(!showKeyboard)} tabIndex={-1} className="flex items-center gap-1 text-xs font-bold bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700 hover:bg-gray-700 transition-colors">
               <KeyboardIcon size={14} /> {showKeyboard ? 'Hide' : 'Show'}
             </button>
-            <button onClick={onClose}><X size={28} className="text-gray-400 hover:text-white" /></button>
+            <button onClick={onClose} tabIndex={-1}><X size={28} className="text-gray-400 hover:text-white" /></button>
           </div>
         </div>
 
@@ -531,7 +533,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
 
           {/* Step 2: Loyalty */}
           {step === 2 && selectedCustomer && (
-            <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 justify-center">
+            <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 justify-center outline-none">
               <h3 className="text-lg font-bold text-gray-700 mb-6 flex items-center gap-2"><Coins /> Loyalty Program</h3>
               <div onClick={() => setUsePoints(!usePoints)} className={`p-8 rounded-2xl border-4 cursor-pointer transition-all ${usePoints ? 'bg-purple-50 border-purple-500' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
                 <div className="flex justify-between items-center mb-4">
@@ -539,7 +541,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
                   <div className="text-xl bg-gray-200 text-gray-700 px-4 py-1 rounded-full font-bold">{selectedCustomer.loyaltyPoints || 0} pts</div>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xl font-medium text-gray-600">Redeem {maxRedeemablePoints} Points?</span>
+                  <span className="text-xl font-medium text-gray-600">Redeem {maxRedeemablePoints} Points? (Press Space)</span>
                   {usePoints ? <CheckCircle size={32} className="text-purple-600"/> : <div className="w-8 h-8 rounded-full border-2 border-gray-300"></div>}
                 </div>
                 {usePoints && <div className="mt-4 text-3xl font-black text-purple-700 text-right">Saving: -{currency}{pointsDiscount.toFixed(2)}</div>}
@@ -572,11 +574,11 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
 
           {/* Step 4: Method */}
           {step === 4 && (
-            <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 justify-center">
+            <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-4 justify-center outline-none">
               <h3 className="text-lg font-bold text-gray-700 mb-6 flex items-center gap-2"><CreditCard /> Select Method</h3>
               <div className="grid grid-cols-3 gap-6 h-64">
                 {['Cash', 'Card', 'QR'].map((method) => (
-                  <button key={method} onClick={() => setPaymentMethod(method as any)} className={`rounded-2xl border-4 flex flex-col items-center justify-center gap-4 transition-all ${paymentMethod === method ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xl scale-105' : 'border-gray-200 bg-white text-gray-400 hover:border-gray-300'}`}>
+                  <button key={method} tabIndex={-1} onClick={() => setPaymentMethod(method as any)} className={`rounded-2xl border-4 flex flex-col items-center justify-center gap-4 transition-all ${paymentMethod === method ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-xl scale-105' : 'border-gray-200 bg-white text-gray-400 hover:border-gray-300'}`}>
                     {method === 'Cash' && <Banknote size={48} />}
                     {method === 'Card' && <CreditCard size={48} />}
                     {method === 'QR' && <QrCode size={48} />}
@@ -589,7 +591,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
 
           {/* Step 5: Finalize */}
           {step === 5 && (
-            <div className="flex flex-col h-full animate-in zoom-in-95 justify-center items-center text-center relative">
+            <div className="flex flex-col h-full animate-in zoom-in-95 justify-center items-center text-center relative outline-none">
               <div className="flex items-center justify-center gap-4 mb-4">
                 <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center animate-bounce"><Printer size={40} /></div>
               </div>
@@ -606,7 +608,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><MessageSquare className="text-green-600" size={18}/><span>Send WhatsApp Receipt</span></div>
                     {waStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {waStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-green-600" checked={sendWhatsapp} onChange={e => navigator.onLine && setSendWhatsapp(e.target.checked)} disabled={!navigator.onLine} />
+                    <input tabIndex={-1} type="checkbox" className="w-4 h-4 accent-green-600 pointer-events-none" checked={sendWhatsapp} readOnly />
                   </label>
                   {sendWhatsapp && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={phoneInputRef} type="text" placeholder="9477xxxxxxx" value={waPhone} onChange={e => setWaPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-green-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
@@ -616,7 +618,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><Mail className="text-blue-600" size={18}/><span>Send Email Receipt</span></div>
                     {emailStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {emailStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-blue-600" checked={sendEmail} onChange={e => navigator.onLine && setSendEmail(e.target.checked)} disabled={!navigator.onLine} />
+                    <input tabIndex={-1} type="checkbox" className="w-4 h-4 accent-blue-600 pointer-events-none" checked={sendEmail} readOnly />
                   </label>
                   {sendEmail && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={emailInputRef} type="email" placeholder="customer@example.com" value={emailAddress} onChange={e => setEmailAddress(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
@@ -626,13 +628,13 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
                     <div className="flex items-center gap-2 font-bold text-gray-700 text-sm"><Smartphone className="text-purple-600" size={18}/><span>Send SMS Receipt</span></div>
                     {smsStatus === 'success' && <span className="flex items-center gap-1 text-xs font-bold text-green-600"><CheckCircle size={14}/> Sent</span>}
                     {smsStatus === 'error' && <span className="flex items-center gap-1 text-xs font-bold text-red-500"><AlertCircle size={14}/> Failed</span>}
-                    <input type="checkbox" className="w-4 h-4 accent-purple-600" checked={sendSms} onChange={e => navigator.onLine && setSendSms(e.target.checked)} disabled={!navigator.onLine} />
+                    <input tabIndex={-1} type="checkbox" className="w-4 h-4 accent-purple-600 pointer-events-none" checked={sendSms} readOnly />
                   </label>
                   {sendSms && <div className="animate-in slide-in-from-top-2 fade-in"><input ref={smsInputRef} type="text" placeholder="9477xxxxxxx" value={smsPhone} onChange={e => setSmsPhone(e.target.value)} className="w-full p-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none" disabled={!navigator.onLine} /></div>}
                 </div>
               </div>
 
-              <button id="auto-complete-btn" onClick={handleFinalize} disabled={isProcessing} className="mt-6 bg-gray-900 hover:bg-black text-white px-10 py-4 rounded-xl font-bold text-lg shadow-xl flex items-center gap-3 transition-transform active:scale-95 disabled:opacity-70">
+              <button tabIndex={-1} id="auto-complete-btn" onClick={handleFinalize} disabled={isProcessing} className="mt-6 bg-gray-900 hover:bg-black text-white px-10 py-4 rounded-xl font-bold text-lg shadow-xl flex items-center gap-3 transition-transform active:scale-95 disabled:opacity-70">
                 {isProcessing ? <><Loader2 className="animate-spin" /> Processing...</> : <><CheckCircle size={24} /> Complete Sale (Enter)</>}
               </button>
             </div>
@@ -640,12 +642,12 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         </div>
 
         <div className="bg-gray-50 p-5 border-t border-gray-200 flex justify-between shrink-0">
-          <button onClick={goBack} className="px-6 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors flex items-center gap-2">
-            <ArrowLeft size={20} /> Back <span className="text-xs font-normal opacity-50 ml-1">(Backspace)</span>
+          <button tabIndex={-1} onClick={goBack} className="px-6 py-3 rounded-xl font-bold text-gray-600 hover:bg-gray-200 transition-colors flex items-center gap-2">
+            <ArrowLeft size={20} /> Back <span className="text-xs font-normal opacity-50 ml-1">(ESC)</span>
           </button>
 
           {step < 5 && (
-            <button onClick={goNext} disabled={step === 3 && (parseFloat(paidAmount || '0') < finalTotal)} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <button tabIndex={-1} onClick={goNext} disabled={step === 3 && (parseFloat(paidAmount || '0') < finalTotal)} className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
               {step === 1 && customerSearch === '' ? 'Skip / Walk-in' : 'Next Step'} <ArrowRight size={20} /> <span className="text-xs font-normal opacity-50 ml-1">(Enter)</span>
             </button>
           )}

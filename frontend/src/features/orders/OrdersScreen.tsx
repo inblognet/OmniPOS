@@ -75,7 +75,15 @@ const OrdersScreen: React.FC = () => {
   const handlePrint = async (order: Order) => {
     try {
       const items = await orderService.getOrderItems(order.id);
-      const fullOrderToPrint = { ...order, items: items };
+
+      // ✅ ADDED LOYALTY MAPPING: Ensures the receipt gets the points regardless of naming convention
+      const fullOrderToPrint = {
+          ...order,
+          items: items,
+          pointsEarned: (order as any).points_earned || (order as any).pointsEarned || 0,
+          pointsRedeemed: (order as any).points_redeemed || (order as any).pointsRedeemed || 0,
+          loyaltyBalance: (order as any).loyalty_balance !== undefined ? (order as any).loyalty_balance : ((order as any).loyaltyBalance || 0)
+      };
 
       setPrintingOrder(fullOrderToPrint);
       setTimeout(() => {
@@ -252,8 +260,29 @@ const OrdersScreen: React.FC = () => {
                         </div>
                     </div>
 
+                    {/* ✅ ADDED LOYALTY DISPLAY: Shows Earned/Redeemed Points inside the Modal */}
+                    {(Number((selectedOrder as any).points_earned || (selectedOrder as any).pointsEarned || 0) > 0 || Number((selectedOrder as any).points_redeemed || (selectedOrder as any).pointsRedeemed || 0) > 0) && (
+                        <div className="flex justify-between p-4 bg-purple-50/50 rounded-xl border border-purple-100 mt-4">
+                            <div>
+                                <p className="text-[10px] text-purple-600 uppercase font-black tracking-widest mb-1">Loyalty Activity</p>
+                                {Number((selectedOrder as any).points_earned || (selectedOrder as any).pointsEarned || 0) > 0 && (
+                                    <p className="font-bold text-gray-800 text-sm">Earned: <span className="text-green-600">+{Number((selectedOrder as any).points_earned || (selectedOrder as any).pointsEarned)} Pts</span></p>
+                                )}
+                                {Number((selectedOrder as any).points_redeemed || (selectedOrder as any).pointsRedeemed || 0) > 0 && (
+                                    <p className="font-bold text-gray-800 text-sm">Redeemed: <span className="text-red-500">-{Number((selectedOrder as any).points_redeemed || (selectedOrder as any).pointsRedeemed)} Pts</span></p>
+                                )}
+                            </div>
+                            <div className="text-right">
+                                 <p className="text-[10px] text-purple-600 uppercase font-black tracking-widest mb-1">Final Balance</p>
+                                 <p className="font-black text-xl text-purple-700">
+                                     {(selectedOrder as any).loyalty_balance !== undefined ? (selectedOrder as any).loyalty_balance : ((selectedOrder as any).loyaltyBalance || 0)} Pts
+                                 </p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* ✅ MODIFIED TABLE FOR REFUND SELECTION */}
-                    <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                    <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm mt-4">
                         <table className="w-full text-left text-sm">
                             <thead className="bg-gray-100 border-b border-gray-200 text-gray-600">
                                 <tr>

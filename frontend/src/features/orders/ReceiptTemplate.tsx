@@ -37,6 +37,11 @@ export const ReceiptTemplate: React.FC<ReceiptProps> = ({ order }) => {
   // Ensure total is a number (handles potential string from PG Decimal)
   const displayTotal = Number(order.total || order.total_amount || 0);
 
+  // ✅ SAFELY EXTRACT LOYALTY DATA (This is the only thing I changed to fix the points)
+  const pointsRedeemed = Number(order.pointsRedeemed || order.points_redeemed || 0);
+  const pointsEarned = Number(order.pointsEarned || order.points_earned || 0);
+  const finalBalance = order.loyaltyBalance !== undefined ? order.loyaltyBalance : order.loyalty_balance;
+
   return (
     <div id="printable-receipt" className="hidden print:block">
       {/* FLUID WIDTH + PADDING FIX */}
@@ -148,26 +153,26 @@ export const ReceiptTemplate: React.FC<ReceiptProps> = ({ order }) => {
           )}
         </div>
 
-        {/* ✅ LOYALTY SECTION */}
-        {(order.pointsRedeemed > 0 || order.pointsEarned > 0) && (
+        {/* ✅ LOYALTY SECTION - Updated to use safe variables */}
+        {(pointsRedeemed > 0 || pointsEarned > 0) && (
             <div className="mb-4 border-t border-black border-dashed pt-2">
                <p className="text-center font-bold mb-1">--- LOYALTY PROGRAM ---</p>
-               {order.pointsRedeemed > 0 && (
+               {pointsRedeemed > 0 && (
                  <div className="flex justify-between">
                    <span>Points Redeemed:</span>
-                   <span>-{order.pointsRedeemed}</span>
+                   <span>-{pointsRedeemed}</span>
                  </div>
                )}
-               {order.pointsEarned > 0 && (
+               {pointsEarned > 0 && (
                  <div className="flex justify-between">
                    <span>Points Earned:</span>
-                   <span>+{order.pointsEarned}</span>
+                   <span>+{pointsEarned}</span>
                  </div>
                )}
-               {order.loyaltyBalance !== undefined && (
+               {finalBalance !== undefined && (
                  <div className="flex justify-between font-bold mt-1 border-t border-gray-200 pt-1">
                    <span>New Balance:</span>
-                   <span>{order.loyaltyBalance} Pts</span>
+                   <span>{finalBalance} Pts</span>
                  </div>
                )}
             </div>
