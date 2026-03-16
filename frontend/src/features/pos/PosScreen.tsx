@@ -4,7 +4,7 @@ import ProductCard from './ProductCard';
 import CartPanel from './CartPanel';
 import {
   addToCart, updatePrice, updateItemDiscount, updateItemNote,
-  clearCart, setCustomer, removeFromCart
+  clearCart, setCustomer, removeFromCart, holdSale, resumeSale // ✅ Added holdSale & resumeSale
 } from '../../store/cartSlice';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
@@ -24,7 +24,8 @@ import { useCFDSync } from '../../hooks/useCFDSync.ts';
 const PosScreen: React.FC = () => {
   const dispatch = useAppDispatch();
   const currency = useCurrency();
-  const { items: cartItems, customer } = useAppSelector((state) => state.cart);
+  // ✅ Added heldSales to useAppSelector
+  const { items: cartItems, customer, heldSales } = useAppSelector((state) => state.cart);
   const { broadcast } = useCFDSync();
 
   const [isCFDEnabled, setIsCFDEnabled] = useState(false);
@@ -119,11 +120,25 @@ const PosScreen: React.FC = () => {
 
   const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || (c.phone && c.phone.includes(customerSearch))).slice(0, 5);
 
+  // ✅ FULL HARDWARE SHORTCUTS LISTENER INJECTED HERE
   useEffect(() => {
-      const handleGlobalKeyDown = (e: KeyboardEvent) => { if (e.key === 'Home') { e.preventDefault(); setIsQuickScanOpen(prev => !prev); } };
+      const handleGlobalKeyDown = (e: KeyboardEvent) => {
+          const isTyping = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+          switch (e.key) {
+              case 'End': e.preventDefault(); if (cartItems.length > 0) setIsCheckoutOpen(true); break;
+              case 'Home': e.preventDefault(); setIsQuickScanOpen(prev => !prev); break;
+              case 'Insert': e.preventDefault(); const searchInput = document.querySelector('input[name="productSearchInput"]') as HTMLInputElement; if (searchInput) searchInput.focus(); break;
+              case 'PageUp': e.preventDefault(); setShowFilterDropdown(prev => !prev); break;
+              case 'PageDown': e.preventDefault(); handleToggleCFD(); break;
+              case 'Delete': if (!isTyping && cartItems.length > 0) { e.preventDefault(); if (window.confirm("Are you sure you want to clear the entire cart?")) { dispatch(clearCart()); } } break;
+              case 'F4': e.preventDefault(); setIsRefundOpen(true); break;
+              case 'F8': e.preventDefault(); dispatch(holdSale()); break;
+              case 'F9': e.preventDefault(); if (heldSales.length > 0) { dispatch(resumeSale(heldSales[heldSales.length - 1].id)); } break;
+          }
+      };
       window.addEventListener('keydown', handleGlobalKeyDown);
       return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [cartItems, isCFDEnabled, heldSales, dispatch]);
 
   const toggleCategory = (catName: string) => setSelectedCategories(prev => prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]);
 
@@ -203,10 +218,10 @@ const PosScreen: React.FC = () => {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input type="text" name="productSearchInput" onFocus={handleInputFocus} className="block w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl bg-transparent outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm transition-all shadow-inner" placeholder="Scan Barcode, SKU, or Search Product..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} />
             </div>
-            <button onClick={() => setIsQuickScanOpen(true)} className="bg-transparent border border-gray-300 text-gray-700 hover:bg-gray-50 px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm transition-all active:scale-95 whitespace-nowrap"><QrCode size={18} /> SCAN</button>
+            <button onClick={() => setIsQuickScanOpen(true)} className="bg-transparent border border-gray-300 text-gray-700 hover:bg-gray-50 px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm transition-all active:scale-95 whitespace-nowrap"><QrCode size={18} /> SCAN (HOME)</button>
             <div className="relative">
                 <button onClick={() => setShowFilterDropdown(!showFilterDropdown)} className={`px-5 py-3 rounded-xl border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${selectedCategories.length > 0 ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-transparent border-gray-300 text-gray-700 hover:bg-gray-50'}`}>
-                    <Filter size={18} /> Filter
+                    <Filter size={18} /> Filter  (PageUp)
                 </button>
                 {showFilterDropdown && (
                     <div className="absolute top-full right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl z-50 p-2 max-h-80 overflow-y-auto animate-in fade-in zoom-in-95">
@@ -222,7 +237,7 @@ const PosScreen: React.FC = () => {
                 {showFilterDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>}
             </div>
             <button onClick={handleToggleCFD} className={`py-3 px-5 rounded-xl border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${isCFDEnabled ? 'bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700' : 'bg-transparent border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
-                {isCFDEnabled ? <MonitorPlay size={18} className="animate-pulse" /> : <Monitor size={18} />} CFD {isCFDEnabled ? 'ON' : 'OFF'}
+                {isCFDEnabled ? <MonitorPlay size={18} className="animate-pulse" /> : <Monitor size={18} />} CFD {isCFDEnabled ? 'ON' : 'OFF'} (PageDown)
             </button>
         </div>
         {selectedCategories.length > 0 && (
@@ -258,7 +273,7 @@ const PosScreen: React.FC = () => {
         )}
       </div>
 
-      {/* --- RIGHT PANEL (Border Removed to fix Dark Mode line) --- */}
+      {/* --- RIGHT PANEL --- */}
       <div className="w-[450px] flex-shrink-0 bg-transparent z-20 flex flex-col h-full overflow-hidden">
         <div className="p-4 bg-transparent border-b border-gray-200 shrink-0 relative">
             <div className="relative w-full">

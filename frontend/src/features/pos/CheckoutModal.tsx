@@ -434,7 +434,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
             if (prev === 'email') return 'sms';
             return 'sms';
           });
-        } else if (e.key === ' ' || e.key === 'Shift') {
+        } else if (e.key === ' ' || e.key === 'Spacebar') {
           e.preventDefault();
           if (step5Selection === 'whatsapp' && settings?.whatsappEnabled) setSendWhatsapp(p => !p);
           if (step5Selection === 'email' && settings?.emailEnabled) setSendEmail(p => !p);
@@ -444,7 +444,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, subtotal
         if (e.key === 'Enter') {
           e.preventDefault();
           goNext();
-        } else if (e.key === 'Shift') {
+        } else if (e.key === 'ArrowRight') {
           return;
         }
       }
