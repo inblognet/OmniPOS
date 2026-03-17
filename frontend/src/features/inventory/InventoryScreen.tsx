@@ -7,7 +7,7 @@ import { productService, Category } from '../../services/productService';
 import api from '../../api/axiosConfig';
 import Barcode from 'react-barcode';
 import { QRCodeSVG } from 'qrcode.react';
-import * as XLSX from 'xlsx'; // ✅ Enterprise Excel Library
+import * as XLSX from 'xlsx';
 import {
   Search, Plus, Edit, Trash2, X, Save,
   Tag, DollarSign, Box, Layers, AlertTriangle, CheckCircle, Ban, RefreshCw, FolderTree, ChevronDown, Settings, Calendar,
@@ -156,22 +156,30 @@ const InventoryScreen: React.FC = () => {
     const templateData = [{
       "Name*": "Example Product",
       "Category": "General",
+      "VariantGroup": "Example Product",
+      "VariantName": "Batch 1",
       "Price*": 15.99,
       "CostPrice": 8.00,
       "Stock": 50,
       "Unit": "pcs",
       "SKU": "EX-001",
-      "Barcode": "123456789"
+      "Barcode": "123456789",
+      "BatchNumber": "B-001",
+      "ExpiryDate": "2026-12-31"
     }];
+
     const ws = XLSX.utils.json_to_sheet(templateData);
 
     const instructionsData = [
       ["INSTRUCTIONS FOR BULK IMPORT"],
       ["1. Columns marked with * are REQUIRED."],
       ["2. Do not change the column headers (Row 1)."],
-      ["3. Category: Separate multiple categories with a comma (e.g., Summer, Sale)."],
-      ["4. Advanced details (Expiry, Serial Numbers) must be added manually inside the app for safety."],
+      ["3. Category: Separate multiple categories with a comma."],
+      ["4. VariantGroup & VariantName: Use these to link batches of the same item with DIFFERENT prices."],
+      ["5. ExpiryDate: Use standard date formats like YYYY-MM-DD."],
+      ["6. Multiple Batches: To add multiple batches to ONE product, use multiple rows with the exact same Barcode or SKU."]
     ];
+
     const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData);
 
     const wb = XLSX.utils.book_new();
@@ -204,7 +212,6 @@ const InventoryScreen: React.FC = () => {
     setShowExcelMenu(false);
   };
 
-  // ✅ UPGRADED: Flexible Excel Importer with Fuzzy Matching
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -218,7 +225,6 @@ const InventoryScreen: React.FC = () => {
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-
         const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet);
 
         if (rawJson.length === 0) {
@@ -230,105 +236,144 @@ const InventoryScreen: React.FC = () => {
         let successCount = 0;
         let failCount = 0;
 
-        // Helper function to find a column name using "fuzzy matching" (ignores case and spaces)
+        const existingProducts = await productService.getAll();
+
+        // 🛡️ THE BULLETPROOF FINDVAL - GUARANTEED NOT TO CRASH
         const findVal = (row: any, ...possibleKeys: string[]) => {
-            const rowKeys = Object.keys(row);
-            for (let pk of possibleKeys) {
-                const pkClean = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
-                for (let actualKey of rowKeys) {
-                    const actualClean = actualKey.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    if (pkClean === actualClean) {
-                        return row[actualKey];
-                    }
-                }
+          if (!row || typeof row !== 'object') return undefined;
+
+          const rowKeys = Object.keys(row);
+          for (let i = 0; i < possibleKeys.length; i++) {
+            const pk = possibleKeys[i];
+            if (pk === undefined || pk === null) continue;
+
+            const pkClean = String(pk).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            for (let j = 0; j < rowKeys.length; j++) {
+              const actualKey = rowKeys[j];
+              if (actualKey === undefined || actualKey === null) continue;
+
+              const actualClean = String(actualKey).toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (pkClean === actualClean) {
+                return row[actualKey];
+              }
             }
-            return undefined;
+          }
+          return undefined;
         };
 
         for (const row of rawJson) {
           try {
-            // Flexible Data Extraction
             const name = findVal(row, 'Name*', 'Name', 'Product Name', 'Item');
             const rawPrice = findVal(row, 'Price*', 'Price', 'Selling Price', 'Retail Price');
-            const price = parseFloat(rawPrice);
+            const price = parseFloat(rawPrice as string);
 
-            // STRICT VALIDATION: Must have Name and valid Price
             if (!name || isNaN(price)) {
               failCount++;
               continue;
             }
 
             const rawCost = findVal(row, 'CostPrice', 'Cost Price', 'Cost');
-            const costPrice = parseFloat(rawCost) || 0;
-
+            const costPrice = parseFloat(rawCost as string) || 0;
             const rawStock = findVal(row, 'Stock', 'Quantity', 'Qty');
-            const stockVal = parseFloat(rawStock) || 0;
-
+            const stockVal = parseFloat(rawStock as string) || 0;
             const category = findVal(row, 'Category', 'Department', 'Group') || 'Uncategorized';
             const sku = findVal(row, 'SKU', 'Item Code') || '';
-            const barcode = findVal(row, 'Barcode', 'UPC', 'EAN') || '';
+            const barcode = String(findVal(row, 'Barcode', 'UPC', 'EAN') || '').trim();
             const unit = findVal(row, 'Unit', 'UOM', 'Measure') || config.defaultUnit || 'pcs';
 
-            const batches: ProductBatch[] = [];
-            if (config.features.expiryTracking && stockVal > 0) {
-              batches.push({
-                id: Date.now().toString() + Math.random().toString(),
-                batchNumber: 'INITIAL-IMPORT',
-                quantity: stockVal,
-                issueDate: new Date().toISOString()
-              });
+            const variantGroup = String(findVal(row, 'VariantGroup', 'Variant Group') || '').trim();
+            const variantName = String(findVal(row, 'VariantName', 'Variant Name') || '').trim();
+
+            const batchNum = findVal(row, 'BatchNumber', 'Batch') || `B-${Date.now().toString().slice(-4)}`;
+            const expiryRaw = findVal(row, 'ExpiryDate', 'Expiry', 'Exp Date');
+            const expiryDate = expiryRaw ? new Date(String(expiryRaw)).toISOString() : undefined;
+
+            let existingProd = existingProducts.find(p =>
+              (barcode && p.barcode === barcode) || (sku && p.sku === sku)
+            );
+
+            if (existingProd) {
+              if (config.features.expiryTracking && stockVal > 0) {
+                const newBatch = {
+                  id: Date.now().toString() + Math.random().toString(),
+                  batchNumber: String(batchNum),
+                  quantity: stockVal,
+                  issueDate: new Date().toISOString(),
+                  expiryDate: expiryDate
+                };
+                existingProd.batches = [...(existingProd.batches || []), newBatch];
+                existingProd.stock += stockVal;
+                existingProd.totalQty = (existingProd.totalQty || 0) + stockVal;
+
+                await productService.update(existingProd.id!, existingProd);
+                successCount++;
+              } else {
+                 existingProd.stock += stockVal;
+                 existingProd.totalQty = (existingProd.totalQty || 0) + stockVal;
+                 await productService.update(existingProd.id!, existingProd);
+                 successCount++;
+              }
+            } else {
+              const batches = [];
+              if (config.features.expiryTracking && stockVal > 0) {
+                batches.push({
+                  id: Date.now().toString() + Math.random().toString(),
+                  batchNumber: String(batchNum),
+                  quantity: stockVal,
+                  issueDate: new Date().toISOString(),
+                  expiryDate: expiryDate
+                });
+              }
+
+              const payload = {
+                name: String(name).trim(),
+                price: price,
+                costPrice: costPrice,
+                wholesalePrice: 0,
+                minSellingPrice: 0,
+                stock: stockVal,
+                category: String(category).trim(),
+                brand: '',
+                sku: String(sku).trim(),
+                barcode: barcode,
+                unit: String(unit).trim(),
+                fractionalAllowed: false,
+                type: 'Stock',
+                variantGroup: variantGroup,
+                variantName: variantName,
+                serialNumber: '',
+                stockIssueDate: '',
+                stockExpiryDate: '',
+                batchNumber: '',
+                isActive: true,
+                damagedQty: 0,
+                expiredQty: 0,
+                totalQty: stockVal,
+                reorderLevel: 5,
+                maxStockLevel: 100,
+                allowDiscount: true,
+                isTaxIncluded: false,
+                allowNegativeStock: false,
+                batches: batches,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              };
+
+              const created = await productService.create(payload as any);
+              existingProducts.push(created as any);
+              successCount++;
             }
-
-            const payload: Omit<Product, 'id'> = {
-              name: String(name).trim(),
-              price: price,
-              costPrice: costPrice,
-              wholesalePrice: 0,
-              minSellingPrice: 0,
-              stock: stockVal,
-              category: String(category).trim(),
-              brand: '',
-              sku: String(sku).trim(),
-              barcode: String(barcode).trim(),
-              unit: String(unit).trim(),
-              fractionalAllowed: false,
-
-              type: 'Stock',
-              variantGroup: '',
-              variantName: '',
-              serialNumber: '',
-              stockIssueDate: '',
-              stockExpiryDate: '',
-              batchNumber: '',
-              isActive: true,
-              damagedQty: 0,
-              expiredQty: 0,
-              totalQty: stockVal,
-              reorderLevel: 5,
-              maxStockLevel: 100,
-              allowDiscount: true,
-              isTaxIncluded: false,
-              allowNegativeStock: false,
-              batches: batches,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-
-            await productService.create(payload);
-            successCount++;
-
           } catch (err) {
             failCount++;
             console.error("Failed to import row", row, err);
           }
         }
 
-        alert(`Import Complete!\n✅ Successfully added: ${successCount}\n❌ Failed/Skipped: ${failCount} (Check if Name/Price were missing)`);
-
+        alert(`Import Complete!\n✅ Successfully added/updated: ${successCount}\n❌ Failed/Skipped: ${failCount}`);
         setShowExcelMenu(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         await loadData();
-
       } catch (err) {
         console.error("Excel Read Error", err);
         alert("Failed to read the Excel file. Please ensure it is a valid .xlsx template.");
@@ -336,7 +381,6 @@ const InventoryScreen: React.FC = () => {
         setIsImporting(false);
       }
     };
-
     reader.readAsArrayBuffer(file);
   };
   // --- EXCEL LOGIC END ---
@@ -514,7 +558,7 @@ const InventoryScreen: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-gray-50 p-6 overflow-y-auto relative">
 
-      {/* ✅ IMPORT LOADING OVERLAY (Protects DB from being clicked during upload) */}
+      {/* ✅ IMPORT LOADING OVERLAY */}
       {isImporting && (
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
            <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
@@ -547,7 +591,6 @@ const InventoryScreen: React.FC = () => {
                    <button className="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 border-b">
                      <Upload size={16} /> 2. Upload Completed File
                    </button>
-                   {/* Hidden file input */}
                    <input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleImportExcel} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </div>
                 <button onClick={handleExportInventory} className="w-full text-left px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center gap-2">
@@ -555,7 +598,6 @@ const InventoryScreen: React.FC = () => {
                 </button>
               </div>
             )}
-            {/* Click outside to close */}
             {showExcelMenu && <div className="fixed inset-0 z-40" onClick={() => setShowExcelMenu(false)}></div>}
           </div>
 
