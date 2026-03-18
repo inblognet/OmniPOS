@@ -59,6 +59,7 @@ export interface Product {
   // 1.2 Pricing
   costPrice: number;        // For Profit Calculation
   price: number;            // Selling Price (Retail)
+  discount?: number;        // ✅ NEW: Auto-Discount percentage (e.g. 10 for 10%)
   wholesalePrice?: number;  // Optional
   minSellingPrice?: number; // Floor Price
   isTaxIncluded: boolean;   // VAT/Tax Logic
@@ -302,6 +303,7 @@ export async function seedDatabase() {
         name: "Classic Burger",
         sku: "BUR-001",
         price: 8.99,
+        discount: 0, // ✅ ADDED
         costPrice: 4.50,
         category: "Food",
         stock: 100,
@@ -322,6 +324,7 @@ export async function seedDatabase() {
         name: "Cola Zero",
         sku: "DRK-001",
         price: 2.00,
+        discount: 0, // ✅ ADDED
         costPrice: 0.80,
         category: "Drink",
         stock: 200,
@@ -342,6 +345,7 @@ export async function seedDatabase() {
         name: "Cheese Fries",
         sku: "FRI-002",
         price: 4.5,
+        discount: 0, // ✅ ADDED
         costPrice: 1.5,
         category: "Food",
         stock: 50,

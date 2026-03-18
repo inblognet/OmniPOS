@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
-// Interface for the Real Log Data
 interface DamageLog {
   id: number;
   name: string;
@@ -25,7 +24,6 @@ interface DamageLog {
   created_at: string;
 }
 
-// Extended interface
 interface ExtendedProduct extends Product {
   latestDamageReason?: string;
 }
@@ -38,18 +36,15 @@ const InventoryScreen: React.FC = () => {
     checkExpiries();
   }, [config.features.expiryTracking, checkExpiries]);
 
-  // --- Data State ---
   const [products, setProducts] = useState<ExtendedProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [damageLogs, setDamageLogs] = useState<DamageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ EXCEL IMPORT/EXPORT STATE
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // LOAD PRODUCTS & CATEGORIES FROM CLOUD
   const loadData = async () => {
     try {
       setLoading(true);
@@ -84,7 +79,6 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  // --- UI State ---
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'inventory' | 'settings'>('basic');
@@ -118,11 +112,10 @@ const InventoryScreen: React.FC = () => {
     }
   }, [activeStatModal]);
 
-  // --- Form State ---
   const [formData, setFormData] = useState<Product>({
     name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '',
     stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '',
-    costPrice: 0, price: 0, wholesalePrice: 0, minSellingPrice: 0,
+    costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, // ✅ ADDED discount: 0
     isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false,
     stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false,
     totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: '', updatedAt: ''
@@ -150,23 +143,39 @@ const InventoryScreen: React.FC = () => {
     return matchesSearch && matchesCategory && p.barcode;
   });
 
-  // --- EXCEL LOGIC START ---
-
   const handleDownloadTemplate = () => {
-    const templateData = [{
-      "Name*": "Example Product",
-      "Category": "General",
-      "VariantGroup": "Example Product",
-      "VariantName": "Batch 1",
-      "Price*": 15.99,
-      "CostPrice": 8.00,
-      "Stock": 50,
-      "Unit": "pcs",
-      "SKU": "EX-001",
-      "Barcode": "123456789",
-      "BatchNumber": "B-001",
-      "ExpiryDate": "2026-12-31"
-    }];
+    const templateData = [
+      {
+        "Name*": "Example Product",
+        "Category": "General",
+        "VariantGroup": "Example Product",
+        "VariantName": "Batch 1",
+        "Price*": 15.99,
+        "Discount(%)": 0, // ✅ ADDED to template
+        "CostPrice": 8.00,
+        "Stock": 50,
+        "Unit": "pcs",
+        "SKU": "EX-001",
+        "Barcode": "123456789-1",
+        "BatchNumber": "B-001",
+        "ExpiryDate": "12/31/2026"
+      },
+      {
+        "Name*": "Example Product",
+        "Category": "General",
+        "VariantGroup": "Example Product",
+        "VariantName": "Batch 2",
+        "Price*": 17.99,
+        "Discount(%)": 10, // ✅ ADDED example discount to template
+        "CostPrice": 9.00,
+        "Stock": 50,
+        "Unit": "pcs",
+        "SKU": "EX-002",
+        "Barcode": "123456789-2",
+        "BatchNumber": "B-002",
+        "ExpiryDate": "06/30/2027"
+      }
+    ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
 
@@ -175,9 +184,8 @@ const InventoryScreen: React.FC = () => {
       ["1. Columns marked with * are REQUIRED."],
       ["2. Do not change the column headers (Row 1)."],
       ["3. Category: Separate multiple categories with a comma."],
-      ["4. VariantGroup & VariantName: Use these to link batches of the same item with DIFFERENT prices."],
-      ["5. ExpiryDate: Use standard date formats like YYYY-MM-DD."],
-      ["6. Multiple Batches: To add multiple batches to ONE product, use multiple rows with the exact same Barcode or SKU."]
+      ["4. VariantGroup & VariantName: Use these to label your batches."],
+      ["5. SCENARIO C: Use unique SKUs, identical VariantGroups, and add a dash/number to Barcodes (e.g. 999999-1)."]
     ];
 
     const wsInstructions = XLSX.utils.aoa_to_sheet(instructionsData);
@@ -198,6 +206,7 @@ const InventoryScreen: React.FC = () => {
       SKU: p.sku || '',
       Barcode: p.barcode || '',
       Price: p.price,
+      "Discount(%)": p.discount || 0, // ✅ Exporting discount
       CostPrice: p.costPrice || 0,
       Stock: p.stock,
       DamagedQty: p.damagedQty || 0,
@@ -225,7 +234,8 @@ const InventoryScreen: React.FC = () => {
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+        const rawJson: any[] = XLSX.utils.sheet_to_json(worksheet, { raw: false, defval: "" });
 
         if (rawJson.length === 0) {
           alert("The uploaded Excel file is empty.");
@@ -236,36 +246,27 @@ const InventoryScreen: React.FC = () => {
         let successCount = 0;
         let failCount = 0;
 
-        const existingProducts = await productService.getAll();
-
-        // 🛡️ THE BULLETPROOF FINDVAL - GUARANTEED NOT TO CRASH
         const findVal = (row: any, ...possibleKeys: string[]) => {
-          if (!row || typeof row !== 'object') return undefined;
-
-          const rowKeys = Object.keys(row);
-          for (let i = 0; i < possibleKeys.length; i++) {
-            const pk = possibleKeys[i];
-            if (pk === undefined || pk === null) continue;
-
-            const pkClean = String(pk).toLowerCase().replace(/[^a-z0-9]/g, '');
-
-            for (let j = 0; j < rowKeys.length; j++) {
-              const actualKey = rowKeys[j];
-              if (actualKey === undefined || actualKey === null) continue;
-
-              const actualClean = String(actualKey).toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (pkClean === actualClean) {
-                return row[actualKey];
+          if (!row || typeof row !== 'object') return '';
+          try {
+            const rowKeys = Object.keys(row);
+            for (const pk of possibleKeys) {
+              if (!pk) continue;
+              const pkClean = String(pk).toLowerCase().replace(/[^a-z0-9]/g, '');
+              for (const actualKey of rowKeys) {
+                if (!actualKey) continue;
+                const actualClean = String(actualKey).toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (pkClean === actualClean) return row[actualKey];
               }
             }
-          }
-          return undefined;
+          } catch (error) {}
+          return '';
         };
 
         for (const row of rawJson) {
           try {
             const name = findVal(row, 'Name*', 'Name', 'Product Name', 'Item');
-            const rawPrice = findVal(row, 'Price*', 'Price', 'Selling Price', 'Retail Price');
+            const rawPrice = findVal(row, 'Price*', 'Price', 'Selling Price');
             const price = parseFloat(rawPrice as string);
 
             if (!name || isNaN(price)) {
@@ -273,10 +274,13 @@ const InventoryScreen: React.FC = () => {
               continue;
             }
 
-            const rawCost = findVal(row, 'CostPrice', 'Cost Price', 'Cost');
-            const costPrice = parseFloat(rawCost as string) || 0;
-            const rawStock = findVal(row, 'Stock', 'Quantity', 'Qty');
-            const stockVal = parseFloat(rawStock as string) || 0;
+            const costPrice = parseFloat(findVal(row, 'CostPrice', 'Cost Price', 'Cost') as string) || 0;
+
+            // ✅ EXTRACT DISCOUNT FROM EXCEL
+            const rawDiscount = findVal(row, 'Discount', 'Discount(%)', 'Disc');
+            const discountVal = parseFloat(rawDiscount as string) || 0;
+
+            const stockVal = parseFloat(findVal(row, 'Stock', 'Quantity', 'Qty') as string) || 0;
             const category = findVal(row, 'Category', 'Department', 'Group') || 'Uncategorized';
             const sku = findVal(row, 'SKU', 'Item Code') || '';
             const barcode = String(findVal(row, 'Barcode', 'UPC', 'EAN') || '').trim();
@@ -287,105 +291,84 @@ const InventoryScreen: React.FC = () => {
 
             const batchNum = findVal(row, 'BatchNumber', 'Batch') || `B-${Date.now().toString().slice(-4)}`;
             const expiryRaw = findVal(row, 'ExpiryDate', 'Expiry', 'Exp Date');
-            const expiryDate = expiryRaw ? new Date(String(expiryRaw)).toISOString() : undefined;
 
-            let existingProd = existingProducts.find(p =>
-              (barcode && p.barcode === barcode) || (sku && p.sku === sku)
-            );
-
-            if (existingProd) {
-              if (config.features.expiryTracking && stockVal > 0) {
-                const newBatch = {
-                  id: Date.now().toString() + Math.random().toString(),
-                  batchNumber: String(batchNum),
-                  quantity: stockVal,
-                  issueDate: new Date().toISOString(),
-                  expiryDate: expiryDate
-                };
-                existingProd.batches = [...(existingProd.batches || []), newBatch];
-                existingProd.stock += stockVal;
-                existingProd.totalQty = (existingProd.totalQty || 0) + stockVal;
-
-                await productService.update(existingProd.id!, existingProd);
-                successCount++;
-              } else {
-                 existingProd.stock += stockVal;
-                 existingProd.totalQty = (existingProd.totalQty || 0) + stockVal;
-                 await productService.update(existingProd.id!, existingProd);
-                 successCount++;
+            let expiryDate = '';
+            if (expiryRaw) {
+              const parsedDate = new Date(String(expiryRaw));
+              if (!isNaN(parsedDate.getTime())) {
+                expiryDate = parsedDate.toISOString();
               }
-            } else {
-              const batches = [];
-              if (config.features.expiryTracking && stockVal > 0) {
-                batches.push({
-                  id: Date.now().toString() + Math.random().toString(),
-                  batchNumber: String(batchNum),
-                  quantity: stockVal,
-                  issueDate: new Date().toISOString(),
-                  expiryDate: expiryDate
-                });
-              }
-
-              const payload = {
-                name: String(name).trim(),
-                price: price,
-                costPrice: costPrice,
-                wholesalePrice: 0,
-                minSellingPrice: 0,
-                stock: stockVal,
-                category: String(category).trim(),
-                brand: '',
-                sku: String(sku).trim(),
-                barcode: barcode,
-                unit: String(unit).trim(),
-                fractionalAllowed: false,
-                type: 'Stock',
-                variantGroup: variantGroup,
-                variantName: variantName,
-                serialNumber: '',
-                stockIssueDate: '',
-                stockExpiryDate: '',
-                batchNumber: '',
-                isActive: true,
-                damagedQty: 0,
-                expiredQty: 0,
-                totalQty: stockVal,
-                reorderLevel: 5,
-                maxStockLevel: 100,
-                allowDiscount: true,
-                isTaxIncluded: false,
-                allowNegativeStock: false,
-                batches: batches,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-              };
-
-              const created = await productService.create(payload as any);
-              existingProducts.push(created as any);
-              successCount++;
             }
+
+            const batches = [];
+            if (stockVal > 0) {
+              batches.push({
+                id: String(Date.now() + Math.floor(Math.random() * 10000)),
+                batchNumber: String(batchNum).trim(),
+                quantity: stockVal,
+                issueDate: new Date().toISOString(),
+                expiryDate: expiryDate
+              });
+            }
+
+            const payload = {
+              name: String(name).trim(),
+              price: price,
+              discount: discountVal, // ✅ ADDED DISCOUNT TO PAYLOAD
+              costPrice: costPrice,
+              wholesalePrice: 0,
+              minSellingPrice: 0,
+              stock: stockVal,
+              category: String(category).trim(),
+              brand: '',
+              sku: String(sku).trim(),
+              barcode: barcode,
+              unit: String(unit).trim(),
+              fractionalAllowed: false,
+              type: 'Stock',
+              variantGroup: variantGroup,
+              variantName: variantName,
+              serialNumber: '',
+              stockIssueDate: '',
+              stockExpiryDate: expiryDate,
+              batchNumber: String(batchNum).trim(),
+              isActive: true,
+              damagedQty: 0,
+              expiredQty: 0,
+              totalQty: stockVal,
+              reorderLevel: 5,
+              maxStockLevel: 100,
+              allowDiscount: true,
+              isTaxIncluded: false,
+              allowNegativeStock: false,
+              batches: batches,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+
+            await productService.create(payload as any);
+            successCount++;
+
           } catch (err) {
             failCount++;
             console.error("Failed to import row", row, err);
           }
         }
 
-        alert(`Import Complete!\n✅ Successfully added/updated: ${successCount}\n❌ Failed/Skipped: ${failCount}`);
+        alert(`Import Complete!\n✅ Successfully added: ${successCount}\n❌ Failed/Skipped: ${failCount}`);
         setShowExcelMenu(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
         await loadData();
       } catch (err) {
         console.error("Excel Read Error", err);
-        alert("Failed to read the Excel file. Please ensure it is a valid .xlsx template.");
+        alert("Failed to read the Excel file.");
       } finally {
         setIsImporting(false);
       }
     };
     reader.readAsArrayBuffer(file);
   };
-  // --- EXCEL LOGIC END ---
 
-  // --- Handlers ---
   const handleAutoGenerateIdentifiers = () => {
     const randomSku = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const randomBarcode = Math.floor(10000000 + Math.random() * 90000000).toString();
@@ -431,17 +414,32 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.price) return alert("Name and Price are required.");
-    const finalStock = config.features.expiryTracking ? (formData.batches || []).reduce((acc, b) => acc + b.quantity, 0) : parseFloat(formData.stock.toString());
-    const payload = { ...formData, updatedAt: new Date().toISOString(), stock: finalStock, price: parseFloat(formData.price.toString()), costPrice: parseFloat(formData.costPrice.toString()) };
+
+    const finalStock = config.features.expiryTracking
+        ? (formData.batches || []).reduce((acc, b) => acc + b.quantity, 0)
+        : parseFloat(formData.stock.toString());
+
+    // ✅ FORCING THE DISCOUNT INTO THE PAYLOAD HERE
+    const payload = {
+        ...formData,
+        updatedAt: new Date().toISOString(),
+        stock: finalStock,
+        price: parseFloat(formData.price.toString() || '0'),
+        costPrice: parseFloat(formData.costPrice.toString() || '0'),
+        discount: parseFloat(formData.discount?.toString() || '0') // Forces it as a number!
+    };
+
     try {
       if (editingId) await productService.update(editingId, payload);
       else await productService.create(payload);
       setShowModal(false);
       loadData();
-    } catch (e) { alert("Failed to save."); }
+    } catch (e) {
+        alert("Failed to save.");
+    }
   };
 
   const handleConfirmDamage = async () => {
@@ -548,7 +546,9 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  const openCreateModal = () => { setEditingId(null); setActiveTab('basic'); setFormData({ name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '', stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '', costPrice: 0, price: 0, wholesalePrice: 0, minSellingPrice: 0, isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false, stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false, totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setShowModal(true); };
+  // ✅ ADDED discount: 0 to modal reset
+  const openCreateModal = () => { setEditingId(null); setActiveTab('basic'); setFormData({ name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '', stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '', costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false, stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false, totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setShowModal(true); };
+
   const openEditModal = (p: Product) => { setEditingId(p.id!); setActiveTab('basic'); setFormData({ ...p, batches: p.batches || [] }); setShowModal(true); };
 
   const isBarcodeFeatureEnabled = (featureOverrides as any).barcodeGeneration ?? false;
@@ -558,7 +558,6 @@ const InventoryScreen: React.FC = () => {
   return (
     <div className="h-full flex flex-col bg-gray-50 p-6 overflow-y-auto relative">
 
-      {/* ✅ IMPORT LOADING OVERLAY */}
       {isImporting && (
         <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
            <RefreshCw className="text-blue-600 animate-spin mb-4" size={40} />
@@ -567,7 +566,6 @@ const InventoryScreen: React.FC = () => {
         </div>
       )}
 
-      {/* --- HEADER --- */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><Box className="text-blue-600" /> Inventory Management <span className="text-xs font-normal bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded-full">{config.name}</span></h1>
@@ -576,7 +574,6 @@ const InventoryScreen: React.FC = () => {
         <div className="flex gap-2 relative">
           <button onClick={handleOpenConfig} className="bg-white border px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm"><Settings size={18} /> Configure Shop</button>
 
-          {/* ✅ EXCEL BULK TOOLS MENU */}
           <div className="relative">
             <button onClick={() => setShowExcelMenu(!showExcelMenu)} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 hover:bg-emerald-700">
               <FileSpreadsheet size={18} /> Bulk Tools <ChevronDown size={14} />
@@ -605,7 +602,6 @@ const InventoryScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* --- DASHBOARD STATS --- */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <div onClick={() => setActiveStatModal('products')} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col items-center justify-center cursor-pointer hover:shadow-md transition-all hover:border-blue-300">
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Total Products</div>
@@ -629,7 +625,6 @@ const InventoryScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* --- TOOLBAR --- */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 flex gap-4">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -637,7 +632,6 @@ const InventoryScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* --- PRODUCT TABLE --- */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col mb-8">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
             <List className="text-blue-600" size={20} />
@@ -688,7 +682,6 @@ const InventoryScreen: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {/* Category Management */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><FolderTree size={20} className="text-purple-600" /> Category Management</h2>
@@ -709,7 +702,6 @@ const InventoryScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Identifier Management */}
         {(isBarcodeFeatureEnabled || config.features.serialTracking) && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col h-full">
             <div className="flex justify-between items-center mb-4">
@@ -721,7 +713,6 @@ const InventoryScreen: React.FC = () => {
                 <button onClick={handleBatchPrint} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><Printer size={12} /> Print ({selectedBarcodeIds.length})</button>
               </div>
             </div>
-            {/* Filter */}
             <div className="flex gap-2 mt-2">
               <input type="text" placeholder="Barcode Filter..." value={barcodeSearch} onChange={(e) => setBarcodeSearch(e.target.value)} className="w-full text-xs p-2 border rounded" />
               <select value={barcodeCategoryFilter} onChange={(e) => setBarcodeCategoryFilter(e.target.value)} className="text-xs border rounded"><option value="">All</option>{categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
@@ -754,7 +745,6 @@ const InventoryScreen: React.FC = () => {
         )}
       </div>
 
-      {/* --- CONFIG MODAL --- */}
       {showConfigModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 animate-in zoom-in-95">
@@ -782,7 +772,6 @@ const InventoryScreen: React.FC = () => {
         </div>
       )}
 
-      {/* --- DAMAGE REPORT MODAL --- */}
       {showDamageModal && selectedProduct && config.features.damageTracking && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
              <div className="bg-white rounded-xl p-6 w-96 shadow-2xl">
@@ -800,7 +789,6 @@ const InventoryScreen: React.FC = () => {
          </div>
       )}
 
-      {/* --- STAT DETAIL MODAL --- */}
       {activeStatModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col overflow-hidden">
@@ -878,12 +866,11 @@ const InventoryScreen: React.FC = () => {
         </div>
       )}
 
-      {/* --- FORM MODAL --- */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">{editingId ? 'Edit Product' : 'New Product'}</h2><button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500"><X size={20} /></button></div>
-            <div className="flex border-b border-gray-200 px-6 bg-white">{[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: DollarSign}, {id: 'inventory', label: 'Inventory & Stock', icon: Box}, {id: 'settings', label: 'Rules & Settings', icon: Layers}].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><tab.icon size={16} /> {tab.label}</button>))}</div>
+            <div className="flex border-b border-gray-200 px-6 bg-white">{[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: Box}, {id: 'inventory', label: 'Inventory & Stock', icon: Layers}, {id: 'settings', label: 'Rules & Settings', icon: Settings}].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><tab.icon size={16} /> {tab.label}</button>))}</div>
             <div className="flex-1 overflow-y-auto p-8 bg-white">
               <form onSubmit={handleSave} className="space-y-8">
                 {activeTab === 'basic' && (
@@ -922,6 +909,10 @@ const InventoryScreen: React.FC = () => {
                 {activeTab === 'pricing' && (
                   <div className="grid grid-cols-2 gap-6">
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Selling Price *</label><input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>
+
+                      {/* ✅ NEW: Auto-Discount Field */}
+                      <div><label className="block text-xs font-bold text-orange-500 mb-1">Auto-Discount (%)</label><input type="number" value={formData.discount || 0} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value)})} className="w-full p-3 border border-orange-200 bg-orange-50 rounded-lg text-orange-800 font-bold outline-none focus:ring-2 focus:ring-orange-500" placeholder="e.g. 10" /></div>
+
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Cost Price</label><input type="number" value={formData.costPrice} onChange={e => setFormData({...formData, costPrice: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Wholesale Price</label><input type="number" value={formData.wholesalePrice} onChange={e => setFormData({...formData, wholesalePrice: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Min. Selling Price</label><input type="number" value={formData.minSellingPrice} onChange={e => setFormData({...formData, minSellingPrice: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>

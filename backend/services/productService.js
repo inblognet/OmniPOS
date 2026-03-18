@@ -1,11 +1,11 @@
 const db = require('../config/db');
 
-// ✅ DATA SANITIZATION HELPERS (Prevents crashes from bad data)
+// ✅ DATA SANITIZATION HELPERS
 const safeFloat = (val) => (val === '' || val === null || val === undefined || isNaN(val)) ? 0 : parseFloat(val);
 const safeDate = (val) => (val === '' || val === null || val === undefined) ? null : val;
 const safeBool = (val) => (val === true || val === 'true');
 
-// ✅ MAPPER: Matches database (snake_case) to frontend (camelCase)
+// ✅ MAPPER: Added discount field
 const mapProduct = (row) => ({
   id: row.id,
   name: row.name,
@@ -25,13 +25,14 @@ const mapProduct = (row) => ({
   maxStockLevel: parseFloat(row.max_stock_level),
   isTaxIncluded: row.is_tax_included,
   allowDiscount: row.allow_discount,
+  discount: parseFloat(row.discount || 0), // ✅ NEW: Maps DB discount to Frontend
   batches: row.batches || [],
   isActive: row.is_active,
   createdAt: row.created_at,
-  damagedQty: parseFloat(row.damaged_qty || 0) // ✅ Included damaged quantity
+  damagedQty: parseFloat(row.damaged_qty || 0)
 });
 
-// ✅ GET ALL: Hides "Archived" items
+// ✅ GET ALL
 const getAllProducts = async () => {
   const result = await db.query('SELECT * FROM products WHERE is_active = true ORDER BY id DESC');
   return result.rows.map(mapProduct);
@@ -39,15 +40,16 @@ const getAllProducts = async () => {
 
 // ✅ CREATE PRODUCT
 const createProduct = async (data) => {
+  // ✅ NEW: Added discount as the 20th parameter ($20)
   const query = `
     INSERT INTO products (
       name, sku, barcode, category, brand, type,
       price, cost_price, wholesale_price, min_selling_price,
       stock, stock_expiry_date, reorder_level, max_stock_level,
       batches, variant_group, is_active,
-      is_tax_included, allow_discount,
+      is_tax_included, allow_discount, discount,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW())
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
     RETURNING *;
   `;
 
@@ -70,7 +72,8 @@ const createProduct = async (data) => {
     data.variantGroup || null,
     safeBool(data.isActive),
     safeBool(data.isTaxIncluded),
-    safeBool(data.allowDiscount)
+    safeBool(data.allowDiscount),
+    safeFloat(data.discount) // ✅ NEW: Passes discount value to database
   ];
 
   const result = await db.query(query, values);
@@ -79,15 +82,16 @@ const createProduct = async (data) => {
 
 // ✅ UPDATE PRODUCT
 const updateProduct = async (id, data) => {
+  // ✅ NEW: Added discount = $20, which bumps WHERE id = $21
   const query = `
     UPDATE products SET
       name = $1, sku = $2, barcode = $3, category = $4, brand = $5, type = $6,
       price = $7, cost_price = $8, wholesale_price = $9, min_selling_price = $10,
       stock = $11, stock_expiry_date = $12, reorder_level = $13, max_stock_level = $14,
       is_tax_included = $15, allow_discount = $16,
-      batches = $17, variant_group = $18, is_active = $19,
+      batches = $17, variant_group = $18, is_active = $19, discount = $20,
       updated_at = NOW()
-    WHERE id = $20
+    WHERE id = $21
     RETURNING *;
   `;
 
@@ -111,6 +115,7 @@ const updateProduct = async (id, data) => {
     JSON.stringify(data.batches || []),
     data.variantGroup || null,
     safeBool(data.isActive),
+    safeFloat(data.discount), // ✅ NEW: Updates discount value in DB
     id
   ];
 
@@ -118,43 +123,29 @@ const updateProduct = async (id, data) => {
   return result.rows.length ? mapProduct(result.rows[0]) : null;
 };
 
-// ✅ SMART DELETE: Handles Foreign Key Conflicts gracefully
+// ✅ SMART DELETE
 const deleteProduct = async (id) => {
   try {
-    // 1. Try to HARD DELETE the product
     const result = await db.query('DELETE FROM products WHERE id = $1 RETURNING id', [id]);
-
-    if (result.rowCount === 0) {
-      return { success: false, message: "Product not found" };
-    }
-
+    if (result.rowCount === 0) return { success: false, message: "Product not found" };
     return { success: true, message: "Product deleted permanently" };
-
   } catch (error) {
-    // 2. Catch Code 23503 (Foreign Key Violation - Sales History Exists)
     if (error.code === '23503') {
       console.log(`⚠️ Product ${id} has sales history. Archiving instead.`);
-
-      // 3. SOFT DELETE: Mark as Inactive so it's hidden but safe
       await db.query('UPDATE products SET is_active = false WHERE id = $1', [id]);
-
       return { success: true, message: "Product archived (Sales history preserved)" };
     }
-
-    // Rethrow any real errors (like DB connection failure)
     throw error;
   }
 };
 
-// ✅ REPORT DAMAGE: Protected by a SQL Transaction for Inventory Integrity
+// ✅ REPORT DAMAGE
 const reportDamage = async (id, qty, reason) => {
   if (!db.pool) throw new Error("Database pool not found.");
   const client = await db.pool.connect();
 
   try {
-    await client.query('BEGIN'); // Start Transaction
-
-    // 1. Decrease Stock, Increase Damaged Qty
+    await client.query('BEGIN');
     const result = await client.query(`
       UPDATE products
       SET stock = stock - $1, damaged_qty = COALESCE(damaged_qty, 0) + $1
@@ -162,19 +153,16 @@ const reportDamage = async (id, qty, reason) => {
       RETURNING *
     `, [qty, id]);
 
-    // 2. Log the reason in the damage logs table
     if (result.rows.length > 0) {
       await client.query(
         'INSERT INTO damage_logs (product_id, qty, reason) VALUES ($1, $2, $3)',
         [id, qty, reason]
       );
     }
-
-    await client.query('COMMIT'); // Finalize changes
+    await client.query('COMMIT');
     return result.rows[0] ? mapProduct(result.rows[0]) : null;
-
   } catch (error) {
-    await client.query('ROLLBACK'); // Undo stock deduction if log fails
+    await client.query('ROLLBACK');
     console.error("❌ Report Damage Transaction Failed:", error);
     throw error;
   } finally {
@@ -182,7 +170,7 @@ const reportDamage = async (id, qty, reason) => {
   }
 };
 
-// ✅ GET DAMAGE LOGS: Fetches the history of damaged items to display in the UI
+// ✅ GET DAMAGE LOGS
 const getDamageLogs = async () => {
   try {
     const result = await db.query(`
@@ -211,9 +199,7 @@ const addCategory = async (name) => {
         RETURNING *
     `, [name]);
 
-    if (rows.length === 0) {
-        throw new Error("Category already exists");
-    }
+    if (rows.length === 0) throw new Error("Category already exists");
     return rows[0];
 };
 
@@ -229,7 +215,7 @@ module.exports = {
   deleteProduct,
   reportDamage,
   getDamageLogs,
-  getCategories, // ✅ New
-  addCategory,   // ✅ New
-  deleteCategory // ✅ New
+  getCategories,
+  addCategory,
+  deleteCategory
 };

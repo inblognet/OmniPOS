@@ -1,15 +1,15 @@
 // cspell:ignore dexie cust
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ProductCard from './ProductCard';
 import CartPanel from './CartPanel';
 import {
   addToCart, updatePrice, updateItemDiscount, updateItemNote,
-  clearCart, setCustomer, removeFromCart, holdSale, resumeSale // ✅ Added holdSale & resumeSale
+  clearCart, setCustomer, removeFromCart, holdSale, resumeSale
 } from '../../store/cartSlice';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
   Search, X, Save, Package, QrCode, User, Keyboard, Lock, Unlock,
-  MonitorPlay, Monitor, ShoppingCart, Filter, CheckSquare, Square
+  MonitorPlay, Monitor, ShoppingCart, Filter, CheckSquare, Square, Layers, Calendar
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 import QuickScanModal from './QuickScanModal';
@@ -24,7 +24,6 @@ import { useCFDSync } from '../../hooks/useCFDSync.ts';
 const PosScreen: React.FC = () => {
   const dispatch = useAppDispatch();
   const currency = useCurrency();
-  // ✅ Added heldSales to useAppSelector
   const { items: cartItems, customer, heldSales } = useAppSelector((state) => state.cart);
   const { broadcast } = useCFDSync();
 
@@ -50,6 +49,9 @@ const PosScreen: React.FC = () => {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [categories, setCategories] = useState<{id: number, name: string}[]>([]);
 
+  // ✅ BATCH SELECTOR STATE
+  const [batchSelectGroup, setBatchSelectGroup] = useState<any[] | null>(null);
+
   const totalQty = cartItems.reduce((acc, item) => acc + item.quantity, 0);
   const grossAmount = cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const totalDiscount = cartItems.reduce((acc, item) => acc + ((item.discount || 0) * item.quantity), 0);
@@ -58,7 +60,6 @@ const PosScreen: React.FC = () => {
   const roundOff = 0.00;
   const netPayable = grossAmount - totalDiscount + totalTax - roundOff;
 
-  // 🛑 NUCLEAR SCROLLBAR LOCK
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
@@ -118,9 +119,18 @@ const PosScreen: React.FC = () => {
     return matchesSearch && matchesCategory;
   });
 
+  const groupedProducts = useMemo(() => {
+      const groups = new Map<string, any[]>();
+      filteredProducts.forEach(p => {
+          const key = (p.variantGroup?.trim() || p.name.trim()).toLowerCase();
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key)!.push(p);
+      });
+      return Array.from(groups.values());
+  }, [filteredProducts]);
+
   const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || (c.phone && c.phone.includes(customerSearch))).slice(0, 5);
 
-  // ✅ FULL HARDWARE SHORTCUTS LISTENER INJECTED HERE
   useEffect(() => {
       const handleGlobalKeyDown = (e: KeyboardEvent) => {
           const isTyping = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
@@ -142,14 +152,34 @@ const PosScreen: React.FC = () => {
 
   const toggleCategory = (catName: string) => setSelectedCategories(prev => prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]);
 
-  const validateAndAdd = (product: any) => {
+  // ✅ UPDATED validateAndAdd FUNCTION
+  const validateAndAdd = (product: any, customQty = 1) => {
     const existingItem = cartItems.find(item => item.id === product.id);
     const currentQty = existingItem ? existingItem.quantity : 0;
+
     if (product.type === 'Stock' && !product.allowNegativeStock) {
         if (product.stock <= 0) return alert(`Cannot sell "${product.name}". Out of stock.`);
-        if (currentQty + 1 > product.stock) return alert(`Cannot sell "${product.name}". Only ${product.stock} in stock.`);
+        if (currentQty + customQty > product.stock) return alert(`Cannot sell "${product.name}". Only ${product.stock} in stock.`);
     }
-    dispatch(addToCart({ id: product.id!, name: product.displayName || product.name, price: product.price, stock: product.stock, barcode: product.barcode, category: product.category, isTaxIncluded: product.isTaxIncluded, quantity: 1, discount: 0, note: '' }));
+
+    // ✅ CALCULATE THE DISCOUNT DOLLAR AMOUNT FROM THE PERCENTAGE
+    // e.g. Price is $20.00, Discount is 10%. 20 * (10 / 100) = $2.00 off.
+    const calcDiscount = product.discount && product.discount > 0
+        ? (product.price * (product.discount / 100))
+        : 0;
+
+    dispatch(addToCart({
+        id: product.id!,
+        name: product.displayName || product.name,
+        price: product.price,
+        stock: product.stock,
+        barcode: product.barcode,
+        category: product.category,
+        isTaxIncluded: product.isTaxIncluded,
+        quantity: customQty,
+        discount: calcDiscount, // ✅ PASS THE CALCULATED DISCOUNT HERE
+        note: ''
+    }));
   };
 
   const openControlModal = (type: 'price' | 'discount' | 'note') => {
@@ -173,14 +203,54 @@ const PosScreen: React.FC = () => {
 
   const handleRefundClick = () => { setIsRefundOpen(true); };
   const handleReprint = () => alert("Reprinting...");
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'Enter' && searchQuery.trim() !== '') {
           const query = searchQuery.trim();
-          const exactMatch = products.find(p => p.barcode === query || p.sku === query);
-          if (exactMatch) { validateAndAdd(exactMatch); setSearchQuery(''); }
-          else if (filteredProducts.length === 1) { validateAndAdd(filteredProducts[0]); setSearchQuery(''); }
+          const exactMatches = products.filter(p => {
+              const dbBarcode = p.barcode ? String(p.barcode).trim() : '';
+              const baseBarcode = dbBarcode.split('-')[0]; // Ignore suffix
+              return dbBarcode === query || baseBarcode === query || (p.sku && p.sku.toLowerCase() === query.toLowerCase());
+          });
+
+          if (exactMatches.length > 0) {
+              if (exactMatches.length === 1) {
+                  validateAndAdd(exactMatches[0]);
+              } else {
+                  setBatchSelectGroup(exactMatches);
+              }
+              setSearchQuery('');
+          } else if (filteredProducts.length === 1) {
+              validateAndAdd(filteredProducts[0]);
+              setSearchQuery('');
+          }
       }
   };
+
+  const handleVirtualEnter = () => {
+      if (activeInputRef.current && activeInputRef.current.name !== "customerSearchInput" && searchQuery.trim() !== '') {
+          const query = searchQuery.trim();
+          const exactMatches = products.filter(p => {
+              const dbBarcode = p.barcode ? String(p.barcode).trim() : '';
+              const baseBarcode = dbBarcode.split('-')[0];
+              return dbBarcode === query || baseBarcode === query || (p.sku && p.sku.toLowerCase() === query.toLowerCase());
+          });
+
+          if (exactMatches.length > 0) {
+              if (exactMatches.length === 1) {
+                  validateAndAdd(exactMatches[0]);
+              } else {
+                  setBatchSelectGroup(exactMatches);
+              }
+              setSearchQuery('');
+          } else if (filteredProducts.length === 1) {
+              validateAndAdd(filteredProducts[0]);
+              setSearchQuery('');
+          }
+      }
+      if (!isKeyboardLocked) { setShowMainKeyboard(false); }
+  };
+
   const handleSaveEdit = async (e: React.FormEvent) => {
       e.preventDefault(); if (!editingProduct || !editingProduct.id) return;
       try { await productService.update(editingProduct.id, { ...editingProduct, name: editingProduct.name, price: Number(editingProduct.price), stock: Number(editingProduct.stock) }); setEditingProduct(null); loadData(); } catch (err) { alert("Failed to update product via API"); }
@@ -188,10 +258,9 @@ const PosScreen: React.FC = () => {
   const handleCheckoutClick = () => { if (cartItems.length > 0) setIsCheckoutOpen(true); };
   const handleSaleComplete = (orderData: any) => { setLastOrder(orderData); setTimeout(() => { window.print(); setLastOrder(null); dispatch(clearCart()); loadData(); }, 500); };
   const handleRefundComplete = (refundOrder: any) => { setLastOrder({ ...refundOrder, total_amount: refundOrder.totalAmount || refundOrder.total_amount }); setTimeout(() => { window.print(); setLastOrder(null); loadData(); }, 500); };
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => { if (!activeModal && !editingProduct) { activeInputRef.current = e.target; setShowMainKeyboard(true); } };
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => { if (!activeModal && !editingProduct && !batchSelectGroup) { activeInputRef.current = e.target; setShowMainKeyboard(true); } };
   const handleVirtualKeyPress = (key: string) => { if (activeInputRef.current) { const input = activeInputRef.current; if (input.name === "customerSearchInput") { setCustomerSearch(prev => prev + key); } else { const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const start = input.selectionStart || 0; const end = input.selectionEnd || 0; setter.call(input, input.value.substring(0, start) + key + input.value.substring(end)); input.dispatchEvent(new Event('input', { bubbles: true })); } } } };
   const handleVirtualBackspace = () => { if (activeInputRef.current) { const input = activeInputRef.current; if (input.name === "customerSearchInput") { setCustomerSearch(prev => prev.slice(0, -1)); } else { const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { setter.call(input, input.value.slice(0, -1)); input.dispatchEvent(new Event('input', { bubbles: true })); } } } };
-  const handleVirtualEnter = () => { if (activeInputRef.current && activeInputRef.current.name !== "customerSearchInput" && searchQuery.trim() !== '') { const query = searchQuery.trim(); const exactMatch = products.find(p => p.barcode === query || p.sku === query); if (exactMatch) { validateAndAdd(exactMatch); setSearchQuery(''); } else if (filteredProducts.length === 1) { validateAndAdd(filteredProducts[0]); setSearchQuery(''); } } if (!isKeyboardLocked) { setShowMainKeyboard(false); } };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => { const target = e.target as HTMLElement; if (!isKeyboardLocked && target.tagName !== 'INPUT' && !target.closest('.virtual-keyboard-container')) { setShowMainKeyboard(false); } };
@@ -203,15 +272,11 @@ const PosScreen: React.FC = () => {
     <div className="flex w-full h-full overflow-hidden bg-transparent relative">
 
       <style>{`
-        /* Global Scrollbar KILLER */
         body, html, #root { overflow: hidden !important; }
-
-        /* Internal Scrollbar Hider */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
 
-      {/* --- LEFT PANEL --- */}
       <div className="flex-1 flex flex-col h-full min-w-0 mr-4 relative bg-transparent rounded-tr-2xl">
         <div className="px-6 py-4 bg-transparent shadow-sm z-10 flex gap-3 items-center border-b border-gray-100 shrink-0">
             <div className="relative flex-1">
@@ -248,24 +313,43 @@ const PosScreen: React.FC = () => {
           </div>
         )}
 
-        {/* 📦 Product Grid */}
         <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
           {loading ? <div className="h-full flex items-center justify-center text-gray-400">Loading products...</div> : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {filteredProducts.map((product) => {
-                const isOutOfStock = product.type === 'Stock' && product.stock <= 0 && !product.allowNegativeStock;
-                return (
-                    <div key={product.id} className={isOutOfStock ? "opacity-50 grayscale cursor-not-allowed relative" : ""}>
-                        <ProductCard product={product} onClick={() => !isOutOfStock && validateAndAdd(product)} onEdit={() => setEditingProduct(product)} />
-                        {isOutOfStock && ( <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><span className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded shadow-lg transform -rotate-12">OUT OF STOCK</span></div> )}
-                    </div>
-                );
+                {groupedProducts.map((group) => {
+                    const baseProduct = group[0];
+                    const isGroup = group.length > 1;
+
+                    const totalGroupStock = group.reduce((sum, p) => sum + p.stock, 0);
+                    const displayProduct = { ...baseProduct, stock: totalGroupStock, name: baseProduct.variantGroup || baseProduct.name };
+
+                    const isOutOfStock = displayProduct.type === 'Stock' && displayProduct.stock <= 0 && !displayProduct.allowNegativeStock;
+
+                    return (
+                        <div key={baseProduct.id} className={isOutOfStock ? "opacity-50 grayscale cursor-not-allowed relative" : "relative"}>
+                            <ProductCard
+                                product={displayProduct}
+                                onClick={() => {
+                                    if (isOutOfStock) return;
+                                    if (isGroup) setBatchSelectGroup(group);
+                                    else validateAndAdd(baseProduct);
+                                }}
+                                onEdit={() => setEditingProduct(baseProduct)}
+                            />
+                            {isGroup && (
+                                <div className="absolute bottom-3 left-3 bg-purple-600 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md flex items-center gap-1 border border-purple-400 z-10 pointer-events-none">
+                                    <Layers size={10}/> {group.length} Batches
+                                </div>
+                            )}
+                            {isOutOfStock && ( <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"><span className="bg-red-600 text-white text-xs font-bold px-2 py-1 rounded shadow-lg transform -rotate-12">OUT OF STOCK</span></div> )}
+                        </div>
+                    );
                 })}
             </div>
           )}
         </div>
 
-        {showMainKeyboard && !activeModal && (
+        {showMainKeyboard && !activeModal && !batchSelectGroup && (
           <div className="virtual-keyboard-container absolute bottom-4 left-4 right-4 z-[100] bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 animate-in slide-in-from-bottom-10 fade-in duration-200">
              <div className="flex justify-between items-center mb-2"><div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase"><Keyboard size={14}/> Virtual Keyboard</div><div className="flex items-center gap-2"><button onClick={() => setIsKeyboardLocked(!isKeyboardLocked)} className={`p-1.5 rounded-full transition-colors ${isKeyboardLocked ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}>{isKeyboardLocked ? <Lock size={16} /> : <Unlock size={16} />}</button><button onClick={() => setShowMainKeyboard(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={16}/></button></div></div>
              <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onBackspace={handleVirtualBackspace} onEnter={handleVirtualEnter} layout="full" />
@@ -273,7 +357,6 @@ const PosScreen: React.FC = () => {
         )}
       </div>
 
-      {/* --- RIGHT PANEL --- */}
       <div className="w-[450px] flex-shrink-0 bg-transparent z-20 flex flex-col h-full overflow-hidden">
         <div className="p-4 bg-transparent border-b border-gray-200 shrink-0 relative">
             <div className="relative w-full">
@@ -332,8 +415,80 @@ const PosScreen: React.FC = () => {
         </div>
       </div>
 
+      {batchSelectGroup && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setBatchSelectGroup(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
+                <div className="px-6 py-4 bg-purple-600 text-white flex justify-between items-center">
+                    <div>
+                        <h2 className="text-xl font-black">Select Required Batch</h2>
+                        <p className="text-purple-200 text-sm font-medium">{batchSelectGroup[0].variantGroup || batchSelectGroup[0].name}</p>
+                    </div>
+                    <button onClick={() => setBatchSelectGroup(null)} className="text-purple-200 hover:text-white bg-purple-700/50 p-2 rounded-full transition-colors"><X size={24}/></button>
+                </div>
+
+                <div className="p-4 max-h-[60vh] overflow-y-auto bg-gray-50 space-y-3">
+                    {batchSelectGroup.map((variant) => {
+                        const batchData = variant.batches?.[0];
+                        const expiryRaw = batchData?.expiryDate || variant.stockExpiryDate;
+                        const expiryDisplay = expiryRaw ? new Date(expiryRaw).toLocaleDateString() : 'No Expiry';
+                        const batchNoDisplay = batchData?.batchNumber || variant.batchNumber || 'N/A';
+
+                        // 🧹 Strip the -1, -2 suffix so the cashier just sees the normal barcode!
+                        const cleanBarcode = variant.barcode ? String(variant.barcode).split('-')[0] : '-';
+
+                        return (
+                            <div key={variant.id}
+                                 onClick={() => { validateAndAdd(variant); setBatchSelectGroup(null); }}
+                                 className={`flex justify-between items-center p-5 bg-white border-2 border-gray-200 rounded-xl cursor-pointer hover:border-purple-500 hover:shadow-lg transition-all ${variant.stock <= 0 && !variant.allowNegativeStock ? 'opacity-50 grayscale' : ''}`}>
+
+                                <div className="flex flex-col gap-1">
+                                    <div className="flex items-center gap-2">
+                                        <Calendar size={24} className="text-gray-400"/>
+                                        <span className={`font-black text-2xl tracking-tight ${expiryRaw ? 'text-orange-600' : 'text-gray-800'}`}>
+                                            EXP: {expiryDisplay}
+                                        </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <Package size={18} className="text-gray-500"/>
+                                        <span className="font-bold text-lg text-gray-700">
+                                            BATCH: {batchNoDisplay}
+                                        </span>
+                                        {variant.variantName && (
+                                            <span className="text-sm font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded ml-1">
+                                                {variant.variantName}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    <div className="text-xs text-gray-400 flex gap-2 mt-1 font-mono font-bold">
+                                        <span className="bg-gray-100 px-2 py-1 rounded">
+                                            <QrCode size={10} className="inline mr-1 -mt-0.5"/>
+                                            BC: {cleanBarcode}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="text-right">
+                                    <div className="text-3xl font-black text-blue-600">{currency}{Number(variant.price).toFixed(2)}</div>
+                                    <div className={`text-sm font-bold mt-2 bg-gray-100 px-3 py-1 rounded-full inline-block ${variant.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                        {variant.stock > 0 ? `${variant.stock} In Stock` : 'Out of Stock'}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+                <div className="bg-gray-100 px-6 py-3 text-center text-xs text-gray-500 font-bold uppercase tracking-wider">
+                    Click the correct batch to add to cart
+                </div>
+            </div>
+        </div>
+      )}
+
       <QuickScanModal isOpen={isQuickScanOpen} onClose={() => setIsQuickScanOpen(false)} products={products} onAddToCart={validateAndAdd} />
       <RefundModal isOpen={isRefundOpen} onClose={() => setIsRefundOpen(false)} onRefundComplete={handleRefundComplete} />
+
       {activeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onMouseDown={(e) => { if(e.target === e.currentTarget) setActiveModal(null); }}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative" onMouseDown={(e) => e.stopPropagation()}><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h3 className="font-bold text-gray-800 flex items-center gap-2 capitalize">Update {activeModal}</h3><button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="p-5 space-y-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">{activeModal === 'note' ? 'Note Content' : `Value (${currency})`}</label><input ref={activeInputRef} type={activeModal === 'note' ? 'text' : 'number'} autoFocus required value={modalValue} onChange={(e) => setModalValue(e.target.value)} className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg" /></div><div className="flex justify-center"><VirtualKeyboard layout={activeModal === 'note' ? 'full' : 'numeric'} onKeyPress={(key) => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value + key); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onBackspace={() => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value.slice(0, -1)); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onEnter={() => saveControlModal({ preventDefault: () => {} } as any)} className="bg-gray-100 border-none shadow-none" /></div><button type="submit" onClick={saveControlModal} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2"><Save size={18} /> Save Changes</button></div></div>
