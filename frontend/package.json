@@ -19,6 +19,7 @@
     "clsx": "^2.0.0",
     "dexie": "^3.2.4",
     "dexie-react-hooks": "^1.1.6",
+    "electron-updater": "^6.8.3",
     "file-saver": "^2.0.5",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.1.0",
@@ -69,6 +70,13 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "inblognet",
+        "repo": "OmniPOS"
+      }
+    ]
   }
 }

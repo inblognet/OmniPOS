@@ -1,7 +1,9 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
+// ✅ Import the autoUpdater
+const { autoUpdater } = require('electron-updater');
 
 const dbPath = path.join(app.getPath('userData'), 'omnipos_local.db');
 const db = new Database(dbPath);
@@ -110,6 +112,49 @@ app.whenReady().then(() => {
   });
 
   createWindow();
+
+  // ✅ Auto-Updater Logic (Only runs in production)
+  if (app.isPackaged) {
+      // Configure autoUpdater settings
+      autoUpdater.autoDownload = false; // We want to ask the user first before eating bandwidth
+      autoUpdater.autoInstallOnAppQuit = true;
+
+      // Check for updates immediately when the app starts
+      autoUpdater.checkForUpdates();
+
+      // Listen for updates found
+      autoUpdater.on('update-available', (info) => {
+          dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'Update Available',
+              message: `A new version of OmniPOS (${info.version}) is available. Would you like to download it now?`,
+              buttons: ['Yes, Download', 'Later']
+          }).then((result) => {
+              if (result.response === 0) {
+                  autoUpdater.downloadUpdate();
+              }
+          });
+      });
+
+      // Listen for download completion
+      autoUpdater.on('update-downloaded', () => {
+          dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: 'Update Ready',
+              message: 'The update has been downloaded. OmniPOS will restart to apply the update.',
+              buttons: ['Restart Now', 'Later']
+          }).then((result) => {
+              if (result.response === 0) {
+                  autoUpdater.quitAndInstall();
+              }
+          });
+      });
+
+      // Optional: Handle errors gracefully
+      autoUpdater.on('error', (err) => {
+          console.error('Auto-updater error:', err);
+      });
+  }
 });
 
 app.on('window-all-closed', () => {
