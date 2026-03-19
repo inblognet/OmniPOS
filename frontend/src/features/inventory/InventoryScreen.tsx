@@ -47,12 +47,26 @@ const InventoryScreen: React.FC = () => {
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ BULLETPROOF DATA LOADER
+  // ✅ Helper to get base barcode (removes -b1, -B2, -1, etc.)
+  const getCleanBarcode = (value: string | undefined): string => {
+    if (!value) return '00000000';
+    return String(value).split('-')[0].trim();
+  };
+
+  // ✅ Helper to calculate dynamic sizes based on user input
+  const getDynamicPrintSizes = (baseWidth: number) => {
+    return {
+        bWidth: Math.max(1, baseWidth / 120),  // Scales barcode line thickness
+        bHeight: Math.max(30, baseWidth / 4),  // Scales barcode line height
+        qrSize: Math.max(50, baseWidth * 0.6), // Scales QR code box
+        fSize: Math.max(10, baseWidth / 18)    // Scales font text
+    };
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
 
-      // 1. Safely Load Categories
       try {
         let cats: any[] = [];
         if (navigator.onLine) {
@@ -68,7 +82,6 @@ const InventoryScreen: React.FC = () => {
         setCategories(localCats || []);
       }
 
-      // 2. Safely Load Suppliers
       try {
         const sups = await db.suppliers.toArray();
         setSuppliersList(sups || []);
@@ -76,18 +89,21 @@ const InventoryScreen: React.FC = () => {
         console.warn("Suppliers fetch skipped", e);
       }
 
-      // 3. FORCE Load Products (with Auto-Heal)
       let prodData: any[] = [];
       try {
          if (navigator.onLine) {
-             prodData = await productService.getAll();
+             const rawData = await productService.getAll();
 
-             // 🔥 Auto-Heal Local Database if it was wiped by the v17 update!
+             prodData = rawData.map((item: any) => {
+                 const cleanItem = { ...item };
+                 if (cleanItem.supplierId === null) delete cleanItem.supplierId;
+                 return cleanItem;
+             });
+
              if (Array.isArray(prodData) && prodData.length > 0) {
                  const localCount = await db.products.count();
                  if (localCount === 0) {
                      await db.products.bulkPut(prodData);
-                     console.log("Local DB Auto-Healed with Cloud Data!");
                  }
              }
          } else {
@@ -150,8 +166,11 @@ const InventoryScreen: React.FC = () => {
   const [selectedBarcodeIds, setSelectedBarcodeIds] = useState<number[]>([]);
   const [viewingCode, setViewingCode] = useState<{ id: number, type: 'barcode' | 'qr', value: string, name: string } | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
-  const [printCardSize, setPrintCardSize] = useState<number>(200);
+  const [printCardSize, setPrintCardSize] = useState<number>(220);
   const [printType, setPrintType] = useState<'barcode' | 'qr'>('barcode');
+  const [showSinglePrintModal, setShowSinglePrintModal] = useState(false);
+
+  const [printQueue, setPrintQueue] = useState<Product[] | null>(null);
 
   const [activeStatModal, setActiveStatModal] = useState<'products' | 'categories' | 'stock' | 'expired' | 'damaged' | null>(null);
 
@@ -182,7 +201,6 @@ const InventoryScreen: React.FC = () => {
   const expiredBatchesList = products.flatMap(p => (p.batches || []).filter(b => b.expiryDate && new Date(b.expiryDate) < new Date()).map(b => ({ productName: p.name, ...b })));
   const totalExpiredItems = expiredBatchesList.reduce((acc, b) => acc + b.quantity, 0);
 
-  // ✅ BULLETPROOF SEARCH FILTER
   const filteredProducts = products.filter(p => {
     const query = search.toLowerCase();
     const n = p.name ? String(p.name).toLowerCase() : '';
@@ -461,6 +479,7 @@ const InventoryScreen: React.FC = () => {
 
     const payload = {
         ...formData,
+        supplierId: formData.supplierId || undefined,
         updatedAt: new Date().toISOString(),
         stock: finalStock,
         price: parseFloat(formData.price.toString() || '0'),
@@ -520,7 +539,6 @@ const InventoryScreen: React.FC = () => {
     setNewBatch({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' }); setEditingBatchId(null);
   };
 
-  // ✅ SAFELY ADD CATEGORY WITH OFFLINE FALLBACK
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
@@ -542,7 +560,6 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-  // ✅ SAFELY DELETE CATEGORY WITH OFFLINE FALLBACK
   const handleDeleteCategory = async (id: number) => {
     if (window.confirm("Delete category?")) {
         try {
@@ -566,30 +583,34 @@ const InventoryScreen: React.FC = () => {
   };
 
   const toggleBarcodeSelection = (id: number) => { setSelectedBarcodeIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]); };
-  const selectAllBarcodes = () => { if (selectedBarcodeIds.length === barcodeFilteredProducts.length) setSelectedBarcodeIds([]); else setSelectedBarcodeIds(barcodeFilteredProducts.map(p => p.id!)); };
+
+  const selectAllBarcodes = () => {
+      if (selectedBarcodeIds.length === barcodeFilteredProducts.length) {
+          setSelectedBarcodeIds([]);
+      } else {
+          setSelectedBarcodeIds(barcodeFilteredProducts.map(p => p.id!));
+      }
+  };
+
+  const executePrintQueue = (itemsToPrint: Product[]) => {
+      setPrintQueue(itemsToPrint);
+      setTimeout(() => {
+          window.print();
+          setPrintQueue(null);
+          setShowSinglePrintModal(false);
+      }, 500);
+  };
 
   const handleBatchPrint = () => {
     const items = products.filter(p => selectedBarcodeIds.includes(p.id!));
-    if (items.length === 0) return alert("Select items");
-    const win = window.open('', '', 'height=800,width=1000');
-    if (win) {
-      win.document.write('<html><head><style>body{font-family:sans-serif;}.grid{display:grid;grid-template-columns:repeat(auto-fit,'+printCardSize+'px);gap:20px;}.card{border:1px solid #ccc;padding:10px;text-align:center;border-radius:8px;height:'+(printCardSize*1.3)+'px;display:flex;flex-direction:column;justify-content:space-between;}</style></head><body><div class="grid">');
-      items.forEach(i => win.document.write('<div class="card"><div>'+i.name+'</div><img src="https://bwipjs-api.metafloor.com/?bcid='+(printType==='barcode'?'code128':'qrcode')+'&text='+i.barcode+'&scale=2" /><div>'+currency+i.price+'</div></div>'));
-      win.document.write('</div></body></html>');
-      win.document.close();
-      setTimeout(() => win.print(), 800);
-    }
+    if (items.length === 0) return alert("Please select items to print first.");
+    executePrintQueue(items);
   };
 
-  const handlePrintSingle = () => {
-    if (printRef.current && viewingCode) {
-      const win = window.open('', '', 'height=600,width=800');
-      if (win) {
-        win.document.write('<html><body>'+printRef.current.innerHTML+'</body></html>');
-        win.document.close();
-        setTimeout(() => win.print(), 500);
-      }
-    }
+  const executeSinglePrint = () => {
+    if (!viewingCode) return;
+    const product = products.find(p => p.id === viewingCode.id);
+    if (product) executePrintQueue([product]);
   };
 
   const openCreateModal = () => { setEditingId(null); setActiveTab('basic'); setFormData({ name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '', stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '', costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false, stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false, totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], supplierId: undefined, supplierNote: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setShowModal(true); };
@@ -677,24 +698,25 @@ const InventoryScreen: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col mb-8">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50/50">
-            <List className="text-blue-600" size={20} />
-            <h2 className="text-lg font-bold text-gray-800">Product List</h2>
+      {/* ✅ MASSIVE REDESIGNED PRODUCT LIST TABLE */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col mb-8 min-h-[400px]">
+        <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
+            <List className="text-blue-600" size={24} />
+            <h2 className="text-xl font-black text-gray-800">Product List</h2>
         </div>
         <div className="overflow-x-auto flex-1">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-bold border-b border-gray-200">
+            <thead className="bg-gray-50 text-gray-500 text-sm uppercase font-black border-b border-gray-200 tracking-wider">
               <tr>
-                <th className="px-6 py-4">Product Info</th>
-                <th className="px-6 py-4">Categories</th>
-                {config.fields.brand.visible && <th className="px-6 py-4">Brand</th>}
-                <th className="px-6 py-4 text-right">Price</th>
-                <th className="px-6 py-4 text-center">Stock</th>
-                {config.features.expiryTracking && <th className="px-6 py-4 text-center text-orange-600">Expiry</th>}
-                {config.features.damageTracking && <th className="px-6 py-4 text-center text-red-600">Damaged</th>}
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+                <th className="px-6 py-5">Product Info</th>
+                <th className="px-6 py-5">Categories</th>
+                {config.fields.brand.visible && <th className="px-6 py-5">Brand</th>}
+                <th className="px-6 py-5 text-right">Price</th>
+                <th className="px-6 py-5 text-center">Stock</th>
+                {config.features.expiryTracking && <th className="px-6 py-5 text-center text-orange-600">Expiry</th>}
+                {config.features.damageTracking && <th className="px-6 py-5 text-center text-red-600">Damaged</th>}
+                <th className="px-6 py-5 text-center">Status</th>
+                <th className="px-6 py-5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -702,25 +724,28 @@ const InventoryScreen: React.FC = () => {
                 const status = getStockStatus(p);
                 return (
                   <tr key={p.id} className="hover:bg-gray-50 transition-all group">
-                    <td className="px-6 py-4">
-                      <div className="font-bold text-gray-800">{p.name}</div>
-                      <div className="text-[10px] text-gray-400 font-mono">SKU: {p.sku || '-'}</div>
+                    <td className="px-6 py-5">
+                      <div className="font-black text-gray-900 text-lg">{p.name}</div>
+                      <div className="text-xs text-gray-400 font-bold mt-1 tracking-wide">SKU: {p.sku || '-'}</div>
                     </td>
-                    <td className="px-6 py-4"><div className="flex flex-wrap gap-1">{p.category ? p.category.split(',').map((cat, idx) => <span key={idx} className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold border border-blue-100">{cat.trim()}</span>) : <span className="text-xs text-gray-400">Uncategorized</span>}</div></td>
-                    {config.fields.brand.visible && <td className="px-6 py-4 text-gray-600">{p.brand || '-'}</td>}
-                    <td className="px-6 py-4 text-right font-bold text-gray-800">{currency}{p.price.toFixed(2)}</td>
-                    <td className="px-6 py-4 text-center font-bold text-blue-600">{p.stock} {p.unit}</td>
-                    {config.features.expiryTracking && <td className="px-6 py-4 text-center text-xs">{p.stockExpiryDate ? <div className="flex items-center justify-center gap-1 text-orange-600 font-mono"><Calendar size={12} /> <span>{new Date(p.stockExpiryDate).toLocaleDateString()}</span></div> : <span className="text-gray-400">-</span>}</td>}
-                    {config.features.damageTracking && <td className="px-6 py-4 text-center font-bold text-red-500">{p.damagedQty || 0}</td>}
-                    <td className="px-6 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-bold border ${status.color}`}>{status.label}</span></td>
-                    <td className="px-6 py-4 text-right"><div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {config.features.damageTracking && <button onClick={() => { setSelectedProduct(p); setShowDamageModal(true); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><AlertTriangle size={16} /></button>}
-                      <button onClick={() => openEditModal(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit size={16} /></button>
-                      <button onClick={() => handleDelete(p.id!)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                    <td className="px-6 py-5"><div className="flex flex-wrap gap-1.5">{p.category ? p.category.split(',').map((cat, idx) => <span key={idx} className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md text-xs font-bold border border-blue-100">{cat.trim()}</span>) : <span className="text-xs font-bold text-gray-400">Uncategorized</span>}</div></td>
+                    {config.fields.brand.visible && <td className="px-6 py-5 text-sm font-bold text-gray-600">{p.brand || '-'}</td>}
+                    <td className="px-6 py-5 text-right font-black text-gray-900 text-lg">{currency}{p.price.toFixed(2)}</td>
+                    <td className="px-6 py-5 text-center font-black text-blue-600 text-lg">{p.stock} <span className="text-sm text-blue-400">{p.unit}</span></td>
+                    {config.features.expiryTracking && <td className="px-6 py-5 text-center text-sm font-bold">{p.stockExpiryDate ? <div className="flex items-center justify-center gap-1.5 text-orange-600"><Calendar size={16} /> <span>{new Date(p.stockExpiryDate).toLocaleDateString()}</span></div> : <span className="text-gray-400">-</span>}</td>}
+                    {config.features.damageTracking && <td className="px-6 py-5 text-center font-black text-red-500 text-lg">{p.damagedQty || 0}</td>}
+                    <td className="px-6 py-5 text-center"><span className={`px-3 py-1.5 rounded-lg text-xs font-black border ${status.color}`}>{status.label}</span></td>
+                    <td className="px-6 py-5 text-right"><div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {config.features.damageTracking && <button onClick={() => { setSelectedProduct(p); setShowDamageModal(true); }} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"><AlertTriangle size={18} /></button>}
+                      <button onClick={() => openEditModal(p)} className="p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"><Edit size={18} /></button>
+                      <button onClick={() => handleDelete(p.id!)} className="p-2.5 text-red-500 hover:bg-red-50 rounded-xl transition-colors"><Trash2 size={18} /></button>
                     </div></td>
                   </tr>
                 );
               })}
+              {filteredProducts.length === 0 && (
+                 <tr><td colSpan={9} className="p-12 text-center text-gray-400 font-bold text-lg">No products found.</td></tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -749,46 +774,209 @@ const InventoryScreen: React.FC = () => {
 
         {(isBarcodeFeatureEnabled || config.features.serialTracking) && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col h-full">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Scan size={20} className="text-blue-600" /> Product Identifiers</h2>
-              <div className="flex gap-2 items-center">
-                <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><span className="text-[10px] text-gray-500">Size:</span><input type="number" value={printCardSize} onChange={(e) => setPrintCardSize(Number(e.target.value))} className="w-10 text-[10px] bg-transparent outline-none font-bold" /></div>
-                <select value={printType} onChange={(e) => setPrintType(e.target.value as 'barcode' | 'qr')} className="text-[10px] bg-gray-100 border-none outline-none font-bold"><option value="barcode">Barcode</option><option value="qr">QR</option></select>
-                <button onClick={selectAllBarcodes} className="text-[10px] bg-gray-100 px-2 py-1 rounded">All</button>
-                <button onClick={handleBatchPrint} className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold flex items-center gap-1"><Printer size={12} /> Print ({selectedBarcodeIds.length})</button>
+
+            <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
+              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><Scan size={24} className="text-blue-600" /> Product Identifiers</h2>
+
+              <div className="flex gap-3 items-center">
+                  <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 px-3 py-2 rounded-xl shadow-sm">
+                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Width:</span>
+                      <input
+                          type="number"
+                          value={printCardSize}
+                          onChange={(e) => setPrintCardSize(Number(e.target.value))}
+                          className="w-16 text-sm bg-white border border-gray-300 rounded px-2 py-1 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-900"
+                      />
+                      <span className="text-xs font-bold text-gray-500">px</span>
+                  </div>
+
+                  <select
+                      value={printType}
+                      onChange={(e) => setPrintType(e.target.value as 'barcode' | 'qr')}
+                      className="text-sm bg-white border border-gray-200 px-4 py-2.5 rounded-xl outline-none font-bold text-gray-800 shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                      <option value="barcode">Barcode</option>
+                      <option value="qr">QR Code</option>
+                  </select>
+
+                  <button
+                      onClick={selectAllBarcodes}
+                      className="text-sm font-bold bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 px-5 py-2.5 rounded-xl shadow-sm transition-colors"
+                  >
+                      {selectedBarcodeIds.length === barcodeFilteredProducts.length ? 'Deselect All' : 'Select All'}
+                  </button>
+
+                  <button
+                      onClick={handleBatchPrint}
+                      className="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md transition-transform active:scale-95"
+                  >
+                      <Printer size={18} /> Print ({selectedBarcodeIds.length})
+                  </button>
               </div>
             </div>
+
             <div className="flex gap-2 mt-2">
-              <input type="text" placeholder="Barcode Filter..." value={barcodeSearch} onChange={(e) => setBarcodeSearch(e.target.value)} className="w-full text-xs p-2 border rounded" />
-              <select value={barcodeCategoryFilter} onChange={(e) => setBarcodeCategoryFilter(e.target.value)} className="text-xs border rounded"><option value="">All</option>{categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
+              <input type="text" placeholder="Barcode Filter..." value={barcodeSearch} onChange={(e) => setBarcodeSearch(e.target.value)} className="w-full text-sm p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+              <select value={barcodeCategoryFilter} onChange={(e) => setBarcodeCategoryFilter(e.target.value)} className="text-sm p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"><option value="">All Categories</option>{categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select>
             </div>
-            <div className="flex-1 flex gap-4 overflow-hidden h-64 mt-4">
+
+            <div className="flex-1 flex gap-4 overflow-hidden h-[300px] mt-4">
               <div className="w-1/2 border-r border-gray-100 pr-4 overflow-y-auto">
                 {barcodeFilteredProducts.map(p => (
-                    <div key={p.id} onClick={() => setViewingCode({ id: p.id!, type: viewingCode?.id === p.id && viewingCode?.type === 'qr' ? 'qr' : 'barcode', value: p.barcode, name: p.name })} className={`flex justify-between items-center p-2 border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${viewingCode?.id === p.id ? 'bg-blue-50' : ''}`}>
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <button onClick={(e) => { e.stopPropagation(); toggleBarcodeSelection(p.id!); }}>{selectedBarcodeIds.includes(p.id!) ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} className="text-gray-300" />}</button>
-                        <div className="truncate text-xs font-medium text-gray-700">{p.name}</div>
+                    <div key={p.id} onClick={() => setViewingCode({ id: p.id!, type: viewingCode?.id === p.id && viewingCode?.type === 'qr' ? 'qr' : 'barcode', value: p.barcode, name: p.name })} className={`flex justify-between items-center p-3 border-b border-gray-50 hover:bg-gray-50 cursor-pointer rounded-lg transition-colors ${viewingCode?.id === p.id ? 'bg-blue-50 border-blue-100' : ''}`}>
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <button onClick={(e) => { e.stopPropagation(); toggleBarcodeSelection(p.id!); }}>{selectedBarcodeIds.includes(p.id!) ? <CheckSquare size={18} className="text-blue-600" /> : <Square size={18} className="text-gray-300" />}</button>
+                        <div className="truncate text-sm font-bold text-gray-700">{p.name}</div>
                       </div>
-                      <div className="flex gap-1 shrink-0"><button onClick={(e) => { e.stopPropagation(); setViewingCode({ id: p.id!, type: 'barcode', value: p.barcode, name: p.name }); }} className="p-1 hover:text-blue-600"><Scan size={12} /></button><button onClick={(e) => { e.stopPropagation(); setViewingCode({ id: p.id!, type: 'qr', value: p.barcode, name: p.name }); }} className="p-1 hover:text-purple-600"><QrCode size={12} /></button></div>
+                      <div className="flex gap-2 shrink-0">
+                          <button onClick={(e) => { e.stopPropagation(); setViewingCode({ id: p.id!, type: 'barcode', value: p.barcode, name: p.name }); }} className="p-1.5 hover:bg-blue-100 hover:text-blue-600 rounded-lg transition-colors"><Scan size={16} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setViewingCode({ id: p.id!, type: 'qr', value: p.barcode, name: p.name }); }} className="p-1.5 hover:bg-purple-100 hover:text-purple-600 rounded-lg transition-colors"><QrCode size={16} /></button>
+                      </div>
                     </div>
                 ))}
               </div>
-              <div className="w-1/2 flex flex-col items-center justify-center p-4 bg-gray-50 rounded-xl">
+              <div className="w-1/2 flex flex-col items-center justify-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 {viewingCode ? (
-                  <div className="text-center w-full" ref={printRef}>
-                    <div className="bg-white p-4 rounded-xl shadow-sm border inline-block mb-4">
-                      {viewingCode.type === 'barcode' ? <Barcode value={viewingCode.value} width={1.2} height={40} fontSize={12} /> : <QRCodeSVG value={viewingCode.value} size={100} level={"H"} includeMargin={true} />}
-                      <div className="mt-2 text-[10px] font-bold">{viewingCode.name}</div>
+                  <div className="text-center w-full flex flex-col items-center justify-center">
+                    <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-4 flex flex-col items-center justify-center min-w-[250px]">
+
+                      <div className="mb-2">
+                          {viewingCode.type === 'barcode'
+                            ? <Barcode value={getCleanBarcode(viewingCode.value)} width={2} height={60} fontSize={14} displayValue={true} />
+                            : <QRCodeSVG value={getCleanBarcode(viewingCode.value)} size={120} level={"H"} includeMargin={false} />
+                          }
+                      </div>
+
+                      <div className="mt-2 text-xs font-bold text-gray-500 uppercase tracking-wider">{viewingCode.name}</div>
                     </div>
-                    <button onClick={handlePrintSingle} className="w-full py-2 bg-blue-600 text-white font-bold rounded-lg text-xs">Print Preview</button>
+                    <button onClick={() => setShowSinglePrintModal(true)} className="w-full max-w-[250px] py-3 bg-blue-600 hover:bg-blue-700 transition-colors text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm">
+                        <Printer size={18} /> Print Single Label
+                    </button>
                   </div>
-                ) : (<div className="text-center text-gray-400 text-xs">Select product to preview</div>)}
+                ) : (<div className="text-center text-gray-400 text-sm font-bold flex flex-col items-center gap-2"><Scan size={40} className="opacity-50" /> Select product to preview</div>)}
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {showSinglePrintModal && viewingCode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2"><Printer className="text-blue-600" /> Confirm Size & Print</h2>
+              <button onClick={() => setShowSinglePrintModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500"><X size={20}/></button>
+            </div>
+
+            <div className="p-8 flex flex-col items-center justify-center bg-gray-100/50">
+                <div className="text-sm font-bold text-gray-500 mb-4 uppercase tracking-wider">Preview (Scaled to {printCardSize}px)</div>
+
+                <div
+                    className="bg-white shadow-lg border border-gray-200 text-center flex flex-col items-center justify-center transition-all"
+                    style={{ width: `${printCardSize}px`, padding: '15px', borderRadius: '8px' }}
+                >
+                    {(() => {
+                        const dynamicParams = getDynamicPrintSizes(printCardSize);
+                        return (
+                            <>
+                                <div style={{ fontSize: `${dynamicParams.fSize}px`, fontWeight: 'bold', marginBottom: '10px', color: '#111', wordWrap: 'break-word', width: '100%' }}>
+                                    {viewingCode.name}
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'center', width: '100%', marginBottom: '10px' }}>
+                                    {viewingCode.type === 'barcode'
+                                        ? <Barcode value={getCleanBarcode(viewingCode.value)} width={dynamicParams.bWidth} height={dynamicParams.bHeight} fontSize={dynamicParams.fSize} displayValue={true} margin={0} />
+                                        : <QRCodeSVG value={getCleanBarcode(viewingCode.value)} size={dynamicParams.qrSize} level={"H"} includeMargin={false} />
+                                    }
+                                </div>
+
+                                <div style={{ fontSize: `${dynamicParams.fSize + 4}px`, fontWeight: 'black', color: '#000' }}>
+                                    {currency}{products.find(p=>p.id===viewingCode.id)?.price.toFixed(2)}
+                                </div>
+                            </>
+                        )
+                    })()}
+                </div>
+            </div>
+
+            <div className="px-6 py-4 bg-white border-t border-gray-100 flex gap-3">
+              <button onClick={() => setShowSinglePrintModal(false)} className="flex-1 px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl transition-colors">Cancel</button>
+              <button onClick={executeSinglePrint} className="flex-1 px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95">
+                <Printer size={20}/> Print Label
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {printQueue && (
+        <div id="barcode-print-container">
+            <style>{`
+                @media screen {
+                    #barcode-print-container { display: none; }
+                }
+                @media print {
+                    html, body, #root, .flex, .overflow-hidden {
+                        height: auto !important;
+                        overflow: visible !important;
+                        position: static !important;
+                        background: white !important;
+                    }
+                    body * {
+                        visibility: hidden;
+                    }
+                    #barcode-print-container, #barcode-print-container * {
+                        visibility: visible;
+                    }
+                    #barcode-print-container {
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        display: flex !important;
+                        flex-wrap: wrap !important;
+                        justify-content: flex-start !important;
+                        align-content: flex-start !important;
+                        gap: 10px !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        background: white !important;
+                    }
+                }
+            `}</style>
+
+            {printQueue.map((item, idx) => {
+                const dp = getDynamicPrintSizes(printCardSize);
+
+                return (
+                    <div key={idx} style={{
+                        width: `${printCardSize}px`,
+                        padding: '10px 5px',
+                        textAlign: 'center',
+                        breakInside: 'avoid',
+                        boxSizing: 'border-box',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center'
+                    }}>
+                        <div style={{ fontSize: `${dp.fSize}px`, fontWeight: 'bold', marginBottom: '8px', color: 'black', width: '100%', wordWrap: 'break-word', lineHeight: '1.2' }}>
+                            {item.name}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', marginBottom: '8px' }}>
+                            {printType === 'barcode' ? (
+                                <Barcode value={getCleanBarcode(item.barcode)} width={dp.bWidth} height={dp.bHeight} fontSize={dp.fSize} displayValue={true} background="#ffffff" lineColor="#000000" margin={0} />
+                            ) : (
+                                <QRCodeSVG value={getCleanBarcode(item.barcode)} size={dp.qrSize} level={"H"} includeMargin={false} />
+                            )}
+                        </div>
+                        <div style={{ fontSize: `${dp.fSize + 4}px`, fontWeight: 'bold', color: 'black', lineHeight: '1' }}>
+                            {currency}{item.price.toFixed(2)}
+                        </div>
+                    </div>
+                )
+            })}
+        </div>
+      )}
 
       {showConfigModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
