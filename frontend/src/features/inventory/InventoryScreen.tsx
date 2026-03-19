@@ -1,6 +1,6 @@
 // cspell:ignore dexie IMEI qrcode react-barcode bcid Barcodes Uncategorized
 import React, { useState, useEffect, useRef } from 'react';
-import { db, Product, ProductBatch, Supplier } from '../../db/db';
+import { db, Product, ProductBatch, Supplier, Category as LocalCategory } from '../../db/db';
 import { useInventoryLogic } from '../../hooks/useInventoryLogic';
 import { PRESETS, BusinessType } from '../../config/inventoryConfig';
 import { productService, Category } from '../../services/productService';
@@ -37,7 +37,7 @@ const InventoryScreen: React.FC = () => {
   }, [config.features.expiryTracking, checkExpiries]);
 
   const [products, setProducts] = useState<ExtendedProduct[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<Category[] | LocalCategory[]>([]);
   const [damageLogs, setDamageLogs] = useState<DamageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,36 +52,54 @@ const InventoryScreen: React.FC = () => {
     try {
       setLoading(true);
 
-      // 1. Safely Load Categories (Don't crash if it fails)
+      // 1. Safely Load Categories
       try {
-        const cats = await productService.getCategories();
-        setCategories(cats);
+        let cats: any[] = [];
+        if (navigator.onLine) {
+            cats = await productService.getCategories();
+        }
+        if (!cats || cats.length === 0) {
+            cats = await db.categories.toArray();
+        }
+        setCategories(cats || []);
       } catch (e) {
-        console.warn("Categories fetch skipped", e);
+        console.warn("Categories API failed, loading local", e);
+        const localCats = await db.categories.toArray();
+        setCategories(localCats || []);
       }
 
       // 2. Safely Load Suppliers
       try {
         const sups = await db.suppliers.toArray();
-        setSuppliersList(sups);
+        setSuppliersList(sups || []);
       } catch (e) {
         console.warn("Suppliers fetch skipped", e);
       }
 
-      // 3. FORCE Load Products (with Offline Fallback)
+      // 3. FORCE Load Products (with Auto-Heal)
       let prodData: any[] = [];
       try {
          if (navigator.onLine) {
              prodData = await productService.getAll();
+
+             // 🔥 Auto-Heal Local Database if it was wiped by the v17 update!
+             if (Array.isArray(prodData) && prodData.length > 0) {
+                 const localCount = await db.products.count();
+                 if (localCount === 0) {
+                     await db.products.bulkPut(prodData);
+                     console.log("Local DB Auto-Healed with Cloud Data!");
+                 }
+             }
          } else {
              prodData = await db.products.toArray();
          }
       } catch (err) {
-         // Ultimate fallback if API fails
+         console.error("API Fetch failed, using local DB", err);
          prodData = await db.products.toArray();
       }
 
       setProducts(prevProducts => {
+        if (!Array.isArray(prodData)) return [];
         return prodData.map((newItem: Product) => {
           const existing = prevProducts.find(p => p.id === newItem.id);
           return existing && existing.latestDamageReason
@@ -91,7 +109,7 @@ const InventoryScreen: React.FC = () => {
       });
 
     } catch (error) {
-      console.error("Failed to load inventory data", error);
+      console.error("Failed to load inventory data completely", error);
     } finally {
       setLoading(false);
     }
@@ -164,7 +182,7 @@ const InventoryScreen: React.FC = () => {
   const expiredBatchesList = products.flatMap(p => (p.batches || []).filter(b => b.expiryDate && new Date(b.expiryDate) < new Date()).map(b => ({ productName: p.name, ...b })));
   const totalExpiredItems = expiredBatchesList.reduce((acc, b) => acc + b.quantity, 0);
 
-  // ✅ BULLETPROOF SEARCH FILTER (Will not crash on missing barcodes)
+  // ✅ BULLETPROOF SEARCH FILTER
   const filteredProducts = products.filter(p => {
     const query = search.toLowerCase();
     const n = p.name ? String(p.name).toLowerCase() : '';
@@ -173,7 +191,6 @@ const InventoryScreen: React.FC = () => {
     return n.includes(query) || s.includes(query) || b.includes(query);
   });
 
-  // ✅ BULLETPROOF BARCODE FILTER
   const barcodeFilteredProducts = products.filter(p => {
     const query = barcodeSearch.toLowerCase();
     const n = p.name ? String(p.name).toLowerCase() : '';
@@ -300,19 +317,15 @@ const InventoryScreen: React.FC = () => {
             }
 
             const costPrice = parseFloat(findVal(row, 'CostPrice', 'Cost Price', 'Cost') as string) || 0;
-
             const rawDiscount = findVal(row, 'Discount', 'Discount(%)', 'Disc');
             const discountVal = parseFloat(rawDiscount as string) || 0;
-
             const stockVal = parseFloat(findVal(row, 'Stock', 'Quantity', 'Qty') as string) || 0;
             const category = findVal(row, 'Category', 'Department', 'Group') || 'Uncategorized';
             const sku = findVal(row, 'SKU', 'Item Code') || '';
             const barcode = String(findVal(row, 'Barcode', 'UPC', 'EAN') || '').trim();
             const unit = findVal(row, 'Unit', 'UOM', 'Measure') || config.defaultUnit || 'pcs';
-
             const variantGroup = String(findVal(row, 'VariantGroup', 'Variant Group') || '').trim();
             const variantName = String(findVal(row, 'VariantName', 'Variant Name') || '').trim();
-
             const batchNum = findVal(row, 'BatchNumber', 'Batch') || `B-${Date.now().toString().slice(-4)}`;
             const expiryRaw = findVal(row, 'ExpiryDate', 'Expiry', 'Exp Date');
 
@@ -438,7 +451,7 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
-const handleSave = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.price) return alert("Name and Price are required.");
 
@@ -507,29 +520,39 @@ const handleSave = async (e: React.FormEvent) => {
     setNewBatch({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' }); setEditingBatchId(null);
   };
 
+  // ✅ SAFELY ADD CATEGORY WITH OFFLINE FALLBACK
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     try {
         if (editingCatId) {
             alert("Category renaming is currently disabled to protect existing product links.");
         } else {
-            await productService.addCategory(newCatName.trim());
-            const updatedCats = await productService.getCategories();
-            setCategories(updatedCats);
+            try {
+               await productService.addCategory(newCatName.trim());
+            } catch(e) {
+               console.warn("API Add Failed, saving to Dexie DB directly.");
+               await db.categories.add({ name: newCatName.trim() });
+            }
         }
         setNewCatName('');
         setEditingCatId(null);
+        loadData();
     } catch (err: any) {
         alert(err.response?.data?.error || "Failed to add category.");
     }
   };
 
+  // ✅ SAFELY DELETE CATEGORY WITH OFFLINE FALLBACK
   const handleDeleteCategory = async (id: number) => {
     if (window.confirm("Delete category?")) {
         try {
-            await productService.deleteCategory(id);
-            const updatedCats = await productService.getCategories();
-            setCategories(updatedCats);
+            try {
+                await productService.deleteCategory(id);
+            } catch(e) {
+                console.warn("API Delete Failed, deleting from Dexie DB directly.");
+                await db.categories.delete(id);
+            }
+            loadData();
         } catch (err) {
             alert("Failed to delete category.");
         }

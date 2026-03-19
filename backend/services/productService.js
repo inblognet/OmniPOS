@@ -223,7 +223,7 @@ module.exports = {
   deleteProduct,
   reportDamage,
   getDamageLogs,
-  getCCategories: getCategories, // Keeping your export syntax
+  getCategories, // ✅ FIXED: Changed from getCCategories
   addCategory,
   deleteCategory
 };
