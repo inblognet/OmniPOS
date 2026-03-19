@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, ClipboardList,
   Package, Settings, Menu, LogOut, FileText, Users,
-  Puzzle, MonitorPlay, UserCog, ChevronLeft, Building2 // ✅ Added Building2
+  Puzzle, MonitorPlay, UserCog, ChevronLeft, Building2
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -16,19 +16,15 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // ✅ State to track sidebar expansion
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-  // Activate Global Scanner Listener
   useGlobalScanner();
 
-  // Live Fetch Store Settings
   const settings = useLiveQuery(() => db.settings.get(1));
   const appName = settings?.storeName || 'OmniPOS';
 
-  // Fetch Logged-In User Details & Role from localStorage
   const [userName, setUserName] = useState('User');
-  const [userRole, setUserRole] = useState('cashier'); // Default to lowest privilege
+  const [userRole, setUserRole] = useState('cashier');
 
   useEffect(() => {
     const storedUser = localStorage.getItem('omnipos_user');
@@ -36,7 +32,7 @@ const MainLayout: React.FC = () => {
       try {
         const userObj = JSON.parse(storedUser);
         setUserName(userObj.name || 'User');
-        setUserRole(userObj.role || 'cashier'); // Grab the role!
+        setUserRole(userObj.role || 'cashier');
       } catch (e) {
         console.error("Could not parse user data");
       }
@@ -49,7 +45,6 @@ const MainLayout: React.FC = () => {
     navigate('/login');
   };
 
-  // Added a 'roles' array to determine who can see each link
   const ALL_NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager'] },
     { path: '/pos', label: 'POS Register', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
@@ -60,33 +55,31 @@ const MainLayout: React.FC = () => {
     { path: '/integrations', label: 'Integrations', icon: Puzzle, roles: ['admin'] },
     { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay, roles: ['admin', 'manager', 'cashier'] },
     { path: '/staff', label: 'Staff Management', icon: UserCog, roles: ['admin'] },
-    { path: '/suppliers', label: 'Suppliers', icon: Building2, roles: ['admin', 'manager'] }, // ✅ ADDED SUPPLIERS
+    { path: '/suppliers', label: 'Suppliers', icon: Building2, roles: ['admin', 'manager'] },
     { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
   ];
 
-  // Filter the items based on the user's current role
   const navItems = ALL_NAV_ITEMS.filter(item => item.roles.includes(userRole));
 
   return (
-    <div className="flex h-screen bg-[var(--background-color,#f3f4f6)] text-[var(--text-color,#1f2937)] font-sans overflow-hidden transition-colors">
+    // ✅ RESTORED bg-gray-100 here
+    <div className="flex h-screen bg-gray-100 text-[var(--text-color,#1f2937)] font-sans overflow-hidden transition-colors">
 
       {/* --- SIDEBAR --- */}
       <aside
-        className={`bg-[var(--card-color,#ffffff)] border-r border-[var(--sidebar-color,#e5e7eb)] flex-shrink-0 flex flex-col transition-all duration-300 relative z-20 ${
+        className={`bg-white border-r border-gray-200 flex-shrink-0 flex flex-col transition-all duration-300 relative z-20 ${
           isSidebarOpen ? 'w-64' : 'w-20'
         }`}
       >
-        {/* ✅ THE STICKY TOGGLE ARROW */}
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="absolute -right-3 top-10 flex items-center justify-center w-6 h-6 bg-[var(--card-color,#ffffff)] border border-[var(--sidebar-color,#e5e7eb)] rounded-full z-30 shadow-sm hover:bg-[var(--background-color,#f9fafb)] hover:scale-110 text-[var(--sub-text-color,#6b7280)] transition-all cursor-pointer"
+          className="absolute -right-3 top-10 flex items-center justify-center w-6 h-6 bg-white border border-gray-200 rounded-full z-30 shadow-sm hover:bg-gray-50 hover:scale-110 text-gray-500 transition-all cursor-pointer"
           title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
         >
           <ChevronLeft size={14} className={`transition-transform duration-300 ${!isSidebarOpen ? 'rotate-180' : ''}`} />
         </button>
 
-        {/* --- HEADER LOGO --- */}
-        <div className={`h-16 flex items-center border-b border-[var(--sidebar-color,#e5e7eb)] overflow-hidden ${isSidebarOpen ? 'px-6' : 'justify-center'}`}>
+        <div className={`h-16 flex items-center border-b border-gray-100 overflow-hidden ${isSidebarOpen ? 'px-6' : 'justify-center'}`}>
           <div className="w-8 h-8 flex-shrink-0 bg-[var(--primary-color,#2563eb)] rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm">
               {appName.charAt(0).toUpperCase()}
           </div>
@@ -99,7 +92,6 @@ const MainLayout: React.FC = () => {
           </span>
         </div>
 
-        {/* --- NAVIGATION LINKS --- */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar overflow-x-hidden">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -107,14 +99,14 @@ const MainLayout: React.FC = () => {
               <NavLink
                 key={item.path}
                 to={item.path}
-                title={!isSidebarOpen ? item.label : ''} // Tooltip when collapsed
+                title={!isSidebarOpen ? item.label : ''}
                 className={`flex items-center px-3 py-3 rounded-xl transition-all duration-200 group w-full ${
                   isActive
                     ? 'bg-[var(--primary-color)]/10 text-[var(--primary-color,#2563eb)] shadow-sm font-semibold'
-                    : 'text-[var(--sub-text-color,#6b7280)] hover:bg-[var(--background-color,#f9fafb)] hover:text-[var(--text-color,#1f2937)]'
+                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
                 } ${isSidebarOpen ? '' : 'justify-center'}`}
               >
-                <item.icon size={22} className={`flex-shrink-0 ${isActive ? 'text-[var(--primary-color,#2563eb)]' : 'text-[var(--sub-text-color,#9ca3af)] group-hover:text-[var(--text-color,#4b5563)]'}`} />
+                <item.icon size={22} className={`flex-shrink-0 ${isActive ? 'text-[var(--primary-color,#2563eb)]' : 'text-gray-400 group-hover:text-gray-600'}`} />
                 <span
                   className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${
                     isSidebarOpen ? 'w-40 ml-3 opacity-100' : 'w-0 ml-0 opacity-0'
@@ -127,11 +119,10 @@ const MainLayout: React.FC = () => {
           })}
         </nav>
 
-        {/* --- LOGOUT BUTTON --- */}
-        <div className="p-4 border-t border-[var(--sidebar-color,#e5e7eb)] overflow-hidden">
+        <div className="p-4 border-t border-gray-100 overflow-hidden">
            <button
              onClick={handleLogout}
-             title={!isSidebarOpen ? 'Logout' : ''} // Tooltip when collapsed
+             title={!isSidebarOpen ? 'Logout' : ''}
              className={`flex items-center px-3 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-colors font-medium w-full ${isSidebarOpen ? '' : 'justify-center'}`}
            >
              <LogOut size={22} className="flex-shrink-0" />
@@ -147,23 +138,20 @@ const MainLayout: React.FC = () => {
       </aside>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <main className="flex-1 flex flex-col min-w-0 bg-[var(--background-color,#f9fafb)] transition-colors">
+      {/* ✅ RESTORED bg-gray-50 here */}
+      <main className="flex-1 flex flex-col min-w-0 bg-gray-50 transition-colors">
 
-        {/* TOP NAVIGATION BAR */}
-        <header className="h-16 bg-[var(--card-color,#ffffff)] border-b border-[var(--sidebar-color,#e5e7eb)] flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-50 relative transition-colors">
-
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-50 relative transition-colors">
           <div className="flex items-center gap-4">
-            <button className="lg:hidden p-2 text-[var(--sub-text-color,#6b7280)] hover:bg-[var(--background-color,#f3f4f6)] rounded-lg transition-colors">
+            <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
                 <Menu size={20} />
             </button>
-            <h2 className="text-lg font-bold text-[var(--text-color,#1f2937)] hidden sm:block">
-              {/* Uses ALL_NAV_ITEMS so it can still resolve the title even if hidden from sidebar */}
+            <h2 className="text-lg font-bold text-gray-800 hidden sm:block">
               {ALL_NAV_ITEMS.find(i => i.path === location.pathname)?.label || appName}
             </h2>
           </div>
 
           <div className="flex items-center gap-4">
-
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border shadow-sm ${
                 isOnline
                 ? 'bg-green-50 text-green-600 border-green-100'
@@ -176,7 +164,7 @@ const MainLayout: React.FC = () => {
               {isOnline ? 'ONLINE' : 'OFFLINE'}
             </div>
 
-            <div className="h-6 w-px bg-[var(--sidebar-color,#e5e7eb)] mx-1"></div>
+            <div className="h-6 w-px bg-gray-200 mx-1"></div>
 
             <QuickSettingsMenu />
 
@@ -189,7 +177,6 @@ const MainLayout: React.FC = () => {
           </div>
         </header>
 
-        {/* Scrollable Page Content */}
         <div className="flex-1 overflow-auto p-6 relative">
             <Outlet />
         </div>

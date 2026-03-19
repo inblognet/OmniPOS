@@ -41,32 +41,55 @@ const InventoryScreen: React.FC = () => {
   const [damageLogs, setDamageLogs] = useState<DamageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ NEW: Suppliers List State
   const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
 
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ✅ BULLETPROOF DATA LOADER
   const loadData = async () => {
     try {
       setLoading(true);
-      const cats = await productService.getCategories();
-      setCategories(cats);
 
-      // ✅ Fetch Suppliers from local DB for the dropdown
-      const sups = await db.suppliers.toArray();
-      setSuppliersList(sups);
+      // 1. Safely Load Categories (Don't crash if it fails)
+      try {
+        const cats = await productService.getCategories();
+        setCategories(cats);
+      } catch (e) {
+        console.warn("Categories fetch skipped", e);
+      }
 
-      const data = await productService.getAll();
+      // 2. Safely Load Suppliers
+      try {
+        const sups = await db.suppliers.toArray();
+        setSuppliersList(sups);
+      } catch (e) {
+        console.warn("Suppliers fetch skipped", e);
+      }
+
+      // 3. FORCE Load Products (with Offline Fallback)
+      let prodData: any[] = [];
+      try {
+         if (navigator.onLine) {
+             prodData = await productService.getAll();
+         } else {
+             prodData = await db.products.toArray();
+         }
+      } catch (err) {
+         // Ultimate fallback if API fails
+         prodData = await db.products.toArray();
+      }
+
       setProducts(prevProducts => {
-        return data.map((newItem: Product) => {
+        return prodData.map((newItem: Product) => {
           const existing = prevProducts.find(p => p.id === newItem.id);
           return existing && existing.latestDamageReason
             ? { ...newItem, latestDamageReason: existing.latestDamageReason }
             : newItem;
         });
       });
+
     } catch (error) {
       console.error("Failed to load inventory data", error);
     } finally {
@@ -127,7 +150,7 @@ const InventoryScreen: React.FC = () => {
     isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false,
     stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false,
     totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [],
-    supplierId: undefined, supplierNote: '', // ✅ ADDED SUPPLIER FIELDS
+    supplierId: undefined, supplierNote: '',
     createdAt: '', updatedAt: ''
   });
 
@@ -141,15 +164,22 @@ const InventoryScreen: React.FC = () => {
   const expiredBatchesList = products.flatMap(p => (p.batches || []).filter(b => b.expiryDate && new Date(b.expiryDate) < new Date()).map(b => ({ productName: p.name, ...b })));
   const totalExpiredItems = expiredBatchesList.reduce((acc, b) => acc + b.quantity, 0);
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.sku?.toLowerCase().includes(search.toLowerCase()) ||
-    p.barcode.includes(search)
-  );
+  // ✅ BULLETPROOF SEARCH FILTER (Will not crash on missing barcodes)
+  const filteredProducts = products.filter(p => {
+    const query = search.toLowerCase();
+    const n = p.name ? String(p.name).toLowerCase() : '';
+    const s = p.sku ? String(p.sku).toLowerCase() : '';
+    const b = p.barcode ? String(p.barcode).toLowerCase() : '';
+    return n.includes(query) || s.includes(query) || b.includes(query);
+  });
 
+  // ✅ BULLETPROOF BARCODE FILTER
   const barcodeFilteredProducts = products.filter(p => {
-    const matchesSearch = p.name.toLowerCase().includes(barcodeSearch.toLowerCase()) || p.barcode.toLowerCase().includes(barcodeSearch.toLowerCase());
-    const matchesCategory = barcodeCategoryFilter ? p.category.includes(barcodeCategoryFilter) : true;
+    const query = barcodeSearch.toLowerCase();
+    const n = p.name ? String(p.name).toLowerCase() : '';
+    const b = p.barcode ? String(p.barcode).toLowerCase() : '';
+    const matchesSearch = n.includes(query) || b.includes(query);
+    const matchesCategory = barcodeCategoryFilter ? (p.category || '').includes(barcodeCategoryFilter) : true;
     return matchesSearch && matchesCategory && p.barcode;
   });
 
@@ -169,21 +199,6 @@ const InventoryScreen: React.FC = () => {
         "Barcode": "123456789-1",
         "BatchNumber": "B-001",
         "ExpiryDate": "12/31/2026"
-      },
-      {
-        "Name*": "Example Product",
-        "Category": "General",
-        "VariantGroup": "Example Product",
-        "VariantName": "Batch 2",
-        "Price*": 17.99,
-        "Discount(%)": 10,
-        "CostPrice": 9.00,
-        "Stock": 50,
-        "Unit": "pcs",
-        "SKU": "EX-002",
-        "Barcode": "123456789-2",
-        "BatchNumber": "B-002",
-        "ExpiryDate": "06/30/2027"
       }
     ];
 
@@ -941,7 +956,6 @@ const handleSave = async (e: React.FormEvent) => {
                   </div>
                 )}
 
-                {/* ✅ NEW: SUPPLIER TAB CONTENT */}
                 {activeTab === 'supplier' && (
                   <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                     <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200">
