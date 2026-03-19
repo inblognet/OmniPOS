@@ -1,11 +1,11 @@
 // cspell:ignore dexie Dexie cust Cust
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
-import { clearCart, resumeSale, holdSale, updateQuantity, setCustomer } from '../../store/cartSlice';
+import { clearCart, resumeSale, holdSale, updateQuantity, setCustomer, removeFromCart, updateItemDiscount } from '../../store/cartSlice';
 import {
   Printer, Search, X, Trash2, Save, RotateCcw, List, Scale, Plus,
   Calendar, Calculator, Loader2, Package, PauseCircle, PlayCircle,
-  FileText, Star, UserPlus, Edit3
+  FileText, Star, UserPlus, Edit3, ShoppingCart
 } from 'lucide-react';
 import { orderService } from '../../services/orderService';
 import { customerService, Customer } from '../../services/customerService';
@@ -116,28 +116,28 @@ const CartPanel: React.FC<CartPanelProps> = ({
   const [cloudOrders, setCloudOrders] = useState<any[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(false);
 
-  // ✅ MODAL REFS
+  // ✅ NEW: Full Cart Management Modal State
+  const [showFullCartModal, setShowFullCartModal] = useState(false);
+
   const customItemRef = useRef<HTMLDivElement>(null);
   const customerRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const recordsRef = useRef<HTMLDivElement>(null);
   const unitCalcRef = useRef<HTMLDivElement>(null);
+  const cartModalRef = useRef<HTMLDivElement>(null);
 
-  // ✅ NEW: FOCUS JUMP LOGIC (Forces the popup to "listen" to physical keys instantly)
   useEffect(() => {
     if (showCustomItemModal) customItemRef.current?.focus();
     if (showCustomerModal) customerRef.current?.focus();
     if (showItemSearch) searchRef.current?.focus();
     if (showRecords) recordsRef.current?.focus();
     if (showInternalUnitCalc) unitCalcRef.current?.focus();
-  }, [showCustomItemModal, showCustomerModal, showItemSearch, showRecords, showInternalUnitCalc]);
+    if (showFullCartModal) cartModalRef.current?.focus();
+  }, [showCustomItemModal, showCustomerModal, showItemSearch, showRecords, showInternalUnitCalc, showFullCartModal]);
 
-  // ✅ NAVIGATION ENGINE (Physical Keyboard support inside popups)
   const handleModalKeyboardNav = (e: React.KeyboardEvent<HTMLDivElement>, modalRef: React.RefObject<HTMLDivElement>, completeAction?: () => void) => {
       if (!modalRef.current) return;
       const active = document.activeElement as HTMLElement;
-
-      // If typing inside an input, don't hijack Left/Right arrows or Spacebar
       const isTextInput = active.tagName === 'INPUT' && active.getAttribute('type') !== 'checkbox' && active.getAttribute('type') !== 'radio';
 
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || (!isTextInput && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) {
@@ -150,7 +150,6 @@ const CartPanel: React.FC<CartPanelProps> = ({
           if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') nextIndex = (index - 1 + focusable.length) % focusable.length;
           focusable[nextIndex]?.focus();
       } else if (e.key === 'Tab') {
-          // Tab specifically jumps to the search bar if there is one
           const searchInput = modalRef.current.querySelector('input[placeholder*="Search"], input[placeholder*="search"]') as HTMLElement;
           if (searchInput && active !== searchInput) {
               e.preventDefault();
@@ -176,11 +175,10 @@ const CartPanel: React.FC<CartPanelProps> = ({
       if (showRecords) { const fetchOrders = async () => { setRecordsLoading(true); try { setCloudOrders(await orderService.getAllOrders()); } catch (err) { console.error(err); } finally { setRecordsLoading(false); } }; fetchOrders(); }
   }, [showRecords]);
 
-  // ✅ GLOBAL SHORTCUTS (ESC and F1)
   useEffect(() => {
       const handleGlobalShortcuts = (e: KeyboardEvent) => {
           if (e.key === 'Escape') {
-              setShowItemSearch(false); setShowCustomItemModal(false); setShowInternalUnitCalc(false); setShowCustomerModal(false); setShowRecords(false);
+              setShowItemSearch(false); setShowCustomItemModal(false); setShowInternalUnitCalc(false); setShowCustomerModal(false); setShowRecords(false); setShowFullCartModal(false);
               return;
           }
 
@@ -198,7 +196,9 @@ const CartPanel: React.FC<CartPanelProps> = ({
 
       window.addEventListener('keydown', handleGlobalShortcuts);
       return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [customer]);const filteredItems = cloudProducts.filter(p => p.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) || (p.barcode && p.barcode.includes(itemSearchQuery)) || (p.sku && p.sku.includes(itemSearchQuery))).slice(0, 15);
+  }, [customer]);
+
+  const filteredItems = cloudProducts.filter(p => p.name.toLowerCase().includes(itemSearchQuery.toLowerCase()) || (p.barcode && p.barcode.includes(itemSearchQuery)) || (p.sku && p.sku.includes(itemSearchQuery))).slice(0, 15);
   const filteredHistory = cloudOrders.filter(order => order.id.toString().includes(recordSearch));
 
   const recentProducts = cloudProducts.filter(p => p.id && !hiddenRecentIds.includes(p.id)).sort((a, b) => (b.id || 0) - (a.id || 0)).slice(0, 10);
@@ -214,12 +214,8 @@ const CartPanel: React.FC<CartPanelProps> = ({
   const handleOpenAddCustomer = () => { setEditingCustomerId(null); setCustomerFormData({ name: '', phone: '', email: '', type: 'Walk-in', loyaltyJoined: false }); setActiveCustField('name'); setShowCustomerModal(true); };
   const handleOpenEditCustomer = () => { if (!customer) { alert("Please select a customer first to edit."); return; } setEditingCustomerId(customer.id!); setCustomerFormData({ name: customer.name, phone: (customer as any).phone || '', email: (customer as any).email || '', type: (customer as any).type || 'Walk-in', loyaltyJoined: (customer as any).loyaltyJoined || false }); setActiveCustField('name'); setShowCustomerModal(true); };
 
-  const handleCustKeyPress = (key: string) => {
-      setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField] + key }));
-  };
-  const handleCustBackspace = () => {
-      setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField].slice(0, -1) }));
-  };
+  const handleCustKeyPress = (key: string) => setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField] + key }));
+  const handleCustBackspace = () => setCustomerFormData(prev => ({ ...prev, [activeCustField]: prev[activeCustField].slice(0, -1) }));
 
   const handleSaveCustomer = async (e?: React.FormEvent) => {
       if (e) e.preventDefault();
@@ -253,12 +249,8 @@ const CartPanel: React.FC<CartPanelProps> = ({
   };
 
   const handleCustomItemKeyPress = (key: string) => {
-    if (activeCustomField === 'name') {
-      setCustomItemName(prev => prev + key);
-    } else {
-      if (key === '.' && customItemPrice.includes('.')) return;
-      setCustomItemPrice(prev => prev + key);
-    }
+    if (activeCustomField === 'name') setCustomItemName(prev => prev + key);
+    else { if (key === '.' && customItemPrice.includes('.')) return; setCustomItemPrice(prev => prev + key); }
   };
   const handleCustomItemBackspace = () => {
     if (activeCustomField === 'name') setCustomItemName(prev => prev.slice(0, -1));
@@ -273,10 +265,11 @@ const CartPanel: React.FC<CartPanelProps> = ({
   const handleAddUnitItem = () => { if (unitCalcTotal <= 0) return alert("Invalid input."); const finalName = ucItemName.trim() !== '' ? `${ucItemName} (${parseFloat(ucQuantity)} ${ucUnitType})` : `Custom (${parseFloat(ucQuantity)} ${ucUnitType})`; onAddItem({ id: Date.now(), name: finalName, price: parseFloat(unitCalcTotal.toFixed(2)), stock: 9999, barcode: 'UNIT-CALC', category: 'Custom', isTaxIncluded: true, type: 'Non-Stock' }); setUcItemName(''); setUcBasePrice(''); setUcUnitSize('1'); setUcQuantity(''); setShowInternalUnitCalc(false); };
   const handleResumeHeld = () => { if (heldSales.length > 0) dispatch(resumeSale(heldSales[heldSales.length - 1].id)); };
 
+  // ✅ INCREASED GRID BUTTON SIZE AND HEIGHT
   const GridBtn = ({ icon: Icon, label, colorClass, onClick }: any) => (
-    <button onClick={onClick} className="flex flex-col items-center justify-center py-1.5 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all group active:scale-95">
-        <Icon size={16} className={`${colorClass} mb-1 group-hover:scale-110 transition-transform`}/>
-        <span className="text-[10px] font-bold text-gray-700 text-center leading-tight whitespace-pre-wrap">{label}</span>
+    <button onClick={onClick} className="flex flex-col items-center justify-center py-3 bg-[var(--background-color,#ffffff)] dark:bg-[var(--card-color,#1e293b)] rounded-xl border border-[var(--sidebar-color,#e5e7eb)] dark:border-gray-700 hover:border-[var(--primary-color,#3b82f6)] dark:hover:border-blue-500 hover:shadow-md transition-all group active:scale-95">
+        <Icon size={24} className={`${colorClass} mb-1.5 group-hover:scale-110 transition-transform`}/>
+        <span className="text-[11px] sm:text-xs font-bold text-[var(--text-color,#374151)] dark:text-gray-300 text-center leading-tight whitespace-pre-wrap">{label}</span>
     </button>
   );
 
@@ -302,34 +295,35 @@ const CartPanel: React.FC<CartPanelProps> = ({
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 p-2 shadow-sm h-[110px] flex flex-col mb-2 shrink-0">
+      {/* ✅ INCREASED RECENT/FAVORITES BOX HEIGHT */}
+      <div className="bg-[var(--card-color,#ffffff)] dark:bg-slate-900 rounded-xl border border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-800 p-2 shadow-sm h-[160px] flex flex-col mb-2 shrink-0">
           <div className="flex gap-2 mb-1 shrink-0">
-            <button onClick={() => setSidebarTab('recent')} className={`flex-1 py-1 rounded-lg text-[10px] font-bold transition-colors ${sidebarTab === 'recent' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:bg-gray-50'}`}>Recent</button>
-            <button onClick={() => setSidebarTab('favorites')} className={`flex-1 py-1 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition-colors ${sidebarTab === 'favorites' ? 'bg-blue-50 text-blue-700' : 'text-gray-400 hover:bg-gray-50'}`}>Favorites</button>
+            <button onClick={() => setSidebarTab('recent')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-colors ${sidebarTab === 'recent' ? 'bg-[var(--background-color,#f3f4f6)] dark:bg-slate-800 text-[var(--text-color,#1f2937)] dark:text-white shadow-sm' : 'text-[var(--sub-text-color,#9ca3af)] hover:bg-[var(--background-color,#f9fafb)] dark:hover:bg-slate-800/50'}`}>Recent</button>
+            <button onClick={() => setSidebarTab('favorites')} className={`flex-1 py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors ${sidebarTab === 'favorites' ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 shadow-sm' : 'text-[var(--sub-text-color,#9ca3af)] hover:bg-[var(--background-color,#f9fafb)] dark:hover:bg-slate-800/50'}`}>Favorites</button>
           </div>
           <div className="flex-1 overflow-y-auto space-y-1 pr-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {sidebarTab === 'recent' ? (
                 recentProducts.map(p => (
-                  <div key={p.id} onClick={() => onAddItem(p)} className="flex justify-between items-center p-1.5 hover:bg-gray-50 rounded-lg cursor-pointer group">
+                  <div key={p.id} onClick={() => onAddItem(p)} className="flex justify-between items-center p-2 hover:bg-[var(--background-color,#f9fafb)] dark:hover:bg-slate-800 rounded-lg cursor-pointer group">
                       <div className="flex items-center gap-2 overflow-hidden">
-                          <button onClick={(e) => handleToggleFavorite(e, p)} className="text-gray-300 hover:text-blue-500 transition-colors"><Star size={12} fill={p.isFavorite ? "#3b82f6" : "none"} className={p.isFavorite ? "text-blue-500" : ""} /></button>
-                          <span className="text-xs font-bold text-gray-700 truncate">{p.name}</span>
+                          <button onClick={(e) => handleToggleFavorite(e, p)} className="text-gray-300 dark:text-gray-600 hover:text-blue-500 transition-colors"><Star size={14} fill={p.isFavorite ? "#3b82f6" : "none"} className={p.isFavorite ? "text-blue-500" : ""} /></button>
+                          <span className="text-xs font-bold text-[var(--text-color,#374151)] dark:text-gray-300 truncate">{p.name}</span>
                       </div>
-                      <div className="flex items-center gap-1"><button onClick={(e) => { e.stopPropagation(); setHiddenRecentIds(prev => [...prev, p.id]); }} className="text-gray-300 hover:text-red-500 p-1"><X size={12}/></button><Plus size={12} className="text-gray-300 group-hover:text-blue-500"/></div>
+                      <div className="flex items-center gap-1"><button onClick={(e) => { e.stopPropagation(); setHiddenRecentIds(prev => [...prev, p.id]); }} className="text-gray-300 hover:text-red-500 p-1"><X size={14}/></button><Plus size={14} className="text-gray-300 group-hover:text-blue-500"/></div>
                   </div>
                 ))
               ) : (
                 favoriteProducts.map(p => (
-                  <div key={p.id} onClick={() => onAddItem(p)} className="flex justify-between items-center p-1.5 hover:bg-blue-50 rounded-lg cursor-pointer group">
-                      <div className="flex items-center gap-2 overflow-hidden"><Star size={12} className="text-blue-500 fill-current"/><span className="text-xs font-bold text-gray-700 truncate">{p.name}</span></div>
-                      <div className="flex items-center gap-1"><button onClick={(e) => handleToggleFavorite(e, p)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={12}/></button><Plus size={12} className="text-gray-300 group-hover:text-blue-500"/></div>
+                  <div key={p.id} onClick={() => onAddItem(p)} className="flex justify-between items-center p-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg cursor-pointer group">
+                      <div className="flex items-center gap-2 overflow-hidden"><Star size={14} className="text-blue-500 fill-current"/><span className="text-xs font-bold text-[var(--text-color,#374151)] dark:text-gray-300 truncate">{p.name}</span></div>
+                      <div className="flex items-center gap-1"><button onClick={(e) => handleToggleFavorite(e, p)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={14}/></button><Plus size={14} className="text-gray-300 group-hover:text-blue-500"/></div>
                   </div>
                 ))
               )}
           </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5 mb-2 shrink-0">
+      <div className="grid grid-cols-4 gap-2 mb-2 shrink-0">
         <GridBtn icon={PauseCircle} label="Hold (F8)" colorClass="text-orange-500" onClick={() => dispatch(holdSale())} />
         <GridBtn icon={PlayCircle} label="Resume (F9)" colorClass="text-blue-500" onClick={handleResumeHeld} />
         <GridBtn icon={Save} label="Save (F8)" colorClass="text-green-500" onClick={() => dispatch(holdSale())} />
@@ -344,12 +338,30 @@ const CartPanel: React.FC<CartPanelProps> = ({
         <GridBtn icon={Trash2} label="Clear (DEL)" colorClass="text-red-600" onClick={() => dispatch(clearCart())} />
       </div>
 
+      {/* ✅ NEW: BIG VIEW CART BUTTON */}
+      <div className="flex gap-2 mb-2 shrink-0">
+          <button
+              onClick={() => setShowFullCartModal(true)}
+              className="flex-1 py-3 bg-[var(--card-color,#f3f4f6)] dark:bg-slate-800 border border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-700 text-[var(--text-color,#1f2937)] dark:text-gray-200 rounded-xl font-bold flex items-center justify-center gap-3 transition-all hover:shadow-md hover:border-[var(--primary-color,#3b82f6)] dark:hover:border-blue-500 active:scale-95"
+          >
+              <div className="relative">
+                  <ShoppingCart size={28} className="text-[var(--primary-color,#3b82f6)]"/>
+                  {items.length > 0 && (
+                      <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[11px] font-black min-w-[22px] px-1 h-[22px] flex items-center justify-center rounded-full shadow-md animate-in zoom-in duration-300 border-2 border-white dark:border-slate-800">
+                          {items.length}
+                      </span>
+                  )}
+              </div>
+              <span className="text-sm">Manage Cart</span>
+          </button>
+      </div>
+
       <button
           onClick={() => items.length > 0 && onCheckout && onCheckout()}
           disabled={items.length === 0}
-          className="w-full py-3 bg-blue-600 text-white font-black text-base rounded-xl shadow-[0_8px_15px_-3px_rgba(37,99,235,0.4)] flex items-center justify-center gap-2 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
+          className="w-full py-4 bg-[var(--primary-color,#16a34a)] text-white font-black text-lg rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none shrink-0"
       >
-          <Printer size={18}/> PAY & PRINT
+          <Printer size={20}/> PAY & PRINT
       </button>
 
       {heldSales.length > 0 && (
@@ -357,6 +369,68 @@ const CartPanel: React.FC<CartPanelProps> = ({
               <span className="text-xs font-black text-yellow-700 flex items-center gap-1"><PauseCircle size={14}/> {heldSales.length} Sales on Hold</span>
               <button onClick={handleResumeHeld} className="text-xs font-bold text-blue-600 hover:underline">Resume Last</button>
           </div>
+      )}
+
+      {/* ✅ NEW: FULL CART MANAGEMENT MODAL */}
+      {showFullCartModal && (
+        <div ref={cartModalRef} tabIndex={-1} onKeyDown={(e) => handleModalKeyboardNav(e, cartModalRef)} className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 outline-none">
+            <div className="bg-[var(--background-color,#f9fafb)] dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[85vh] animate-in zoom-in-95">
+                <div className="px-6 py-5 border-b border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-800 flex justify-between items-center shrink-0 bg-[var(--card-color,#ffffff)] dark:bg-slate-800/50 rounded-t-3xl">
+                    <h2 className="text-2xl font-black flex items-center gap-3 text-[var(--text-color,#1f2937)] dark:text-white">
+                        <ShoppingCart size={28} className="text-[var(--primary-color,#3b82f6)]"/>
+                        Manage Cart Items
+                    </h2>
+                    <button onClick={() => setShowFullCartModal(false)} className="p-2 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-full text-gray-500 dark:text-gray-400 transition-colors"><X size={24}/></button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                    {items.length === 0 ? (
+                        <div className="text-center text-gray-400 py-16 text-xl font-bold flex flex-col items-center gap-4">
+                            <ShoppingCart size={64} className="opacity-20"/>
+                            Your cart is currently empty
+                        </div>
+                    ) : (
+                        items.map(item => (
+                            <div key={item.id} className="flex flex-col md:flex-row justify-between md:items-center bg-[var(--card-color,#ffffff)] dark:bg-slate-800 p-4 rounded-2xl border border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-700 shadow-sm gap-4 hover:border-[var(--primary-color,#3b82f6)] dark:hover:border-blue-500 transition-all">
+                                <div className="flex-1 pr-4">
+                                    <h4 className="font-bold text-[var(--text-color,#1f2937)] dark:text-white text-lg leading-tight">{item.name}</h4>
+                                    <div className="text-sm font-medium text-[var(--sub-text-color,#6b7280)] dark:text-gray-400 mt-1">{currency}{item.price.toFixed(2)}</div>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                                    {/* Inline QTY Control */}
+                                    <div className="flex bg-[var(--background-color,#f3f4f6)] dark:bg-slate-700 rounded-xl border border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-600 overflow-hidden shadow-sm h-12">
+                                        <button onClick={() => dispatch(updateQuantity({id: item.id, quantity: Math.max(1, item.quantity - 1)}))} className="px-5 hover:bg-gray-200 dark:hover:bg-slate-600 font-black text-[var(--text-color,#374151)] dark:text-gray-300 transition-colors text-lg">-</button>
+                                        <div className="w-12 flex items-center justify-center font-bold text-base bg-[var(--card-color,#ffffff)] dark:bg-slate-800 text-[var(--text-color,#1f2937)] dark:text-white border-x border-[var(--sidebar-color,#e5e7eb)] dark:border-slate-600">{item.quantity}</div>
+                                        <button onClick={() => dispatch(updateQuantity({id: item.id, quantity: item.quantity + 1}))} className="px-5 hover:bg-gray-200 dark:hover:bg-slate-600 font-black text-[var(--text-color,#374151)] dark:text-gray-300 transition-colors text-lg">+</button>
+                                    </div>
+
+                                    {/* Inline Discount Control */}
+                                    <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-xl border border-orange-200 dark:border-orange-700/50 h-12">
+                                        <span className="text-xs font-black text-orange-600 dark:text-orange-400 uppercase tracking-wide">Disc:</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            placeholder="0"
+                                            value={item.discount || ''}
+                                            onChange={(e) => dispatch(updateItemDiscount({id: item.id, discount: parseFloat(e.target.value) || 0}))}
+                                            className="w-16 bg-transparent font-black text-orange-800 dark:text-orange-300 outline-none text-right text-lg"
+                                        />
+                                    </div>
+
+                                    <div className="text-xl font-black text-[var(--primary-color,#2563eb)] dark:text-blue-400 min-w-[100px] text-right">
+                                        {currency}{((item.price - (item.discount || 0)) * item.quantity).toFixed(2)}
+                                    </div>
+
+                                    {/* Remove Button */}
+                                    <button onClick={() => dispatch(removeFromCart(item.id))} className="p-3 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-colors ml-2" title="Remove Item">
+                                        <Trash2 size={22} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        </div>
       )}
 
       {/* ✅ ADD CUSTOM ITEM MODAL */}

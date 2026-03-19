@@ -5,7 +5,7 @@ const safeFloat = (val) => (val === '' || val === null || val === undefined || i
 const safeDate = (val) => (val === '' || val === null || val === undefined) ? null : val;
 const safeBool = (val) => (val === true || val === 'true');
 
-// ✅ MAPPER: Added discount field
+// ✅ MAPPER: Added discount, supplierId, and supplierNote
 const mapProduct = (row) => ({
   id: row.id,
   name: row.name,
@@ -25,11 +25,14 @@ const mapProduct = (row) => ({
   maxStockLevel: parseFloat(row.max_stock_level),
   isTaxIncluded: row.is_tax_included,
   allowDiscount: row.allow_discount,
-  discount: parseFloat(row.discount || 0), // ✅ NEW: Maps DB discount to Frontend
+  discount: parseFloat(row.discount || 0),
   batches: row.batches || [],
   isActive: row.is_active,
   createdAt: row.created_at,
-  damagedQty: parseFloat(row.damaged_qty || 0)
+  damagedQty: parseFloat(row.damaged_qty || 0),
+  // ✅ NEW: Supplier Mapping
+  supplierId: row.supplier_id || null,
+  supplierNote: row.supplier_note || null
 });
 
 // ✅ GET ALL
@@ -40,7 +43,7 @@ const getAllProducts = async () => {
 
 // ✅ CREATE PRODUCT
 const createProduct = async (data) => {
-  // ✅ NEW: Added discount as the 20th parameter ($20)
+  // ✅ NEW: Added supplier_id ($21) and supplier_note ($22)
   const query = `
     INSERT INTO products (
       name, sku, barcode, category, brand, type,
@@ -48,8 +51,8 @@ const createProduct = async (data) => {
       stock, stock_expiry_date, reorder_level, max_stock_level,
       batches, variant_group, is_active,
       is_tax_included, allow_discount, discount,
-      updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW())
+      supplier_id, supplier_note, updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW())
     RETURNING *;
   `;
 
@@ -73,7 +76,9 @@ const createProduct = async (data) => {
     safeBool(data.isActive),
     safeBool(data.isTaxIncluded),
     safeBool(data.allowDiscount),
-    safeFloat(data.discount) // ✅ NEW: Passes discount value to database
+    safeFloat(data.discount),      // $20
+    data.supplierId || null,       // ✅ $21
+    data.supplierNote || null      // ✅ $22
   ];
 
   const result = await db.query(query, values);
@@ -82,7 +87,7 @@ const createProduct = async (data) => {
 
 // ✅ UPDATE PRODUCT
 const updateProduct = async (id, data) => {
-  // ✅ NEW: Added discount = $20, which bumps WHERE id = $21
+  // ✅ NEW: Added supplier_id ($21) and supplier_note ($22), bumping id to $23
   const query = `
     UPDATE products SET
       name = $1, sku = $2, barcode = $3, category = $4, brand = $5, type = $6,
@@ -90,8 +95,9 @@ const updateProduct = async (id, data) => {
       stock = $11, stock_expiry_date = $12, reorder_level = $13, max_stock_level = $14,
       is_tax_included = $15, allow_discount = $16,
       batches = $17, variant_group = $18, is_active = $19, discount = $20,
+      supplier_id = $21, supplier_note = $22,
       updated_at = NOW()
-    WHERE id = $21
+    WHERE id = $23
     RETURNING *;
   `;
 
@@ -115,8 +121,10 @@ const updateProduct = async (id, data) => {
     JSON.stringify(data.batches || []),
     data.variantGroup || null,
     safeBool(data.isActive),
-    safeFloat(data.discount), // ✅ NEW: Updates discount value in DB
-    id
+    safeFloat(data.discount),      // $20
+    data.supplierId || null,       // ✅ $21
+    data.supplierNote || null,     // ✅ $22
+    id                             // $23
   ];
 
   const result = await db.query(query, values);
@@ -215,7 +223,7 @@ module.exports = {
   deleteProduct,
   reportDamage,
   getDamageLogs,
-  getCategories,
+  getCCategories: getCategories, // Keeping your export syntax
   addCategory,
   deleteCategory
 };

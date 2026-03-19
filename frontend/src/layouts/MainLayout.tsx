@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, ClipboardList,
   Package, Settings, Menu, LogOut, FileText, Users,
-  Puzzle, MonitorPlay, UserCog
+  Puzzle, MonitorPlay, UserCog, ChevronLeft, Building2 // ✅ Added Building2
 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/db';
@@ -16,6 +16,9 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // ✅ State to track sidebar expansion
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   // Activate Global Scanner Listener
   useGlobalScanner();
 
@@ -23,7 +26,7 @@ const MainLayout: React.FC = () => {
   const settings = useLiveQuery(() => db.settings.get(1));
   const appName = settings?.storeName || 'OmniPOS';
 
-  // ✅ Fetch Logged-In User Details & Role from localStorage
+  // Fetch Logged-In User Details & Role from localStorage
   const [userName, setUserName] = useState('User');
   const [userRole, setUserRole] = useState('cashier'); // Default to lowest privilege
 
@@ -46,7 +49,7 @@ const MainLayout: React.FC = () => {
     navigate('/login');
   };
 
-  // ✅ Added a 'roles' array to determine who can see each link
+  // Added a 'roles' array to determine who can see each link
   const ALL_NAV_ITEMS = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['admin', 'manager'] },
     { path: '/pos', label: 'POS Register', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
@@ -57,68 +60,103 @@ const MainLayout: React.FC = () => {
     { path: '/integrations', label: 'Integrations', icon: Puzzle, roles: ['admin'] },
     { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay, roles: ['admin', 'manager', 'cashier'] },
     { path: '/staff', label: 'Staff Management', icon: UserCog, roles: ['admin'] },
+    { path: '/suppliers', label: 'Suppliers', icon: Building2, roles: ['admin', 'manager'] }, // ✅ ADDED SUPPLIERS
     { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
   ];
 
-  // ✅ Filter the items based on the user's current role
+  // Filter the items based on the user's current role
   const navItems = ALL_NAV_ITEMS.filter(item => item.roles.includes(userRole));
 
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-900 font-sans overflow-hidden">
+    <div className="flex h-screen bg-[var(--background-color,#f3f4f6)] text-[var(--text-color,#1f2937)] font-sans overflow-hidden transition-colors">
 
       {/* --- SIDEBAR --- */}
-      <aside className="w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col transition-all duration-300">
-        <div className="h-16 flex items-center px-6 border-b border-gray-100">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm mr-3">
+      <aside
+        className={`bg-[var(--card-color,#ffffff)] border-r border-[var(--sidebar-color,#e5e7eb)] flex-shrink-0 flex flex-col transition-all duration-300 relative z-20 ${
+          isSidebarOpen ? 'w-64' : 'w-20'
+        }`}
+      >
+        {/* ✅ THE STICKY TOGGLE ARROW */}
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="absolute -right-3 top-10 flex items-center justify-center w-6 h-6 bg-[var(--card-color,#ffffff)] border border-[var(--sidebar-color,#e5e7eb)] rounded-full z-30 shadow-sm hover:bg-[var(--background-color,#f9fafb)] hover:scale-110 text-[var(--sub-text-color,#6b7280)] transition-all cursor-pointer"
+          title={isSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+        >
+          <ChevronLeft size={14} className={`transition-transform duration-300 ${!isSidebarOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {/* --- HEADER LOGO --- */}
+        <div className={`h-16 flex items-center border-b border-[var(--sidebar-color,#e5e7eb)] overflow-hidden ${isSidebarOpen ? 'px-6' : 'justify-center'}`}>
+          <div className="w-8 h-8 flex-shrink-0 bg-[var(--primary-color,#2563eb)] rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-sm">
               {appName.charAt(0).toUpperCase()}
           </div>
-          <span className="text-xl font-bold text-gray-800 tracking-tight truncate">
+          <span
+            className={`text-xl font-bold text-[var(--text-color,#1f2937)] tracking-tight whitespace-nowrap overflow-hidden transition-all duration-300 ${
+              isSidebarOpen ? 'w-40 ml-3 opacity-100' : 'w-0 ml-0 opacity-0'
+            }`}
+          >
             {appName}
           </span>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* --- NAVIGATION LINKS --- */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar overflow-x-hidden">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group ${
+                title={!isSidebarOpen ? item.label : ''} // Tooltip when collapsed
+                className={`flex items-center px-3 py-3 rounded-xl transition-all duration-200 group w-full ${
                   isActive
-                    ? 'bg-blue-50 text-blue-600 shadow-sm font-semibold'
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
-                }`}
+                    ? 'bg-[var(--primary-color)]/10 text-[var(--primary-color,#2563eb)] shadow-sm font-semibold'
+                    : 'text-[var(--sub-text-color,#6b7280)] hover:bg-[var(--background-color,#f9fafb)] hover:text-[var(--text-color,#1f2937)]'
+                } ${isSidebarOpen ? '' : 'justify-center'}`}
               >
-                <item.icon size={20} className={isActive ? 'text-blue-600' : 'text-gray-400 group-hover:text-gray-600'} />
-                <span>{item.label}</span>
+                <item.icon size={22} className={`flex-shrink-0 ${isActive ? 'text-[var(--primary-color,#2563eb)]' : 'text-[var(--sub-text-color,#9ca3af)] group-hover:text-[var(--text-color,#4b5563)]'}`} />
+                <span
+                  className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${
+                    isSidebarOpen ? 'w-40 ml-3 opacity-100' : 'w-0 ml-0 opacity-0'
+                  }`}
+                >
+                  {item.label}
+                </span>
               </NavLink>
             );
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-100">
+        {/* --- LOGOUT BUTTON --- */}
+        <div className="p-4 border-t border-[var(--sidebar-color,#e5e7eb)] overflow-hidden">
            <button
              onClick={handleLogout}
-             className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 w-full rounded-xl transition-colors font-medium"
+             title={!isSidebarOpen ? 'Logout' : ''} // Tooltip when collapsed
+             className={`flex items-center px-3 py-3 text-red-500 hover:bg-red-50 rounded-xl transition-colors font-medium w-full ${isSidebarOpen ? '' : 'justify-center'}`}
            >
-             <LogOut size={20} />
-             <span>Logout</span>
+             <LogOut size={22} className="flex-shrink-0" />
+             <span
+               className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${
+                 isSidebarOpen ? 'w-40 ml-3 opacity-100' : 'w-0 ml-0 opacity-0'
+               }`}
+             >
+               Logout
+             </span>
            </button>
         </div>
       </aside>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <main className="flex-1 flex flex-col min-w-0 bg-gray-50">
+      <main className="flex-1 flex flex-col min-w-0 bg-[var(--background-color,#f9fafb)] transition-colors">
 
         {/* TOP NAVIGATION BAR */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-50 relative">
+        <header className="h-16 bg-[var(--card-color,#ffffff)] border-b border-[var(--sidebar-color,#e5e7eb)] flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-50 relative transition-colors">
 
           <div className="flex items-center gap-4">
-            <button className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+            <button className="lg:hidden p-2 text-[var(--sub-text-color,#6b7280)] hover:bg-[var(--background-color,#f3f4f6)] rounded-lg transition-colors">
                 <Menu size={20} />
             </button>
-            <h2 className="text-lg font-bold text-gray-800 hidden sm:block">
+            <h2 className="text-lg font-bold text-[var(--text-color,#1f2937)] hidden sm:block">
               {/* Uses ALL_NAV_ITEMS so it can still resolve the title even if hidden from sidebar */}
               {ALL_NAV_ITEMS.find(i => i.path === location.pathname)?.label || appName}
             </h2>
@@ -138,12 +176,12 @@ const MainLayout: React.FC = () => {
               {isOnline ? 'ONLINE' : 'OFFLINE'}
             </div>
 
-            <div className="h-6 w-px bg-gray-200 mx-1"></div>
+            <div className="h-6 w-px bg-[var(--sidebar-color,#e5e7eb)] mx-1"></div>
 
             <QuickSettingsMenu />
 
             <div
-              className="w-9 h-9 bg-gray-800 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md cursor-pointer hover:bg-gray-700 transition-colors"
+              className="w-9 h-9 bg-[var(--primary-color,#2563eb)] rounded-full flex items-center justify-center text-white font-bold text-sm shadow-md cursor-pointer hover:brightness-110 transition-all"
               title={`${userName} (${userRole})`}
             >
               {userName.charAt(0).toUpperCase()}

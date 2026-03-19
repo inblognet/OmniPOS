@@ -1,6 +1,6 @@
 import React from 'react';
 import { Product } from '../../db/db';
-import { Plus, Pencil } from 'lucide-react';
+import { Plus, Pencil, Tag } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
 interface ProductCardProps {
@@ -15,18 +15,26 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick, onEdit }) =
 
   // Optional: Highlight low stock items so cashiers can warn customers
   const isLowStock = !isOutOfStock && product.stock <= 5;
+  const hasDiscount = product.discount && product.discount > 0;
 
   return (
     <div
       onClick={onClick}
       className={`
-        relative flex flex-col justify-between p-4 rounded-2xl border transition-all text-left h-full min-h-[130px] group cursor-pointer overflow-hidden
+        relative flex flex-col justify-between p-4 rounded-2xl border transition-all text-left h-full min-h-[130px] group cursor-pointer
         ${isOutOfStock
           ? 'bg-gray-50 border-gray-200 opacity-60'
           : 'bg-white border-gray-100 hover:border-blue-300 hover:shadow-md active:scale-[0.97] shadow-sm'
         }
       `}
     >
+      {/* ✅ NEW: Bouncing Discount Badge */}
+      {hasDiscount && (
+        <div className="absolute -top-2 -left-2 bg-red-500 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md z-10 flex items-center gap-1 border-2 border-white">
+          <Tag size={10} /> {product.discount}% OFF
+        </div>
+      )}
+
       {/* Quick Edit Button (Hidden until hover) */}
       <button
         onClick={(e) => {
@@ -39,7 +47,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick, onEdit }) =
         <Pencil size={14} />
       </button>
 
-      <div className="pr-6"> {/* Padding right prevents long names from hiding under the edit button */}
+      <div className={`pr-6 ${hasDiscount ? 'mt-2' : ''}`}> {/* Padding right prevents long names from hiding under the edit button */}
         <h3 className="font-bold text-gray-800 line-clamp-2 leading-tight text-sm mb-1.5">
           {product.name}
         </h3>
@@ -58,9 +66,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick, onEdit }) =
 
       <div className="w-full flex justify-between items-end mt-3">
         {/* Price Tag */}
-        <span className="text-lg font-black text-gray-900 tracking-tight">
-          {currency}{Number(product.price).toFixed(2)}
-        </span>
+        <div className="flex flex-col">
+          {hasDiscount && (
+             <span className="text-[10px] text-gray-400 line-through font-bold">
+               {currency}{Number(product.price).toFixed(2)}
+             </span>
+          )}
+          <span className="text-lg font-black text-gray-900 tracking-tight">
+            {currency}{hasDiscount
+              ? (Number(product.price) - (Number(product.price) * (Number(product.discount) / 100))).toFixed(2)
+              : Number(product.price).toFixed(2)}
+          </span>
+        </div>
 
         {/* Interactive Add Button */}
         {!isOutOfStock && (

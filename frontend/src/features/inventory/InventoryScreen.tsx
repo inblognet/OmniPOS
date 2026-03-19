@@ -1,6 +1,6 @@
 // cspell:ignore dexie IMEI qrcode react-barcode bcid Barcodes Uncategorized
 import React, { useState, useEffect, useRef } from 'react';
-import { db, Product, ProductBatch } from '../../db/db';
+import { db, Product, ProductBatch, Supplier } from '../../db/db';
 import { useInventoryLogic } from '../../hooks/useInventoryLogic';
 import { PRESETS, BusinessType } from '../../config/inventoryConfig';
 import { productService, Category } from '../../services/productService';
@@ -12,7 +12,7 @@ import {
   Search, Plus, Edit, Trash2, X, Save,
   Tag, DollarSign, Box, Layers, AlertTriangle, CheckCircle, Ban, RefreshCw, FolderTree, ChevronDown, Settings, Calendar,
   Scan, QrCode, Printer, CheckSquare, Square, PackagePlus,
-  Activity, AlertOctagon, LayoutGrid, Archive, List, Download, Upload, FileSpreadsheet
+  Activity, AlertOctagon, LayoutGrid, Archive, List, Download, Upload, FileSpreadsheet, Building2
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
 
@@ -41,6 +41,9 @@ const InventoryScreen: React.FC = () => {
   const [damageLogs, setDamageLogs] = useState<DamageLog[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ✅ NEW: Suppliers List State
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
+
   const [showExcelMenu, setShowExcelMenu] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,6 +53,11 @@ const InventoryScreen: React.FC = () => {
       setLoading(true);
       const cats = await productService.getCategories();
       setCategories(cats);
+
+      // ✅ Fetch Suppliers from local DB for the dropdown
+      const sups = await db.suppliers.toArray();
+      setSuppliersList(sups);
+
       const data = await productService.getAll();
       setProducts(prevProducts => {
         return data.map((newItem: Product) => {
@@ -60,7 +68,7 @@ const InventoryScreen: React.FC = () => {
         });
       });
     } catch (error) {
-      console.error("Failed to load inventory data from API", error);
+      console.error("Failed to load inventory data", error);
     } finally {
       setLoading(false);
     }
@@ -81,7 +89,7 @@ const InventoryScreen: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'inventory' | 'settings'>('basic');
+  const [activeTab, setActiveTab] = useState<'basic' | 'pricing' | 'inventory' | 'supplier' | 'settings'>('basic');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [selectedPresetKey, setSelectedPresetKey] = useState<BusinessType>('General_Retail');
@@ -115,10 +123,12 @@ const InventoryScreen: React.FC = () => {
   const [formData, setFormData] = useState<Product>({
     name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '',
     stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '',
-    costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, // ✅ ADDED discount: 0
+    costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0,
     isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false,
     stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false,
-    totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: '', updatedAt: ''
+    totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [],
+    supplierId: undefined, supplierNote: '', // ✅ ADDED SUPPLIER FIELDS
+    createdAt: '', updatedAt: ''
   });
 
   const [newBatch, setNewBatch] = useState<ProductBatch>({ id: '', batchNumber: '', quantity: 0, issueDate: '', expiryDate: '' });
@@ -151,7 +161,7 @@ const InventoryScreen: React.FC = () => {
         "VariantGroup": "Example Product",
         "VariantName": "Batch 1",
         "Price*": 15.99,
-        "Discount(%)": 0, // ✅ ADDED to template
+        "Discount(%)": 0,
         "CostPrice": 8.00,
         "Stock": 50,
         "Unit": "pcs",
@@ -166,7 +176,7 @@ const InventoryScreen: React.FC = () => {
         "VariantGroup": "Example Product",
         "VariantName": "Batch 2",
         "Price*": 17.99,
-        "Discount(%)": 10, // ✅ ADDED example discount to template
+        "Discount(%)": 10,
         "CostPrice": 9.00,
         "Stock": 50,
         "Unit": "pcs",
@@ -206,7 +216,7 @@ const InventoryScreen: React.FC = () => {
       SKU: p.sku || '',
       Barcode: p.barcode || '',
       Price: p.price,
-      "Discount(%)": p.discount || 0, // ✅ Exporting discount
+      "Discount(%)": p.discount || 0,
       CostPrice: p.costPrice || 0,
       Stock: p.stock,
       DamagedQty: p.damagedQty || 0,
@@ -276,7 +286,6 @@ const InventoryScreen: React.FC = () => {
 
             const costPrice = parseFloat(findVal(row, 'CostPrice', 'Cost Price', 'Cost') as string) || 0;
 
-            // ✅ EXTRACT DISCOUNT FROM EXCEL
             const rawDiscount = findVal(row, 'Discount', 'Discount(%)', 'Disc');
             const discountVal = parseFloat(rawDiscount as string) || 0;
 
@@ -314,7 +323,7 @@ const InventoryScreen: React.FC = () => {
             const payload = {
               name: String(name).trim(),
               price: price,
-              discount: discountVal, // ✅ ADDED DISCOUNT TO PAYLOAD
+              discount: discountVal,
               costPrice: costPrice,
               wholesalePrice: 0,
               minSellingPrice: 0,
@@ -422,14 +431,13 @@ const handleSave = async (e: React.FormEvent) => {
         ? (formData.batches || []).reduce((acc, b) => acc + b.quantity, 0)
         : parseFloat(formData.stock.toString());
 
-    // ✅ FORCING THE DISCOUNT INTO THE PAYLOAD HERE
     const payload = {
         ...formData,
         updatedAt: new Date().toISOString(),
         stock: finalStock,
         price: parseFloat(formData.price.toString() || '0'),
         costPrice: parseFloat(formData.costPrice.toString() || '0'),
-        discount: parseFloat(formData.discount?.toString() || '0') // Forces it as a number!
+        discount: parseFloat(formData.discount?.toString() || '0')
     };
 
     try {
@@ -546,8 +554,7 @@ const handleSave = async (e: React.FormEvent) => {
     }
   };
 
-  // ✅ ADDED discount: 0 to modal reset
-  const openCreateModal = () => { setEditingId(null); setActiveTab('basic'); setFormData({ name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '', stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '', costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false, stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false, totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setShowModal(true); };
+  const openCreateModal = () => { setEditingId(null); setActiveTab('basic'); setFormData({ name: '', sku: '', barcode: '', category: '', brand: '', type: 'Stock', variantGroup: '', variantName: '', stockIssueDate: '', stockExpiryDate: '', batchNumber: '', serialNumber: '', costPrice: 0, price: 0, discount: 0, wholesalePrice: 0, minSellingPrice: 0, isTaxIncluded: false, allowDiscount: true, unit: config.defaultUnit || 'pcs', fractionalAllowed: false, stock: 0, reorderLevel: 5, maxStockLevel: 100, isActive: true, allowNegativeStock: false, totalQty: 0, damagedQty: 0, expiredQty: 0, batches: [], supplierId: undefined, supplierNote: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }); setShowModal(true); };
 
   const openEditModal = (p: Product) => { setEditingId(p.id!); setActiveTab('basic'); setFormData({ ...p, batches: p.batches || [] }); setShowModal(true); };
 
@@ -575,7 +582,7 @@ const handleSave = async (e: React.FormEvent) => {
           <button onClick={handleOpenConfig} className="bg-white border px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-gray-50 transition-all shadow-sm"><Settings size={18} /> Configure Shop</button>
 
           <div className="relative">
-            <button onClick={() => setShowExcelMenu(!showExcelMenu)} className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 hover:bg-emerald-700">
+            <button onClick={() => setShowExcelMenu(!showExcelMenu)} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95">
               <FileSpreadsheet size={18} /> Bulk Tools <ChevronDown size={14} />
             </button>
 
@@ -870,7 +877,11 @@ const handleSave = async (e: React.FormEvent) => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">{editingId ? 'Edit Product' : 'New Product'}</h2><button onClick={() => setShowModal(false)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500"><X size={20} /></button></div>
-            <div className="flex border-b border-gray-200 px-6 bg-white">{[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: Box}, {id: 'inventory', label: 'Inventory & Stock', icon: Layers}, {id: 'settings', label: 'Rules & Settings', icon: Settings}].map(tab => (<button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><tab.icon size={16} /> {tab.label}</button>))}</div>
+            <div className="flex border-b border-gray-200 px-6 bg-white">
+                {[{id: 'basic', label: 'Basic Info', icon: Tag}, {id: 'pricing', label: 'Pricing & Tax', icon: Box}, {id: 'inventory', label: 'Inventory & Stock', icon: Layers}, {id: 'supplier', label: 'Supplier Info', icon: Building2}, {id: 'settings', label: 'Rules & Settings', icon: Settings}].map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === tab.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}><tab.icon size={16} /> {tab.label}</button>
+                ))}
+            </div>
             <div className="flex-1 overflow-y-auto p-8 bg-white">
               <form onSubmit={handleSave} className="space-y-8">
                 {activeTab === 'basic' && (
@@ -910,7 +921,6 @@ const handleSave = async (e: React.FormEvent) => {
                   <div className="grid grid-cols-2 gap-6">
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Selling Price *</label><input required type="number" value={formData.price} onChange={e => setFormData({...formData, price: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>
 
-                      {/* ✅ NEW: Auto-Discount Field */}
                       <div><label className="block text-xs font-bold text-orange-500 mb-1">Auto-Discount (%)</label><input type="number" value={formData.discount || 0} onChange={e => setFormData({...formData, discount: parseFloat(e.target.value)})} className="w-full p-3 border border-orange-200 bg-orange-50 rounded-lg text-orange-800 font-bold outline-none focus:ring-2 focus:ring-orange-500" placeholder="e.g. 10" /></div>
 
                       <div><label className="block text-xs font-bold text-gray-500 mb-1">Cost Price</label><input type="number" value={formData.costPrice} onChange={e => setFormData({...formData, costPrice: parseFloat(e.target.value)})} className="w-full p-3 border rounded-lg" /></div>
@@ -930,6 +940,42 @@ const handleSave = async (e: React.FormEvent) => {
                     {config.features.expiryTracking && (<div className="border border-orange-200 rounded-xl p-4 bg-orange-50/50"><h3 className="text-sm font-bold text-orange-700 flex items-center gap-2 mb-3"><PackagePlus size={16}/> Batch Management (Expiry Tracking)</h3><div className="grid grid-cols-4 gap-2 mb-4 items-end"><div><label className="text-[10px] uppercase font-bold text-gray-500">Batch #</label><input type="text" value={newBatch.batchNumber} onChange={e => setNewBatch({...newBatch, batchNumber: e.target.value})} className="w-full p-2 border rounded text-sm bg-white" placeholder="Auto" /></div><div><label className="text-[10px] uppercase font-bold text-gray-500">Quantity</label><input type="number" value={newBatch.quantity} onChange={e => setNewBatch({...newBatch, quantity: parseFloat(e.target.value)})} className="w-full p-2 border rounded text-sm bg-white" /></div><div><label className="text-[10px] uppercase font-bold text-gray-500">Expiry</label><input type="datetime-local" value={newBatch.expiryDate} onChange={e => setNewBatch({...newBatch, expiryDate: e.target.value})} className="w-full p-2 border rounded text-sm bg-white" /></div>{editingBatchId ? (<div className="flex gap-1"><button type="button" onClick={handleSaveBatch} className="bg-green-600 text-white p-2 rounded text-xs font-bold flex-1">Update</button><button type="button" onClick={cancelEditBatch} className="bg-gray-400 text-white p-2 rounded text-xs font-bold hover:bg-gray-500"><X size={14}/></button></div>) : (<button type="button" onClick={handleSaveBatch} className="bg-orange-600 text-white p-2 rounded text-sm font-bold h-[38px]">Add Batch</button>)}</div><div className="bg-white border border-gray-200 rounded-lg overflow-hidden"><table className="w-full text-left text-sm"><thead className="bg-gray-50 text-xs text-gray-500 uppercase"><tr><th className="p-2">Batch</th><th className="p-2">Qty</th><th className="p-2">Expiry</th><th className="p-2 text-right">Actions</th></tr></thead><tbody className="divide-y divide-gray-100">{formData.batches?.map(b => (<tr key={b.id} className={editingBatchId === b.id ? 'bg-orange-50' : ''}><td className="p-2 font-mono text-gray-600">{b.batchNumber}</td><td className="p-2 font-bold">{b.quantity}</td><td className={`p-2 ${new Date(b.expiryDate!) < new Date() ? 'text-red-600 font-bold' : 'text-gray-600'}`}>{b.expiryDate ? new Date(b.expiryDate).toLocaleString() : '-'} {new Date(b.expiryDate!) < new Date() && '(Exp)'}</td><td className="p-2 text-right"><button type="button" onClick={() => startEditBatch(b)} className="text-blue-500 mr-2"><Edit size={14}/></button><button type="button" onClick={() => removeBatch(b.id)} className="text-red-500"><Trash2 size={14}/></button></td></tr>)) }{(!formData.batches || formData.batches.length === 0) && <tr><td colSpan={4} className="p-4 text-center text-gray-400 text-xs">No batches added. Stock is 0.</td></tr>}</tbody></table></div></div>)}
                   </div>
                 )}
+
+                {/* ✅ NEW: SUPPLIER TAB CONTENT */}
+                {activeTab === 'supplier' && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="bg-gray-50 p-5 rounded-2xl border border-gray-200">
+                        <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Building2 size={18} className="text-blue-600"/> Supplier Link</h4>
+
+                        <div className="space-y-4">
+                            <div>
+                              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Select Origin Supplier</label>
+                              <select
+                                value={formData.supplierId || ''}
+                                onChange={e => setFormData({...formData, supplierId: e.target.value ? parseInt(e.target.value) : undefined})}
+                                className="w-full p-3 border border-gray-200 rounded-xl bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 font-bold cursor-pointer"
+                              >
+                                <option value="">-- No Supplier Linked --</option>
+                                {suppliersList.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name} {s.companyName ? `(${s.companyName})` : ''}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Internal Supplier Note / Receiving Info</label>
+                              <textarea
+                                value={formData.supplierNote || ''}
+                                onChange={e => setFormData({...formData, supplierNote: e.target.value})}
+                                className="w-full p-3 border border-gray-200 rounded-xl h-32 bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 font-medium resize-none"
+                                placeholder="Add private notes about delivery condition, minimum order quantities (MOQ), or return policies for this specific item..."
+                              />
+                            </div>
+                        </div>
+                    </div>
+                  </div>
+                )}
+
                 {activeTab === 'settings' && (
                   <div className="space-y-4">
                     <div className="p-4 border border-gray-200 rounded-xl flex items-center justify-between"><div className="flex items-center gap-3">{formData.isActive ? <CheckCircle className="text-green-600"/> : <Ban className="text-red-600"/>}<div><h4 className="font-bold text-gray-700">{formData.isActive ? 'Product is Active' : 'Product is Inactive'}</h4><p className="text-xs text-gray-500">Inactive products hidden.</p></div></div><input type="checkbox" checked={formData.isActive} onChange={e => setFormData({...formData, isActive: e.target.checked})} className="w-5 h-5 text-blue-600" /></div>

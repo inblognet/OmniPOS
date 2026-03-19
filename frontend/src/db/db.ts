@@ -43,6 +43,20 @@ export interface ProductBatch {
   expiryDate?: string;  // Optional Expiry Date
 }
 
+// ✅ NEW: Supplier Interface
+export interface Supplier {
+  id?: number;
+  name: string;
+  nic?: string;
+  phone?: string;
+  companyName?: string;
+  address?: string;
+  itemsBrand?: string;
+  categoryType?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // ✅ Universal Product Master Data (Inventory Upgrade)
 export interface Product {
   id?: number;
@@ -87,6 +101,10 @@ export interface Product {
   supplierReference?: string;
   lastPurchaseDate?: string;
   lastPurchaseCost?: number;
+
+  // ✅ NEW: Supplier Link and Note
+  supplierId?: number;
+  supplierNote?: string;
 
   // 4. Expiry & Batch (Optional Legacy Fields - kept for backward compatibility)
   stockIssueDate?: string;
@@ -245,13 +263,14 @@ export class OmniPOSDatabase extends Dexie {
   businessSettings!: Table<BusinessSettings>;
   inventoryOverrides!: Table<InventoryOverride>;
   damageLogs!: Table<InventoryDamageLog>;
+  suppliers!: Table<Supplier>; // ✅ Added Supplier table
 
   constructor() {
     super("OmniPOS_DB");
 
-    // ✅ Version 16: Updated schema with new inventory tables
-    this.version(16).stores({
-      products: "++id, name, sku, barcode, category, type, isActive, isFavorite, stockExpiryDate",
+    // ✅ Version 17: Updated schema with supplier table and fields
+    this.version(17).stores({
+      products: "++id, name, sku, barcode, category, type, isActive, isFavorite, stockExpiryDate, supplierId",
       orders: "++id, timestamp, status, paymentMethod, customerId",
       offlineQueue: "++id, retryCount",
       settings: "++id",
@@ -261,7 +280,8 @@ export class OmniPOSDatabase extends Dexie {
       // New Tables
       businessSettings: "++id",
       inventoryOverrides: "++id",
-      damageLogs: "++id, productId, damageDate"
+      damageLogs: "++id, productId, damageDate",
+      suppliers: "++id, name, phone, companyName" // ✅ Define Supplier indexes
     });
   }
 }
@@ -303,7 +323,7 @@ export async function seedDatabase() {
         name: "Classic Burger",
         sku: "BUR-001",
         price: 8.99,
-        discount: 0, // ✅ ADDED
+        discount: 0,
         costPrice: 4.50,
         category: "Food",
         stock: 100,
@@ -324,7 +344,7 @@ export async function seedDatabase() {
         name: "Cola Zero",
         sku: "DRK-001",
         price: 2.00,
-        discount: 0, // ✅ ADDED
+        discount: 0,
         costPrice: 0.80,
         category: "Drink",
         stock: 200,
@@ -345,7 +365,7 @@ export async function seedDatabase() {
         name: "Cheese Fries",
         sku: "FRI-002",
         price: 4.5,
-        discount: 0, // ✅ ADDED
+        discount: 0,
         costPrice: 1.5,
         category: "Food",
         stock: 50,

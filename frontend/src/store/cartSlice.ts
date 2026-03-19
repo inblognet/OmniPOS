@@ -58,22 +58,20 @@ const cartSlice = createSlice({
   reducers: {
     addToCart: (state, action: PayloadAction<CartItem>) => {
       const product = action.payload;
-      // Note: If adding a custom unit item (e.g., 500g Chicken), we treat unique unit/price combos as unique rows usually.
-      // But for simplicity, we check ID. If it's a "custom unit" item, it usually has a unique timestamp ID anyway.
       const existingItem = state.items.find((item) => item.id === product.id);
 
       if (existingItem) {
-        // Check stock limit before adding (optional)
-        // if (existingItem.quantity < existingItem.stock) {
-          existingItem.quantity += 1;
-        // }
+          // ✅ FIX: Add the actual quantity passed, not just +1
+          existingItem.quantity += (product.quantity || 1);
+          // ✅ FIX: Ensure the latest discount is applied
+          existingItem.discount = product.discount || existingItem.discount || 0;
       } else {
-        // Add new item with default controls and unit info
+        // ✅ FIX: Keep the calculated discount and actual quantity from the payload!
         state.items.push({
             ...product,
-            quantity: 1,
-            discount: 0,
-            note: '',
+            quantity: product.quantity || 1,
+            discount: product.discount || 0,
+            note: product.note || '',
             unit: product.unit || 'pcs',
             unitValue: product.unitValue || 1
         });

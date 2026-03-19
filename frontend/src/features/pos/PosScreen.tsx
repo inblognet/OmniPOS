@@ -8,7 +8,7 @@ import {
 } from '../../store/cartSlice';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import {
-  Search, X, Save, Package, QrCode, User, Keyboard, Lock, Unlock,
+  Search, X, Save, Package, QrCode, User, Keyboard,
   MonitorPlay, Monitor, ShoppingCart, Filter, CheckSquare, Square, Layers, Calendar
 } from 'lucide-react';
 import { useCurrency } from '../../hooks/useCurrency';
@@ -39,8 +39,6 @@ const PosScreen: React.FC = () => {
   const [isRefundOpen, setIsRefundOpen] = useState(false);
   const [lastOrder, setLastOrder] = useState<any>(null);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [showMainKeyboard, setShowMainKeyboard] = useState(false);
-  const [isKeyboardLocked, setIsKeyboardLocked] = useState(false);
   const activeInputRef = useRef<HTMLInputElement | null>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -51,6 +49,13 @@ const PosScreen: React.FC = () => {
 
   // ✅ BATCH SELECTOR STATE
   const [batchSelectGroup, setBatchSelectGroup] = useState<any[] | null>(null);
+
+  // ✅ Persistent Keyboard State (Survives Refresh)
+  const [showMainKeyboard, setShowMainKeyboard] = useState(() => localStorage.getItem('pos_keyboard_open') === 'true');
+  const toggleKeyboard = (isOpen: boolean) => {
+      setShowMainKeyboard(isOpen);
+      localStorage.setItem('pos_keyboard_open', String(isOpen));
+  };
 
   const totalQty = cartItems.reduce((acc, item) => acc + item.quantity, 0);
   const grossAmount = cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
@@ -152,7 +157,6 @@ const PosScreen: React.FC = () => {
 
   const toggleCategory = (catName: string) => setSelectedCategories(prev => prev.includes(catName) ? prev.filter(c => c !== catName) : [...prev, catName]);
 
-  // ✅ UPDATED validateAndAdd FUNCTION
   const validateAndAdd = (product: any, customQty = 1) => {
     const existingItem = cartItems.find(item => item.id === product.id);
     const currentQty = existingItem ? existingItem.quantity : 0;
@@ -162,8 +166,6 @@ const PosScreen: React.FC = () => {
         if (currentQty + customQty > product.stock) return alert(`Cannot sell "${product.name}". Only ${product.stock} in stock.`);
     }
 
-    // ✅ CALCULATE THE DISCOUNT DOLLAR AMOUNT FROM THE PERCENTAGE
-    // e.g. Price is $20.00, Discount is 10%. 20 * (10 / 100) = $2.00 off.
     const calcDiscount = product.discount && product.discount > 0
         ? (product.price * (product.discount / 100))
         : 0;
@@ -177,7 +179,7 @@ const PosScreen: React.FC = () => {
         category: product.category,
         isTaxIncluded: product.isTaxIncluded,
         quantity: customQty,
-        discount: calcDiscount, // ✅ PASS THE CALCULATED DISCOUNT HERE
+        discount: calcDiscount,
         note: ''
     }));
   };
@@ -209,7 +211,7 @@ const PosScreen: React.FC = () => {
           const query = searchQuery.trim();
           const exactMatches = products.filter(p => {
               const dbBarcode = p.barcode ? String(p.barcode).trim() : '';
-              const baseBarcode = dbBarcode.split('-')[0]; // Ignore suffix
+              const baseBarcode = dbBarcode.split('-')[0];
               return dbBarcode === query || baseBarcode === query || (p.sku && p.sku.toLowerCase() === query.toLowerCase());
           });
 
@@ -248,7 +250,6 @@ const PosScreen: React.FC = () => {
               setSearchQuery('');
           }
       }
-      if (!isKeyboardLocked) { setShowMainKeyboard(false); }
   };
 
   const handleSaveEdit = async (e: React.FormEvent) => {
@@ -258,15 +259,16 @@ const PosScreen: React.FC = () => {
   const handleCheckoutClick = () => { if (cartItems.length > 0) setIsCheckoutOpen(true); };
   const handleSaleComplete = (orderData: any) => { setLastOrder(orderData); setTimeout(() => { window.print(); setLastOrder(null); dispatch(clearCart()); loadData(); }, 500); };
   const handleRefundComplete = (refundOrder: any) => { setLastOrder({ ...refundOrder, total_amount: refundOrder.totalAmount || refundOrder.total_amount }); setTimeout(() => { window.print(); setLastOrder(null); loadData(); }, 500); };
-  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => { if (!activeModal && !editingProduct && !batchSelectGroup) { activeInputRef.current = e.target; setShowMainKeyboard(true); } };
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+      if (!activeModal && !editingProduct && !batchSelectGroup) {
+          activeInputRef.current = e.target;
+          toggleKeyboard(true);
+      }
+  };
+
   const handleVirtualKeyPress = (key: string) => { if (activeInputRef.current) { const input = activeInputRef.current; if (input.name === "customerSearchInput") { setCustomerSearch(prev => prev + key); } else { const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { const start = input.selectionStart || 0; const end = input.selectionEnd || 0; setter.call(input, input.value.substring(0, start) + key + input.value.substring(end)); input.dispatchEvent(new Event('input', { bubbles: true })); } } } };
   const handleVirtualBackspace = () => { if (activeInputRef.current) { const input = activeInputRef.current; if (input.name === "customerSearchInput") { setCustomerSearch(prev => prev.slice(0, -1)); } else { const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if (setter) { setter.call(input, input.value.slice(0, -1)); input.dispatchEvent(new Event('input', { bubbles: true })); } } } };
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => { const target = e.target as HTMLElement; if (!isKeyboardLocked && target.tagName !== 'INPUT' && !target.closest('.virtual-keyboard-container')) { setShowMainKeyboard(false); } };
-    window.addEventListener('mousedown', handleClickOutside);
-    return () => window.removeEventListener('mousedown', handleClickOutside);
-  }, [isKeyboardLocked]);
 
   return (
     <div className="flex w-full h-full overflow-hidden bg-transparent relative">
@@ -281,7 +283,7 @@ const PosScreen: React.FC = () => {
         <div className="px-6 py-4 bg-transparent shadow-sm z-10 flex gap-3 items-center border-b border-gray-100 shrink-0">
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-              <input type="text" name="productSearchInput" onFocus={handleInputFocus} className="block w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl bg-transparent outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm transition-all shadow-inner" placeholder="Scan Barcode, SKU, or Search Product..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} />
+              <input type="text" name="productSearchInput" onFocus={handleInputFocus} className="block w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl bg-[var(--background-color,#ffffff)] dark:bg-[var(--card-color,#1e293b)] text-[var(--text-color,#1f2937)] dark:text-[var(--text-color,#f8fafc)] outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm transition-all shadow-inner" placeholder="Scan Barcode, SKU, or Search Product..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleSearchKeyDown} />
             </div>
             <button onClick={() => setIsQuickScanOpen(true)} className="bg-transparent border border-gray-300 text-gray-700 hover:bg-gray-50 px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-sm transition-all active:scale-95 whitespace-nowrap"><QrCode size={18} /> SCAN (HOME)</button>
             <div className="relative">
@@ -301,10 +303,11 @@ const PosScreen: React.FC = () => {
                 )}
                 {showFilterDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)}></div>}
             </div>
-            <button onClick={handleToggleCFD} className={`py-3 px-5 rounded-xl border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${isCFDEnabled ? 'bg-indigo-600 border-indigo-700 text-white hover:bg-indigo-700' : 'bg-transparent border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            <button onClick={handleToggleCFD} className={`py-3 px-5 rounded-xl border font-bold text-sm flex items-center gap-2 transition-all shadow-sm active:scale-95 ${isCFDEnabled ? 'bg-[var(--primary-color,#16a34a)] border-transparent text-white hover:brightness-110' : 'bg-transparent border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
                 {isCFDEnabled ? <MonitorPlay size={18} className="animate-pulse" /> : <Monitor size={18} />} CFD {isCFDEnabled ? 'ON' : 'OFF'} (PageDown)
             </button>
         </div>
+
         {selectedCategories.length > 0 && (
           <div className="bg-transparent px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2 shrink-0">
               <span className="text-xs font-bold text-gray-400 uppercase tracking-wider mr-2">Active Filters:</span>
@@ -313,16 +316,14 @@ const PosScreen: React.FC = () => {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 no-scrollbar">
+        <div className="flex-1 overflow-y-auto p-6 no-scrollbar relative">
           {loading ? <div className="h-full flex items-center justify-center text-gray-400">Loading products...</div> : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 ${showMainKeyboard ? 'pb-64' : ''}`}>
                 {groupedProducts.map((group) => {
                     const baseProduct = group[0];
                     const isGroup = group.length > 1;
-
                     const totalGroupStock = group.reduce((sum, p) => sum + p.stock, 0);
                     const displayProduct = { ...baseProduct, stock: totalGroupStock, name: baseProduct.variantGroup || baseProduct.name };
-
                     const isOutOfStock = displayProduct.type === 'Stock' && displayProduct.stock <= 0 && !displayProduct.allowNegativeStock;
 
                     return (
@@ -349,10 +350,25 @@ const PosScreen: React.FC = () => {
           )}
         </div>
 
-        {showMainKeyboard && !activeModal && !batchSelectGroup && (
-          <div className="virtual-keyboard-container absolute bottom-4 left-4 right-4 z-[100] bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 animate-in slide-in-from-bottom-10 fade-in duration-200">
-             <div className="flex justify-between items-center mb-2"><div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase"><Keyboard size={14}/> Virtual Keyboard</div><div className="flex items-center gap-2"><button onClick={() => setIsKeyboardLocked(!isKeyboardLocked)} className={`p-1.5 rounded-full transition-colors ${isKeyboardLocked ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}>{isKeyboardLocked ? <Lock size={16} /> : <Unlock size={16} />}</button><button onClick={() => setShowMainKeyboard(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-1.5 rounded-full"><X size={16}/></button></div></div>
-             <VirtualKeyboard onKeyPress={handleVirtualKeyPress} onBackspace={handleVirtualBackspace} onEnter={handleVirtualEnter} layout="full" />
+        {/* ✅ FIXED Z-INDEX: Changed from z-40 to z-10 so Modals will overlap and blur it perfectly! */}
+        {showMainKeyboard && (
+          <div className="absolute bottom-0 left-0 right-0 z-10 bg-[var(--card-color,#1e293b)] border-t border-[var(--sidebar-color,#334155)] rounded-t-3xl shadow-[0_-15px_50px_-12px_rgba(0,0,0,0.25)] p-4 animate-in slide-in-from-bottom-10 duration-300">
+             <div className="flex justify-between items-center mb-3 px-2">
+                 <div className="flex items-center gap-2 text-xs font-bold text-[var(--sub-text-color,#9ca3af)] uppercase tracking-wider">
+                     <Keyboard size={14}/> Virtual Keyboard
+                 </div>
+                 <button onClick={() => toggleKeyboard(false)} className="text-[var(--sub-text-color,#9ca3af)] hover:text-white bg-[var(--background-color,#0f172a)] hover:bg-red-500 p-1.5 rounded-full transition-colors shadow-inner">
+                     <X size={16}/>
+                 </button>
+             </div>
+             {/* Passed transparent classes so the keyboard perfectly absorbs the container's theme */}
+             <VirtualKeyboard
+                onKeyPress={handleVirtualKeyPress}
+                onBackspace={handleVirtualBackspace}
+                onEnter={handleVirtualEnter}
+                layout="full"
+                className="!bg-transparent !border-none !shadow-none !p-0"
+             />
           </div>
         )}
       </div>
@@ -364,11 +380,11 @@ const PosScreen: React.FC = () => {
                 {customer ? (
                     <div className="flex items-center justify-between w-full p-3 border border-blue-200 bg-blue-50 rounded-xl text-sm text-blue-800 font-bold shadow-inner"><span className="truncate">{customer.name}</span><button onClick={() => dispatch(setCustomer(undefined as any))} className="p-1.5 bg-blue-200 hover:bg-blue-300 text-blue-800 rounded-full transition-colors"><X size={14}/></button></div>
                 ) : (
-                    <input type="text" name="customerSearchInput" placeholder="Attach Customer to Sale..." className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-xl bg-transparent outline-none focus:ring-2 focus:ring-blue-500 font-bold text-sm shadow-inner transition-all" value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }} onFocus={(e) => { handleInputFocus(e); setShowCustomerDropdown(true); }} />
+                    <input type="text" name="customerSearchInput" placeholder="Attach Customer to Sale..." className="block w-full pl-10 pr-3 py-3 border border-[var(--sidebar-color,#334155)] rounded-xl bg-[var(--background-color,#ffffff)] dark:bg-[var(--card-color,#1e293b)] text-[var(--text-color,#1f2937)] dark:text-[var(--text-color,#f8fafc)] outline-none focus:ring-2 focus:ring-[var(--primary-color,#3b82f6)] font-bold text-sm shadow-inner transition-all" value={customerSearch} onChange={(e) => { setCustomerSearch(e.target.value); setShowCustomerDropdown(true); }} onFocus={(e) => { handleInputFocus(e); setShowCustomerDropdown(true); }} />
                 )}
                 {showCustomerDropdown && customerSearch && !customer && (
-                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 mt-2 max-h-64 overflow-y-auto">
-                        {filteredCustomers.length === 0 ? <div className="p-4 text-sm text-gray-400 text-center font-medium">No customers found</div> : filteredCustomers.map(c => (<div key={c.id} onClick={() => { dispatch(setCustomer(c as any)); setCustomerSearch(''); setShowCustomerDropdown(false); }} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 transition-colors"><p className="font-bold text-gray-800 text-sm">{c.name}</p><p className="text-xs text-gray-500 mt-0.5">{c.phone}</p></div>))}
+                    <div className="absolute top-full left-0 right-0 bg-[var(--card-color,#ffffff)] border border-[var(--sidebar-color,#e5e7eb)] rounded-xl shadow-2xl z-50 mt-2 max-h-64 overflow-y-auto">
+                        {filteredCustomers.length === 0 ? <div className="p-4 text-sm text-[var(--sub-text-color,#9ca3af)] text-center font-medium">No customers found</div> : filteredCustomers.map(c => (<div key={c.id} onClick={() => { dispatch(setCustomer(c as any)); setCustomerSearch(''); setShowCustomerDropdown(false); }} className="p-3 hover:bg-[var(--background-color,#f3f4f6)] cursor-pointer border-b border-[var(--sidebar-color,#e5e7eb)] last:border-0 transition-colors"><p className="font-bold text-[var(--text-color,#1f2937)] text-sm">{c.name}</p><p className="text-xs text-[var(--sub-text-color,#9ca3af)] mt-0.5">{c.phone}</p></div>))}
                     </div>
                 )}
                 {showCustomerDropdown && <div className="fixed inset-0 z-40" onClick={() => setShowCustomerDropdown(false)}></div>}
@@ -376,17 +392,17 @@ const PosScreen: React.FC = () => {
         </div>
 
         <div className="bg-transparent border-b border-gray-200 px-4 py-2 flex justify-between items-center shrink-0">
-            <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider flex items-center gap-2"><ShoppingCart size={14}/> Current Order</h3><span className="text-[10px] font-bold text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">{cartItems.length} Items</span>
+            <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider flex items-center gap-2"><ShoppingCart size={14}/> Current Order</h3><span className="text-[10px] font-bold text-gray-400 bg-[var(--card-color,#e5e7eb)] dark:bg-[var(--card-color,#334155)] px-2 py-0.5 rounded-full">{cartItems.length} Items</span>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-transparent no-scrollbar min-h-[50px]">
             {cartItems.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-50"><ShoppingCart size={48} className="mb-4" /><p className="font-bold text-lg">Cart is empty</p><p className="text-sm">Scan or tap products to add</p></div>
+                <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50"><ShoppingCart size={48} className="mb-4" /><p className="font-bold text-lg">Cart is empty</p><p className="text-sm">Scan or tap products to add</p></div>
             ) : (
                 cartItems.map((item) => (
-                    <div key={item.id} onClick={() => setSelectedCartItemId(item.id)} className={`flex justify-between items-center p-3 border-b cursor-pointer transition-all ${selectedCartItemId === item.id ? 'bg-blue-50 ring-2 ring-blue-500 border-blue-500 rounded-lg shadow-sm' : 'hover:bg-gray-50 border-gray-100'}`}>
-                        <div className="flex-1 pr-2"><span className="font-bold text-sm text-gray-800 line-clamp-2">{item.name}</span> <span className="text-xs font-medium text-gray-500">{currency}{item.price.toFixed(2)}</span>{(item.discount || 0) > 0 && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded ml-2 font-bold">Disc: {currency}{(item.discount || 0).toFixed(2)}</span>}</div>
-                        <div className="flex flex-col items-end gap-1"><span className="text-sm font-black text-blue-600">{currency}{((item.price - (item.discount||0)) * item.quantity).toFixed(2)}</span><span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md">Qty: {item.quantity}</span></div>
+                    <div key={item.id} onClick={() => setSelectedCartItemId(item.id)} className={`flex justify-between items-center p-3 border-b cursor-pointer transition-all ${selectedCartItemId === item.id ? 'bg-[var(--background-color,#eff6ff)] dark:bg-blue-900/20 ring-2 ring-[var(--primary-color,#3b82f6)] border-transparent rounded-lg shadow-sm' : 'hover:bg-[var(--background-color,#f9fafb)] dark:hover:bg-white/5 border-transparent'}`}>
+                        <div className="flex-1 pr-2"><span className="font-bold text-sm text-[var(--text-color,#1f2937)] dark:text-[var(--text-color,#f8fafc)] line-clamp-2">{item.name}</span> <span className="text-xs font-medium text-[var(--sub-text-color,#6b7280)]">{currency}{item.price.toFixed(2)}</span>{(item.discount || 0) > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded ml-2 font-bold shadow-sm">Disc: -{currency}{(item.discount || 0).toFixed(2)}</span>}</div>
+                        <div className="flex flex-col items-end gap-1"><span className="text-sm font-black text-[var(--primary-color,#2563eb)]">{currency}{((item.price - (item.discount||0)) * item.quantity).toFixed(2)}</span><span className="text-xs font-bold text-[var(--sub-text-color,#6b7280)] bg-[var(--card-color,#f3f4f6)] dark:bg-[var(--card-color,#1e293b)] border border-[var(--sidebar-color,#e5e7eb)] dark:border-gray-800 px-2 py-0.5 rounded-md">Qty: {item.quantity}</span></div>
                     </div>
                 ))
             )}
@@ -394,11 +410,11 @@ const PosScreen: React.FC = () => {
 
         <div className="bg-transparent border-t border-b border-gray-200 p-4 shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
             <div className="space-y-2 mb-3 border-b border-gray-200 pb-3">
-                <div className="flex justify-between text-sm"><span className="text-gray-500 font-medium">Subtotal</span><span className="font-bold">{currency}{grossAmount.toFixed(2)}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500 font-medium">Discount</span><span className="font-bold text-red-500">-{currency}{totalDiscount.toFixed(2)}</span></div>
-                <div className="flex justify-between text-sm"><span className="text-gray-500 font-medium">Tax</span><span className="font-bold">{currency}{totalTax.toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-[var(--sub-text-color,#6b7280)] font-medium">Subtotal</span><span className="font-bold text-[var(--text-color,#1f2937)] dark:text-gray-300">{currency}{grossAmount.toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-[var(--sub-text-color,#6b7280)] font-medium">Discount</span><span className="font-bold text-red-500">-{currency}{totalDiscount.toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm"><span className="text-[var(--sub-text-color,#6b7280)] font-medium">Tax</span><span className="font-bold text-[var(--text-color,#1f2937)] dark:text-gray-300">{currency}{totalTax.toFixed(2)}</span></div>
             </div>
-            <div className="flex justify-between items-end"><span className="text-lg font-black text-gray-800">Total</span><span className="text-3xl font-black text-blue-600 tracking-tight">{currency}{netPayable.toFixed(2)}</span></div>
+            <div className="flex justify-between items-end"><span className="text-lg font-black text-[var(--text-color,#1f2937)] dark:text-gray-400">Total</span><span className="text-4xl font-black text-[var(--primary-color,#2563eb)] tracking-tight drop-shadow-md">{currency}{netPayable.toFixed(2)}</span></div>
         </div>
 
         <div className="shrink-0 pb-2">
@@ -416,7 +432,7 @@ const PosScreen: React.FC = () => {
       </div>
 
       {batchSelectGroup && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setBatchSelectGroup(null)}>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-md p-4" onClick={() => setBatchSelectGroup(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
                 <div className="px-6 py-4 bg-purple-600 text-white flex justify-between items-center">
                     <div>
@@ -432,8 +448,6 @@ const PosScreen: React.FC = () => {
                         const expiryRaw = batchData?.expiryDate || variant.stockExpiryDate;
                         const expiryDisplay = expiryRaw ? new Date(expiryRaw).toLocaleDateString() : 'No Expiry';
                         const batchNoDisplay = batchData?.batchNumber || variant.batchNumber || 'N/A';
-
-                        // 🧹 Strip the -1, -2 suffix so the cashier just sees the normal barcode!
                         const cleanBarcode = variant.barcode ? String(variant.barcode).split('-')[0] : '-';
 
                         return (
@@ -444,43 +458,22 @@ const PosScreen: React.FC = () => {
                                 <div className="flex flex-col gap-1">
                                     <div className="flex items-center gap-2">
                                         <Calendar size={24} className="text-gray-400"/>
-                                        <span className={`font-black text-2xl tracking-tight ${expiryRaw ? 'text-orange-600' : 'text-gray-800'}`}>
-                                            EXP: {expiryDisplay}
-                                        </span>
+                                        <span className={`font-black text-2xl tracking-tight ${expiryRaw ? 'text-orange-600' : 'text-gray-800'}`}>EXP: {expiryDisplay}</span>
                                     </div>
-
                                     <div className="flex items-center gap-2 mt-1">
                                         <Package size={18} className="text-gray-500"/>
-                                        <span className="font-bold text-lg text-gray-700">
-                                            BATCH: {batchNoDisplay}
-                                        </span>
-                                        {variant.variantName && (
-                                            <span className="text-sm font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded ml-1">
-                                                {variant.variantName}
-                                            </span>
-                                        )}
+                                        <span className="font-bold text-lg text-gray-700">BATCH: {batchNoDisplay}</span>
+                                        {variant.variantName && <span className="text-sm font-bold text-purple-600 bg-purple-100 px-2 py-0.5 rounded ml-1">{variant.variantName}</span>}
                                     </div>
-
-                                    <div className="text-xs text-gray-400 flex gap-2 mt-1 font-mono font-bold">
-                                        <span className="bg-gray-100 px-2 py-1 rounded">
-                                            <QrCode size={10} className="inline mr-1 -mt-0.5"/>
-                                            BC: {cleanBarcode}
-                                        </span>
-                                    </div>
+                                    <div className="text-xs text-gray-400 flex gap-2 mt-1 font-mono font-bold"><span className="bg-gray-100 px-2 py-1 rounded"><QrCode size={10} className="inline mr-1 -mt-0.5"/> BC: {cleanBarcode}</span></div>
                                 </div>
-
                                 <div className="text-right">
                                     <div className="text-3xl font-black text-blue-600">{currency}{Number(variant.price).toFixed(2)}</div>
-                                    <div className={`text-sm font-bold mt-2 bg-gray-100 px-3 py-1 rounded-full inline-block ${variant.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                                        {variant.stock > 0 ? `${variant.stock} In Stock` : 'Out of Stock'}
-                                    </div>
+                                    <div className={`text-sm font-bold mt-2 bg-gray-100 px-3 py-1 rounded-full inline-block ${variant.stock > 0 ? 'text-green-600' : 'text-red-500'}`}>{variant.stock > 0 ? `${variant.stock} In Stock` : 'Out of Stock'}</div>
                                 </div>
                             </div>
                         );
                     })}
-                </div>
-                <div className="bg-gray-100 px-6 py-3 text-center text-xs text-gray-500 font-bold uppercase tracking-wider">
-                    Click the correct batch to add to cart
                 </div>
             </div>
         </div>
@@ -490,12 +483,27 @@ const PosScreen: React.FC = () => {
       <RefundModal isOpen={isRefundOpen} onClose={() => setIsRefundOpen(false)} onRefundComplete={handleRefundComplete} />
 
       {activeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onMouseDown={(e) => { if(e.target === e.currentTarget) setActiveModal(null); }}>
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative" onMouseDown={(e) => e.stopPropagation()}><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h3 className="font-bold text-gray-800 flex items-center gap-2 capitalize">Update {activeModal}</h3><button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><div className="p-5 space-y-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">{activeModal === 'note' ? 'Note Content' : `Value (${currency})`}</label><input ref={activeInputRef} type={activeModal === 'note' ? 'text' : 'number'} autoFocus required value={modalValue} onChange={(e) => setModalValue(e.target.value)} className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg" /></div><div className="flex justify-center"><VirtualKeyboard layout={activeModal === 'note' ? 'full' : 'numeric'} onKeyPress={(key) => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value + key); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onBackspace={() => { if (activeInputRef.current) { const input = activeInputRef.current; const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set; if(setter){ setter.call(input, input.value.slice(0, -1)); input.dispatchEvent(new Event('input', { bubbles: true })); } } }} onEnter={() => saveControlModal({ preventDefault: () => {} } as any)} className="bg-gray-100 border-none shadow-none" /></div><button type="submit" onClick={saveControlModal} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2"><Save size={18} /> Save Changes</button></div></div>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onMouseDown={(e) => { if(e.target === e.currentTarget) setActiveModal(null); }}>
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col relative animate-in zoom-in-95" onMouseDown={(e) => e.stopPropagation()}>
+               <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                   <h3 className="font-bold text-gray-800 flex items-center gap-2 capitalize">Update {activeModal}</h3>
+                   <button onClick={() => setActiveModal(null)} className="text-gray-400 hover:text-gray-600 bg-gray-200 p-1.5 rounded-full"><X size={16}/></button>
+               </div>
+               <div className="p-5 space-y-4">
+                   <div>
+                       <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{activeModal === 'note' ? 'Note Content' : `Value (${currency})`}</label>
+                       <input type={activeModal === 'note' ? 'text' : 'number'} autoFocus required value={modalValue} onChange={(e) => setModalValue(e.target.value)} className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-bold text-lg text-center" />
+                   </div>
+                   <div className="flex justify-center">
+                       <VirtualKeyboard layout={activeModal === 'note' ? 'full' : 'numeric'} onKeyPress={(key) => setModalValue(prev => prev + key)} onBackspace={() => setModalValue(prev => prev.slice(0, -1))} onEnter={() => saveControlModal({ preventDefault: () => {} } as any)} className="bg-gray-50 border-none shadow-inner" />
+                   </div>
+                   <button type="submit" onClick={saveControlModal} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2 shadow-lg"><Save size={18} /> Save Changes</button>
+               </div>
+            </div>
         </div>
       )}
       {editingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h3 className="font-bold text-gray-800 flex items-center gap-2"><Package size={18} className="text-blue-600" /> Quick Edit</h3><button onClick={() => setEditingProduct(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><form onSubmit={handleSaveEdit} className="p-5 space-y-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Product Name</label><input type="text" required value={editingProduct.name} onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-medium"/></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Price</label><input type="number" required value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: parseFloat(e.target.value)})} className="w-full px-3 py-2 border border-gray-300 rounded-lg"/></div><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stock</label><input type="number" required value={editingProduct.stock} onChange={(e) => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} className="w-full px-3 py-2 border border-gray-300 rounded-lg"/></div></div><button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2"><Save size={18} /> Save Changes</button></form></div></div>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"><div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95"><div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h3 className="font-bold text-gray-800 flex items-center gap-2"><Package size={18} className="text-blue-600" /> Quick Edit</h3><button onClick={() => setEditingProduct(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button></div><form onSubmit={handleSaveEdit} className="p-5 space-y-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Product Name</label><input type="text" required value={editingProduct.name} onChange={(e) => setEditingProduct({...editingProduct, name: e.target.value})} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-medium"/></div><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Price</label><input type="number" required value={editingProduct.price} onChange={(e) => setEditingProduct({...editingProduct, price: parseFloat(e.target.value)})} className="w-full px-3 py-2 border border-gray-300 rounded-lg"/></div><div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stock</label><input type="number" required value={editingProduct.stock} onChange={(e) => setEditingProduct({...editingProduct, stock: parseInt(e.target.value)})} className="w-full px-3 py-2 border border-gray-300 rounded-lg"/></div></div><button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center justify-center gap-2 mt-2 shadow-lg"><Save size={18} /> Save Changes</button></form></div></div>
       )}
       <CheckoutModal isOpen={isCheckoutOpen} onClose={() => setIsCheckoutOpen(false)} subtotal={cartItems.reduce((acc, item) => acc + (item.price * item.quantity), 0)} itemsCount={cartItems.reduce((acc, item) => acc + item.quantity, 0)} cartItems={cartItems} customer={customer as any} onComplete={handleSaleComplete} />
       {lastOrder && <ReceiptTemplate order={lastOrder} />}

@@ -18,6 +18,9 @@ import CFDPanelScreen from './features/cfd/CFDPanelScreen.tsx';
 import CFDDisplayScreen from './features/cfd/CFDDisplayScreen.tsx';
 import UsersScreen from './features/users/UsersScreen';
 
+// ✅ Import the new Suppliers Screen
+import SuppliersScreen from './features/supplier/SuppliersScreen';
+
 // Import the Login Screen
 import Login from './features/auth/Login';
 
@@ -83,6 +86,9 @@ function App() {
 
             {/* 10. Staff Management */}
             <Route path="/staff" element={<UsersScreen />} />
+
+            {/* 11. ✅ Suppliers Management */}
+            <Route path="/suppliers" element={<SuppliersScreen />} />
           </Route>
 
         </Route>
