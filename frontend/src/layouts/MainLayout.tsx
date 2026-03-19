@@ -50,12 +50,12 @@ const MainLayout: React.FC = () => {
     { path: '/pos', label: 'POS Register', icon: ShoppingCart, roles: ['admin', 'manager', 'cashier'] },
     { path: '/orders', label: 'Orders', icon: ClipboardList, roles: ['admin', 'manager', 'cashier'] },
     { path: '/customers', label: 'Customers', icon: Users, roles: ['admin', 'manager', 'cashier'] },
+    { path: '/suppliers', label: 'Suppliers', icon: Building2, roles: ['admin', 'manager'] },
+    { path: '/staff', label: 'Users', icon: UserCog, roles: ['admin'] },
     { path: '/inventory', label: 'Inventory', icon: Package, roles: ['admin', 'manager', 'cashier'] },
     { path: '/reports', label: 'Reports', icon: FileText, roles: ['admin', 'manager'] },
     { path: '/integrations', label: 'Integrations', icon: Puzzle, roles: ['admin'] },
     { path: '/cfd-panel', label: 'CFD Panel', icon: MonitorPlay, roles: ['admin', 'manager', 'cashier'] },
-    { path: '/staff', label: 'Staff Management', icon: UserCog, roles: ['admin'] },
-    { path: '/suppliers', label: 'Suppliers', icon: Building2, roles: ['admin', 'manager'] },
     { path: '/settings', label: 'Settings', icon: Settings, roles: ['admin'] },
   ];
 

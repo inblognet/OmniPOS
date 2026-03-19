@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, UserCog, X } from 'lucide-react';
+import { Shield, Plus, Trash2, UserCog, X, Edit } from 'lucide-react';
 import { userService, User } from '../../services/userService';
 
 const UsersScreen: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
 
-  // New User Form State
+  // User Form State
   const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'cashier' });
   const [error, setError] = useState('');
 
@@ -25,17 +26,42 @@ const UsersScreen: React.FC = () => {
     loadUsers();
   }, []);
 
-  const handleCreateUser = async (e: React.FormEvent) => {
+  const openCreateModal = () => {
+    setEditId(null);
+    setFormData({ name: '', email: '', password: '', role: 'cashier' });
+    setError('');
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (user: User) => {
+    setEditId(user.id);
+    // Load user data into form. Leave password blank (we only send it if they want to change it)
+    setFormData({ name: user.name, email: user.email, password: '', role: user.role });
+    setError('');
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
+
     try {
-      await userService.createUser(formData);
+      if (editId) {
+        // Only send the password if the admin typed a new one
+        const payload = { ...formData };
+        if (!payload.password) {
+            delete (payload as any).password;
+        }
+        await userService.updateUser(editId, payload);
+      } else {
+        await userService.createUser(formData);
+      }
+
       await loadUsers(); // Refresh the list
       setIsModalOpen(false); // Close modal
-      setFormData({ name: '', email: '', password: '', role: 'cashier' }); // Reset form
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create user');
+      setError(err.response?.data?.message || `Failed to ${editId ? 'update' : 'create'} user`);
     } finally {
       setIsLoading(false);
     }
@@ -58,12 +84,12 @@ const UsersScreen: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <UserCog className="text-blue-600" /> Staff Management
+            <UserCog className="text-blue-600" /> User Management
           </h1>
           <p className="text-gray-500 text-sm mt-1">Manage system access for managers and cashiers</p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={openCreateModal}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium transition-colors"
         >
           <Plus size={18} /> Add Staff
@@ -101,13 +127,22 @@ const UsersScreen: React.FC = () => {
                   </span>
                 </td>
                 <td className="p-4 text-right">
-                  <button
-                    onClick={() => handleDelete(user.id)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Remove User"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => openEditModal(user)}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit User"
+                    >
+                      <Edit size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(user.id)}
+                      className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Remove User"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -115,18 +150,18 @@ const UsersScreen: React.FC = () => {
         </table>
       </div>
 
-      {/* Add User Modal */}
+      {/* Add/Edit User Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
               <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                <Shield size={18} className="text-blue-600"/> Add New Staff Member
+                <Shield size={18} className="text-blue-600"/> {editId ? 'Edit Staff Member' : 'Add New Staff Member'}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">{error}</div>}
 
               <div>
@@ -140,8 +175,10 @@ const UsersScreen: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Temporary Password</label>
-                <input type="password" required value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="••••••••" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {editId ? 'New Password (Optional)' : 'Temporary Password'}
+                </label>
+                <input type="password" required={!editId} value={formData.password} onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder={editId ? "Leave blank to keep current password" : "••••••••"} />
               </div>
 
               <div>
@@ -156,7 +193,7 @@ const UsersScreen: React.FC = () => {
               <div className="pt-4 flex gap-3">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors">Cancel</button>
                 <button type="submit" disabled={isLoading} className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50">
-                  {isLoading ? 'Creating...' : 'Create Account'}
+                  {isLoading ? 'Saving...' : (editId ? 'Update Account' : 'Create Account')}
                 </button>
               </div>
             </form>

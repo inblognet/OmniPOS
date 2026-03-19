@@ -39,6 +39,49 @@ exports.createUser = async (req, res, next) => {
   }
 };
 
+exports.updateUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { name, email, password, role } = req.body;
+
+    // ✅ 1. Check if the new email belongs to someone else
+    const emailCheck = await db.query('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
+    if (emailCheck.rows.length > 0) {
+      return res.status(400).json({ message: 'Another user with this email already exists.' });
+    }
+
+    let result;
+
+    // ✅ 2. Did the admin type a new password?
+    if (password) {
+      // Yes: Hash the new password and update everything
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      result = await db.query(
+        'UPDATE users SET name = $1, email = $2, role = $3, password = $4 WHERE id = $5 RETURNING id, name, email, role',
+        [name, email, role, hashedPassword, id]
+      );
+    } else {
+      // No: Update name, email, and role, but LEAVE THE PASSWORD ALONE
+      result = await db.query(
+        'UPDATE users SET name = $1, email = $2, role = $3 WHERE id = $4 RETURNING id, name, email, role',
+        [name, email, role, id]
+      );
+    }
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    // ✅ 3. Return the updated user info to the frontend
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Error updating user:", error);
+    next(error); // ✅ Passed to your global error handler
+  }
+};
+
 exports.deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;

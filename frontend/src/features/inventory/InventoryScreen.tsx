@@ -712,11 +712,12 @@ const InventoryScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* ✅ MASSIVE REDESIGNED PRODUCT LIST TABLE */}
+{/* ✅ MASSIVE REDESIGNED PRODUCT LIST TABLE */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col mb-8 min-h-[400px]">
         <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
             <List className="text-blue-600" size={24} />
-            <h2 className="text-xl font-black text-gray-800">Product List</h2>
+            {/* 👇 FIX: Table Title text color */}
+            <h2 className="text-xl font-black text-[var(--text-color,#1f2937)]">Product List</h2>
         </div>
         <div className="overflow-x-auto flex-1">
           <table className="w-full text-left border-collapse">
@@ -739,12 +740,14 @@ const InventoryScreen: React.FC = () => {
                 return (
                   <tr key={p.id} className="hover:bg-gray-50 transition-all group">
                     <td className="px-6 py-5">
-                      <div className="font-black text-gray-900 text-lg">{p.name}</div>
+                      {/* 👇 FIX: Product Name text color */}
+                      <div className="font-black text-[var(--text-color,orange-600)] text-lg">{p.name}</div>
                       <div className="text-xs text-gray-400 font-bold mt-1 tracking-wide">SKU: {p.sku || '-'}</div>
                     </td>
                     <td className="px-6 py-5"><div className="flex flex-wrap gap-1.5">{p.category ? p.category.split(',').map((cat, idx) => <span key={idx} className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-md text-xs font-bold border border-blue-100">{cat.trim()}</span>) : <span className="text-xs font-bold text-gray-400">Uncategorized</span>}</div></td>
                     {config.fields.brand.visible && <td className="px-6 py-5 text-sm font-bold text-gray-600">{p.brand || '-'}</td>}
-                    <td className="px-6 py-5 text-right font-black text-gray-900 text-lg">{currency}{p.price.toFixed(2)}</td>
+                    {/* 👇 FIX: Price text color */}
+                    <td className="px-6 py-5 text-right font-black text-[var(--text-color,orange-600)] text-lg">{currency}{p.price.toFixed(2)}</td>
                     <td className="px-6 py-5 text-center font-black text-blue-600 text-lg">{p.stock} <span className="text-sm text-blue-400">{p.unit}</span></td>
                     {config.features.expiryTracking && <td className="px-6 py-5 text-center text-sm font-bold">{p.stockExpiryDate ? <div className="flex items-center justify-center gap-1.5 text-orange-600"><Calendar size={16} /> <span>{new Date(p.stockExpiryDate).toLocaleDateString()}</span></div> : <span className="text-gray-400">-</span>}</td>}
                     {config.features.damageTracking && <td className="px-6 py-5 text-center font-black text-red-500 text-lg">{p.damagedQty || 0}</td>}

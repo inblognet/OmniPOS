@@ -12,6 +12,9 @@ router.get('/', userController.getAllUsers);
 // POST /api/users - Add a new staff member
 router.post('/', userController.createUser);
 
+// ✅ NEW: PUT /api/users/:id - Update an existing staff member
+router.put('/:id', userController.updateUser);
+
 // DELETE /api/users/:id - Delete a staff member
 router.delete('/:id', userController.deleteUser);
 
