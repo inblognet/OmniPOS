@@ -82,11 +82,18 @@ const InventoryScreen: React.FC = () => {
         setCategories(localCats || []);
       }
 
+      // ✅ FIX: Fetch live suppliers from API, fallback to local DB
       try {
-        const sups = await db.suppliers.toArray();
+        let sups: any[] = [];
+        if (navigator.onLine) {
+            const res = await api.get('/suppliers');
+            sups = res.data;
+        } else {
+            sups = await db.suppliers.toArray();
+        }
         setSuppliersList(sups || []);
       } catch (e) {
-        console.warn("Suppliers fetch skipped", e);
+        console.warn("Suppliers fetch failed", e);
       }
 
       let prodData: any[] = [];
@@ -469,6 +476,7 @@ const InventoryScreen: React.FC = () => {
     }
   };
 
+  // ✅ FIX: Enhanced Save logic with strict type parsing for the backend
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.price) return alert("Name and Price are required.");
@@ -477,23 +485,29 @@ const InventoryScreen: React.FC = () => {
         ? (formData.batches || []).reduce((acc, b) => acc + b.quantity, 0)
         : parseFloat(formData.stock.toString());
 
-    const payload = {
-        ...formData,
-        supplierId: formData.supplierId || undefined,
-        updatedAt: new Date().toISOString(),
-        stock: finalStock,
-        price: parseFloat(formData.price.toString() || '0'),
-        costPrice: parseFloat(formData.costPrice.toString() || '0'),
-        discount: parseFloat(formData.discount?.toString() || '0')
-    };
+    // Create a strict payload for the backend API
+    const finalPayload: any = { ...formData };
+
+    // Explicitly parse supplierId. If falsy/empty string, remove it entirely to prevent DB constraint errors.
+    finalPayload.supplierId = formData.supplierId ? parseInt(String(formData.supplierId)) : undefined;
+    if (isNaN(finalPayload.supplierId)) finalPayload.supplierId = undefined;
+
+    // Force numbers for calculations
+    finalPayload.price = parseFloat(formData.price.toString() || '0');
+    finalPayload.costPrice = parseFloat(formData.costPrice.toString() || '0');
+    finalPayload.discount = parseFloat(formData.discount?.toString() || '0');
+    finalPayload.stock = finalStock;
+    finalPayload.updatedAt = new Date().toISOString();
 
     try {
-      if (editingId) await productService.update(editingId, payload);
-      else await productService.create(payload);
+      if (editingId) await productService.update(editingId, finalPayload);
+      else await productService.create(finalPayload);
+
       setShowModal(false);
-      loadData();
+      loadData(); // Re-sync the view
     } catch (e) {
-        alert("Failed to save.");
+        console.error("Save product failed:", e);
+        alert("Failed to save product to the cloud database.");
     }
   };
 

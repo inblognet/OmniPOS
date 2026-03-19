@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, Supplier } from '../../db/db';
+import api from '../../api/axiosConfig'; // ✅ IMPORT THE API
 import { Plus, Edit, Trash2, X, Save, Search, Building2, Phone, Box } from 'lucide-react';
 
 const SuppliersScreen: React.FC = () => {
@@ -13,10 +14,32 @@ const SuppliersScreen: React.FC = () => {
 
   const loadSuppliers = async () => {
     try {
-      const data = await db.suppliers.orderBy('id').reverse().toArray();
-      setSuppliers(data);
+      // ✅ 1. FETCH FROM CLOUD INSTEAD OF LOCAL DB
+      const res = await api.get('/suppliers');
+
+      // PostgreSQL returns snake_case (company_name), so we map it to camelCase for React
+      const mappedData = res.data.map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        nic: s.nic,
+        phone: s.phone,
+        companyName: s.company_name || s.companyName || '',
+        address: s.address,
+        itemsBrand: s.items_brand || s.itemsBrand || '',
+        categoryType: s.category_type || s.categoryType || '',
+        createdAt: s.created_at || s.createdAt,
+        updatedAt: s.updated_at || s.updatedAt
+      }));
+
+      setSuppliers(mappedData);
+
+      // Optional: Save a backup to local DB for offline mode
+      await db.suppliers.clear();
+      await db.suppliers.bulkAdd(mappedData);
     } catch (err) {
-      console.error("Failed to load suppliers", err);
+      console.error("Failed to load suppliers from cloud. Falling back to local.", err);
+      const localData = await db.suppliers.orderBy('id').reverse().toArray();
+      setSuppliers(localData);
     }
   };
 
@@ -35,26 +58,29 @@ const SuppliersScreen: React.FC = () => {
         createdAt: editingId ? formData.createdAt : new Date().toISOString()
       };
 
+      // ✅ 2. SAVE DIRECTLY TO CLOUD API
       if (editingId) {
-        await db.suppliers.update(editingId, payload);
+        await api.put(`/suppliers/${editingId}`, payload);
       } else {
-        await db.suppliers.add(payload);
+        await api.post('/suppliers', payload);
       }
+
       setShowModal(false);
-      loadSuppliers();
+      loadSuppliers(); // Refresh the list from the cloud
     } catch (err) {
       console.error("Save failed", err);
-      alert("Failed to save supplier.");
+      alert("Failed to save supplier to the cloud database.");
     }
   };
 
   const handleDelete = async (id: number) => {
     if (window.confirm("Are you sure you want to delete this supplier? Products linked to them will remain, but will lose the supplier link.")) {
       try {
-        await db.suppliers.delete(id);
+        // ✅ 3. DELETE FROM CLOUD API
+        await api.delete(`/suppliers/${id}`);
         loadSuppliers();
       } catch (err) {
-        alert("Failed to delete supplier.");
+        alert("Failed to delete supplier from cloud.");
       }
     }
   };
