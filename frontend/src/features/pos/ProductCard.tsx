@@ -15,7 +15,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick, onEdit }) =
 
   // Optional: Highlight low stock items so cashiers can warn customers
   const isLowStock = !isOutOfStock && product.stock <= 5;
-  const hasDiscount = product.discount && product.discount > 0;
+
+  // ✅ FIX: Force this to be a strict boolean (true/false) so React doesn't render '0'
+  const hasDiscount = (product.discount || 0) > 0;
 
   return (
     <div
@@ -28,7 +30,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, onClick, onEdit }) =
         }
       `}
     >
-      {/* ✅ NEW: Bouncing Discount Badge */}
+      {/* Bouncing Discount Badge */}
       {hasDiscount && (
         <div className="absolute -top-2 -left-2 bg-red-500 text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md z-10 flex items-center gap-1 border-2 border-white">
           <Tag size={10} /> {product.discount}% OFF
