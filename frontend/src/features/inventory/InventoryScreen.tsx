@@ -766,20 +766,39 @@ const InventoryScreen: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+<div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2"><FolderTree size={20} className="text-purple-600" /> Category Management</h2>
+            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+              <FolderTree size={20} className="text-purple-600" /> Category Management
+            </h2>
             <div className="flex gap-2">
-              <input type="text" placeholder="New Cat" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-purple-500" />
-              <button onClick={handleAddCategory} className="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold">{editingCatId ? 'Update' : 'Add'}</button>
+              {/* Added bg-transparent and dynamic text color so you can see what you type in dark mode */}
+              <input
+                type="text"
+                placeholder="New Category"
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                className="border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-purple-500 bg-transparent text-[var(--text-color,#1f2937)]"
+              />
+              <button onClick={handleAddCategory} className="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold">
+                {editingCatId ? 'Update' : 'Add'}
+              </button>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto">
             {categories.map(cat => (
               <div key={cat.id} className="group flex justify-between items-center border border-gray-100 hover:border-purple-300 p-3 rounded-lg cursor-pointer transition-colors">
-                <span className="font-medium text-gray-700 text-sm">{cat.name}</span>
+
+                {/* 👇 FIX: Changed text-gray-700 to dynamic theme color and made it font-bold */}
+                <span className="font-bold text-[var(--text-color,#1f2937)] text-sm">
+                  {cat.name}
+                </span>
+
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100">
-                  <button onClick={() => handleDeleteCategory(cat.id!)} className="text-red-500"><Trash2 size={12} /></button>
+                  {/* Made the trash icon slightly bigger so it's easier to click */}
+                  <button onClick={() => handleDeleteCategory(cat.id!)} className="text-red-500 hover:text-red-400 transition-colors">
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ))}
