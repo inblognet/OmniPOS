@@ -54,8 +54,8 @@
   },
   "build": {
     "appId": "com.omnipos.app",
-    "productName": "OmniPOSepicGen",
-    "artifactName": "OmniPOS_EpicGen_v${version}.${ext}",
+    "productName": "EpicGenPOS_#1",
+    "artifactName": "EpicGenPOS_#1_v${version}.${ext}",
     "directories": {
       "output": "release/"
     },
