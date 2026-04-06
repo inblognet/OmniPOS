@@ -5,6 +5,10 @@ const morgan = require('morgan');
 const db = require('./config/db');
 
 // Import Routes
+const webAdminRoutes = require('./routes/webAdminRoutes');
+const webRoutes = require('./routes/webRoutes');
+const uploadRoutes = require('./routes/uploadRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -29,10 +33,9 @@ app.use((req, res, next) => {
 
 // 2. Universal CORS for Web & Desktop Apps
 app.use(cors({
-  origin: '*', // ✅ Allows requests from BOTH web browsers and Electron 'file://' paths
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-  // ❌ Removed 'credentials: true' to prevent CORS conflicts
 }));
 
 // Pre-flight fix for Node v25
@@ -42,6 +45,18 @@ app.options(/(.*)/, cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
+
+
+// --- 🚨 DIAGNOSTIC TEST ROUTE 🚨 ---
+// This strictly tests if Express is allowing PUT requests at all.
+app.put('/api/test-put', (req, res) => {
+    res.json({
+        success: true,
+        message: "✅ PUT requests are successfully reaching your server.js file!"
+    });
+});
+// -----------------------------------
+
 
 // --- ROUTES ---
 app.use('/api/dashboard', dashboardRoutes);
@@ -54,13 +69,18 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/web', webRoutes);
+app.use('/api/web-admin', webAdminRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health Check
 app.get('/', (req, res) => res.status(200).send('✅ OmniPOS Backend is Online!'));
 
 // Handle 404 - Unknown Routes
 app.use((req, res, next) => {
-  res.status(404).json({ error: 'Route not found' });
+  // If Thunder Client reaches this file but the route is wrong, it will print this JSON!
+  res.status(404).json({ error: 'Route not found inside OmniPOS server.js', path: req.url });
 });
 
 // Global Error Handler
@@ -74,7 +94,8 @@ app.use((err, req, res, next) => {
 
 // --- SERVER STARTUP ---
 
-const PORT = process.env.PORT || 5500;
+// Uses the environment variable, but strictly defaults to 5005 if missing.
+const PORT = process.env.PORT || 5005;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🚀 SERVER RESTARTED SUCCESSFULLY`);
