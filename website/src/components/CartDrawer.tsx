@@ -1,5 +1,6 @@
 "use client";
 import { useCartStore } from "@/store/useCartStore";
+import { useUserStore } from "@/store/useUserStore"; // 1. Import User Store
 import { X, ShoppingBag, Trash2, Banknote, Building } from "lucide-react";
 import api from "@/lib/api";
 import { useState } from "react";
@@ -7,9 +8,8 @@ import axios from "axios";
 
 export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { items, removeItem, getTotal, clearCart } = useCartStore();
+  const user = useUserStore((state) => state.user); // 2. Get the logged-in user
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // NEW: Track the selected payment method
   const [paymentMethod, setPaymentMethod] = useState("COD");
 
   const handleCheckout = async () => {
@@ -17,16 +17,24 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
     setIsProcessing(true);
 
     try {
-      // NEW: Send the payment method to the backend
       const response = await api.post("/web/checkout", {
-        items: items.map(item => ({ productId: item.id, quantity: item.quantity, price: item.price })),
+        // 3. Fixed mapping to send 'id' instead of 'productId'
+        items: items.map(item => ({ id: item.id, quantity: item.quantity, price: item.price })),
         totalAmount: getTotal(),
-        paymentMethod: paymentMethod
+        paymentMethod: paymentMethod,
+        customerId: user?.id // 4. Send the customer ID to earn points!
       });
 
       if (response.data.success) {
-        // Custom success messages based on payment method
-        let successMessage = `🎉 Order Success! Order ID: ${response.data.orderId}\n\n`;
+        let successMessage = `🎉 Order Success! Order ID: ${response.data.orderId}\n`;
+
+        // 5. Notify the user of their new points!
+        if (response.data.pointsEarned > 0) {
+            successMessage += `⭐ You earned ${response.data.pointsEarned} loyalty points!\n\n`;
+        } else {
+            successMessage += `\n`;
+        }
+
         if (paymentMethod === "BANK_TRANSFER") {
           successMessage += "Please transfer the total amount to:\nBank: OmniBank\nAcct: 123-456-789\nInclude your Order ID in the reference.";
         } else {
@@ -36,6 +44,8 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
         alert(successMessage);
         clearCart();
         onClose();
+
+        // Reloading will automatically fetch the fresh user points for the Navbar!
         window.location.reload();
       }
     } catch (err: unknown) {
@@ -89,7 +99,6 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
         {items.length > 0 && (
           <div className="p-6 border-t bg-gray-50 space-y-6">
 
-            {/* NEW: Payment Method Selector */}
             <div className="space-y-3">
               <p className="text-sm font-bold text-gray-700">Payment Method</p>
               <div className="grid grid-cols-2 gap-3">
