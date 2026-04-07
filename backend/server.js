@@ -8,6 +8,9 @@ const db = require('./config/db');
 const webAdminRoutes = require('./routes/webAdminRoutes');
 const webRoutes = require('./routes/webRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const webAuthRoutes = require('./routes/webAuthRoutes');
+
+
 const adminRoutes = require('./routes/adminRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const reportRoutes = require('./routes/reportRoutes');
@@ -73,6 +76,7 @@ app.use('/api/web', webRoutes);
 app.use('/api/web-admin', webAdminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/web/auth', webAuthRoutes);
 
 // Health Check
 app.get('/', (req, res) => res.status(200).send('✅ OmniPOS Backend is Online!'));
