@@ -136,4 +136,58 @@ router.post('/checkout', async (req, res) => {
     }
 });
 
+// ==========================================
+// ADMIN ROUTES (Store Owner Features)
+// ==========================================
+
+// 5. GET ALL ORDERS (For the Admin Dashboard)
+router.get('/admin/orders', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        // We join 4 tables here to get the full picture: Orders, Customers, Order Items, and Products!
+        const query = `
+            SELECT
+                o.id, o.total_amount, o.payment_method, o.payment_status, o.created_at,
+                c.name as customer_name, c.email as customer_email,
+                json_agg(
+                    json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)
+                ) as items
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            GROUP BY o.id, c.name, c.email
+            ORDER BY o.created_at DESC;
+        `;
+
+        const { rows } = await client.query(query);
+        res.json({ success: true, orders: rows });
+    } catch (error) {
+        console.error("Fetch Admin Orders Error:", error);
+        res.status(500).json({ success: false, message: "Failed to load orders" });
+    } finally {
+        client.release();
+    }
+});
+
+// 6. UPDATE ORDER STATUS (Admin marking as Shipped/Completed)
+router.put('/admin/orders/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query(
+            'UPDATE orders SET payment_status = $1 WHERE id = $2',
+            [status, id]
+        );
+        res.json({ success: true, message: `Order #${id} marked as ${status}` });
+    } catch (error) {
+        console.error("Update Order Status Error:", error);
+        res.status(500).json({ success: false, message: "Failed to update status" });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
