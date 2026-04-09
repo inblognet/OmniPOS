@@ -107,12 +107,11 @@ router.post('/checkout', async (req, res) => {
             );
         }
 
-        // 3. NEW: Award Loyalty Points (1 point per $10 spent)
+        // 3. Award Loyalty Points (1 point per $10 spent)
         let pointsEarned = 0;
         if (customerId) {
             pointsEarned = Math.floor(totalAmount / 10);
             if (pointsEarned > 0) {
-                // COALESCE ensures that if points is NULL, it treats it as 0 before adding
                 await client.query(
                     `UPDATE customers SET points = COALESCE(points, 0) + $1 WHERE id = $2`,
                     [pointsEarned, customerId]
@@ -124,7 +123,7 @@ router.post('/checkout', async (req, res) => {
         res.json({
             success: true,
             orderId: orderId,
-            pointsEarned: pointsEarned, // Send back how many points they earned
+            pointsEarned: pointsEarned,
             message: "Order placed successfully!"
         });
     } catch (error) {
@@ -144,7 +143,6 @@ router.post('/checkout', async (req, res) => {
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
-        // We join 4 tables here to get the full picture: Orders, Customers, Order Items, and Products!
         const query = `
             SELECT
                 o.id, o.total_amount, o.payment_method, o.payment_status, o.created_at,
@@ -159,7 +157,6 @@ router.get('/admin/orders', async (req, res) => {
             GROUP BY o.id, c.name, c.email
             ORDER BY o.created_at DESC;
         `;
-
         const { rows } = await client.query(query);
         res.json({ success: true, orders: rows });
     } catch (error) {
@@ -170,12 +167,11 @@ router.get('/admin/orders', async (req, res) => {
     }
 });
 
-// 6. UPDATE ORDER STATUS (Admin marking as Shipped/Completed)
+// 6. UPDATE ORDER STATUS
 router.put('/admin/orders/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const client = await pool.connect();
-
     try {
         await client.query(
             'UPDATE orders SET payment_status = $1 WHERE id = $2',
@@ -185,6 +181,72 @@ router.put('/admin/orders/:id/status', async (req, res) => {
     } catch (error) {
         console.error("Update Order Status Error:", error);
         res.status(500).json({ success: false, message: "Failed to update status" });
+    } finally {
+        client.release();
+    }
+});
+
+// 7. GET ALL BANNERS (Admin - Includes inactive)
+router.get('/admin/banners', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM carousel_banners ORDER BY id DESC');
+        res.json({ success: true, banners: rows });
+    } catch (error) {
+        console.error("Admin Banners Fetch Error:", error);
+        res.status(500).json({ success: false, message: "Failed to load banners" });
+    } finally {
+        client.release();
+    }
+});
+
+// 8. ADD NEW BANNER
+router.post('/admin/banners', async (req, res) => {
+    const { image_url, title, subtitle, link_url } = req.body;
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query(
+            `INSERT INTO carousel_banners (image_url, title, subtitle, link_url, is_active)
+             VALUES ($1, $2, $3, $4, TRUE) RETURNING *`,
+            [image_url, title, subtitle, link_url || null]
+        );
+        res.json({ success: true, banner: rows[0], message: "Banner added successfully" });
+    } catch (error) {
+        console.error("Add Banner Error:", error);
+        res.status(500).json({ success: false, message: "Failed to add banner" });
+    } finally {
+        client.release();
+    }
+});
+
+// 9. TOGGLE BANNER VISIBILITY
+router.put('/admin/banners/:id/toggle', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'UPDATE carousel_banners SET is_active = NOT is_active WHERE id = $1',
+            [id]
+        );
+        res.json({ success: true, message: "Banner visibility updated" });
+    } catch (error) {
+        console.error("Toggle Banner Error:", error);
+        res.status(500).json({ success: false, message: "Failed to update banner" });
+    } finally {
+        client.release();
+    }
+});
+
+// 10. DELETE BANNER
+router.delete('/admin/banners/:id', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query('DELETE FROM carousel_banners WHERE id = $1', [id]);
+        res.json({ success: true, message: "Banner deleted" });
+    } catch (error) {
+        console.error("Delete Banner Error:", error);
+        res.status(500).json({ success: false, message: "Failed to delete banner" });
     } finally {
         client.release();
     }
