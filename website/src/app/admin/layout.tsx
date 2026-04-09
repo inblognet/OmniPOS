@@ -1,16 +1,16 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Package, Image as ImageIcon, Store, LayoutDashboard } from "lucide-react";
+import { Package, Image as ImageIcon, Store, LayoutDashboard , Boxes} from "lucide-react";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  const navItems = [
-    { name: "Orders", href: "/admin/orders", icon: Package },
-    { name: "Banners", href: "/admin/banners", icon: ImageIcon },
-  ];
-
+const navItems = [
+  { name: "Orders", href: "/admin/orders", icon: Package },
+  { name: "Inventory", href: "/admin/inventory", icon: Boxes }, // <-- Added this line!
+  { name: "Banners", href: "/admin/banners", icon: ImageIcon },
+];
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* SIDEBAR NAVIGATION */}

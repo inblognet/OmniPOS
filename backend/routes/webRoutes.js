@@ -258,4 +258,110 @@ router.delete('/admin/banners/:id', async (req, res) => {
     }
 });
 
+
+// ==========================================
+// ADMIN INVENTORY ROUTES
+// ==========================================
+
+// 11. GET ALL PRODUCTS (Admin - Includes zero stock)
+router.get('/admin/products', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const query = `
+            SELECT
+                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category,
+                COALESCE(
+                    json_agg(
+                        json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)
+                    ) FILTER (WHERE pi.id IS NOT NULL), '[]'
+                ) as images
+            FROM products p
+            LEFT JOIN product_images pi ON p.id = pi.product_id
+            GROUP BY p.id ORDER BY p.id DESC;
+        `;
+        const { rows } = await client.query(query);
+        res.json({ success: true, products: rows });
+    } catch (error) {
+        console.error("Admin Fetch Products Error:", error);
+        res.status(500).json({ success: false, message: "Failed to load inventory" });
+    } finally {
+        client.release();
+    }
+});
+
+// 12. ADD NEW PRODUCT
+router.post('/admin/products', async (req, res) => {
+    const { name, sku, price, web_allocated_stock, category, image_url } = req.body;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN'); // Start transaction
+
+        // Insert the main product
+        const productResult = await client.query(
+            `INSERT INTO products (name, sku, price, web_allocated_stock, category)
+             VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+            [name, sku, price, web_allocated_stock, category]
+        );
+        const newProductId = productResult.rows[0].id;
+
+        // Insert the primary image if provided
+        if (image_url) {
+            await client.query(
+                `INSERT INTO product_images (product_id, image_url, is_primary)
+                 VALUES ($1, $2, TRUE)`,
+                [newProductId, image_url]
+            );
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Product added successfully!" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Add Product Error:", error);
+        res.status(500).json({ success: false, message: "Failed to add product" });
+    } finally {
+        client.release();
+    }
+});
+
+// 13. UPDATE PRODUCT (Quick Stock/Price Edit)
+router.put('/admin/products/:id', async (req, res) => {
+    const { id } = req.params;
+    const { web_allocated_stock, price } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'UPDATE products SET web_allocated_stock = $1, price = $2 WHERE id = $3',
+            [web_allocated_stock, price, id]
+        );
+        res.json({ success: true, message: "Product updated successfully" });
+    } catch (error) {
+        console.error("Update Product Error:", error);
+        res.status(500).json({ success: false, message: "Failed to update product" });
+    } finally {
+        client.release();
+    }
+});
+
+// 14. DELETE PRODUCT
+router.delete('/admin/products/:id', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Must delete images first due to foreign key constraints!
+        await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+        await client.query('DELETE FROM products WHERE id = $1', [id]);
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Product deleted" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Delete Product Error:", error);
+        res.status(500).json({ success: false, message: "Failed to delete product. Ensure it has no active orders." });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
