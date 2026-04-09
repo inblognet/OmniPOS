@@ -83,6 +83,13 @@ export default function AdminInventory() {
     }
   };
 
+  // Helper function to safely get the image URL, just like on the homepage
+  const getImageUrl = (product: Product) => {
+    return product.images?.find((img) => img.is_primary)?.url ||
+           product.images?.[0]?.url ||
+           "https://placehold.co/100x100?text=No+Img";
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-10">
       <div className="max-w-7xl mx-auto px-4">
@@ -159,7 +166,7 @@ export default function AdminInventory() {
                     ) : products.length === 0 ? (
                       <tr><td colSpan={5} className="p-10 text-center text-gray-400 font-bold">No products found.</td></tr>
                     ) : products.map(product => {
-                      const imgUrl = product.images?.[0]?.url || "https://placehold.co/100x100?text=No+Img";
+                      const imgUrl = getImageUrl(product); // Use the helper function here!
                       const isEditing = editingId === product.id;
 
                       return (

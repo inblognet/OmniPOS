@@ -1,129 +1,163 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { Package, UploadCloud, CheckCircle } from "lucide-react";
+import { DollarSign, ShoppingBag, Package, TrendingUp, Clock, CheckCircle } from "lucide-react";
 
-// 1. Define what a Product looks like so TypeScript is happy!
-interface Product {
+interface Order {
   id: number;
-  name: string;
-  sku: string;
+  total_amount: string | number;
+  payment_method: string;
+  payment_status: string;
+  created_at: string;
+  customer_name: string | null;
 }
 
-export default function AdminPage() {
-  const [uploading, setUploading] = useState(false);
-  const [successMsg, setSuccessMsg] = useState("");
+interface Product {
+  id: number;
+}
 
-  // 2. We replaced 'any' with our strict 'Product' type here
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
+export default function AdminDashboard() {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [productCount, setProductCount] = useState(0);
+  const [loading, setLoading] = useState(true);
 
-  // Load products when the page opens
   useEffect(() => {
-    api.get("/web/products")
-      .then(res => { if (res.data?.success) setProducts(res.data.products || []); })
-      .catch(err => console.error("Error loading products:", err));
+    // Fetch both Orders and Products simultaneously to build the dashboard
+    const fetchDashboardData = async () => {
+      try {
+        const [ordersRes, productsRes] = await Promise.all([
+          api.get("/web/admin/orders"),
+          api.get("/web/admin/products")
+        ]);
+
+        if (ordersRes.data.success) setOrders(ordersRes.data.orders || []);
+        if (productsRes.data.success) setProductCount(productsRes.data.products?.length || 0);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
   }, []);
 
-  const handleFullUploadProcess = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!selectedProductId) {
-      alert("Please select a product first!");
-      return;
-    }
+  // --- Calculations ---
+  // Only calculate revenue for orders that aren't cancelled
+  const totalRevenue = orders
+    .filter(o => o.payment_status !== 'CANCELLED')
+    .reduce((sum, order) => sum + parseFloat(order.total_amount.toString()), 0);
 
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const pendingOrders = orders.filter(o => o.payment_status === 'PENDING').length;
 
-    setUploading(true);
-    setSuccessMsg("");
-
-    const formData = new FormData();
-    formData.append("image", file);
-
-    try {
-      // 1. Send file to Cloudinary
-      const uploadRes = await api.post("/upload", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
-      if (uploadRes.data.success) {
-        const imageUrl = uploadRes.data.imageUrl;
-
-        // 2. Tell the database to link the new URL to the selected product
-        const linkRes = await api.post("/upload/link", {
-          productId: parseInt(selectedProductId),
-          imageUrl: imageUrl
-        });
-
-        if (linkRes.data.success) {
-          setSuccessMsg("🎉 Image uploaded and linked to product perfectly!");
-        }
-      }
-    } catch (error) {
-      console.error("Process failed", error);
-      alert("Upload failed. Check your backend terminal for errors.");
-    } finally {
-      setUploading(false);
-    }
-  };
+  // Get the 5 most recent orders for the quick-view table
+  const recentOrders = orders.slice(0, 5);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-10">
-      <div className="max-w-2xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-        <h1 className="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-800">
-          <Package className="text-blue-600" />
-          OmniStore Content Manager
-        </h1>
+    <div className="min-h-screen bg-gray-50 py-10">
+      <div className="max-w-7xl mx-auto px-4 space-y-8">
 
-        {/* Product Selector */}
-        <div className="mb-6">
-          <label className="block text-sm font-bold text-gray-700 mb-2">1. Select a Product</label>
-          <select
-            className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50"
-            value={selectedProductId}
-            onChange={(e) => setSelectedProductId(e.target.value)}
-          >
-            <option value="">-- Choose a product to update --</option>
-            {products.map(p => (
-              <option key={p.id} value={p.id}>{p.name} (SKU: {p.sku})</option>
-            ))}
-          </select>
+        {/* Header */}
+        <div>
+          <h1 className="text-4xl font-black text-gray-900 flex items-center gap-3">
+            <TrendingUp className="text-blue-600" size={40} />
+            Store Overview
+          </h1>
+          <p className="text-gray-500 mt-2 text-lg">Welcome back. Here is what is happening with your store today.</p>
         </div>
 
-        {/* Upload Area */}
-        <label className="block text-sm font-bold text-gray-700 mb-2">2. Upload New Image</label>
-        <div className="border-2 border-dashed border-gray-300 bg-gray-50 rounded-xl p-10 text-center transition-colors hover:bg-gray-100">
-          {successMsg ? (
-            <div className="space-y-4 animate-in fade-in zoom-in duration-300">
-              <div className="bg-green-50 text-green-700 p-4 rounded-xl border border-green-200 font-bold flex items-center justify-center gap-2">
-                <CheckCircle size={24} /> {successMsg}
+        {loading ? (
+          <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>
+        ) : (
+          <>
+            {/* --- STAT CARDS --- */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+              {/* Revenue Card */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-green-100 p-2 rounded-xl text-green-600"><DollarSign size={24} /></div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Revenue</h3>
+                </div>
+                <p className="text-4xl font-black text-gray-900">${totalRevenue.toFixed(2)}</p>
               </div>
-              <button
-                onClick={() => { setSuccessMsg(""); setSelectedProductId(""); }}
-                className="text-blue-600 text-sm font-semibold hover:underline"
-              >
-                Update another product
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-4 flex flex-col items-center opacity-100">
-              <UploadCloud size={48} className={selectedProductId ? "text-blue-500" : "text-gray-300"} />
 
-              <label className={`px-6 py-3 rounded-xl font-bold cursor-pointer transition-all ${
-                !selectedProductId ? 'bg-gray-300 text-gray-500 cursor-not-allowed' :
-                uploading ? 'bg-blue-400 text-white cursor-wait' :
-                'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'
-              }`}>
-                {uploading ? "Processing..." : "Select & Upload Image"}
-                <input
-                  type="file" accept="image/*" className="hidden"
-                  onChange={handleFullUploadProcess}
-                  disabled={uploading || !selectedProductId}
-                />
-              </label>
+              {/* Total Orders Card */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-blue-100 p-2 rounded-xl text-blue-600"><ShoppingBag size={24} /></div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Total Orders</h3>
+                </div>
+                <p className="text-4xl font-black text-gray-900">{orders.length}</p>
+              </div>
+
+              {/* Pending Orders Card */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-amber-100 p-2 rounded-xl text-amber-600"><Clock size={24} /></div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Pending Fulfillment</h3>
+                </div>
+                <p className="text-4xl font-black text-gray-900">{pendingOrders}</p>
+              </div>
+
+              {/* Product Catalog Card */}
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="bg-purple-100 p-2 rounded-xl text-purple-600"><Package size={24} /></div>
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Active Products</h3>
+                </div>
+                <p className="text-4xl font-black text-gray-900">{productCount}</p>
+              </div>
+
             </div>
-          )}
-        </div>
+
+            {/* --- RECENT ORDERS TABLE --- */}
+            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mt-8">
+              <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h2 className="text-xl font-bold text-gray-900">Recent Transactions</h2>
+                <a href="/admin/orders" className="text-blue-600 font-bold text-sm hover:underline">View All Orders &rarr;</a>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-white border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wider">
+                      <th className="p-5 font-bold">Order ID</th>
+                      <th className="p-5 font-bold">Customer</th>
+                      <th className="p-5 font-bold">Date</th>
+                      <th className="p-5 font-bold">Status</th>
+                      <th className="p-5 font-bold text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {recentOrders.length === 0 ? (
+                      <tr><td colSpan={5} className="p-10 text-center text-gray-400 font-bold">No orders yet.</td></tr>
+                    ) : recentOrders.map(order => (
+                      <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-5 font-bold text-gray-900">#{order.id}</td>
+                        <td className="p-5 font-medium text-gray-700">{order.customer_name || 'Guest'}</td>
+                        <td className="p-5 text-gray-500 text-sm">{new Date(order.created_at).toLocaleDateString()}</td>
+                        <td className="p-5">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold flex w-fit items-center gap-1 ${
+                            order.payment_status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
+                            order.payment_status === 'PENDING' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {order.payment_status === 'COMPLETED' && <CheckCircle size={12}/>}
+                            {order.payment_status === 'PENDING' && <Clock size={12}/>}
+                            {order.payment_status}
+                          </span>
+                        </td>
+                        <td className="p-5 text-right font-black text-gray-900">${parseFloat(order.total_amount.toString()).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
       </div>
     </div>
   );

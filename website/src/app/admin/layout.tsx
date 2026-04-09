@@ -1,16 +1,18 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Package, Image as ImageIcon, Store, LayoutDashboard , Boxes} from "lucide-react";
+import { Package, Image as ImageIcon, Store, LayoutDashboard, Boxes, TrendingUp } from "lucide-react";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-const navItems = [
-  { name: "Orders", href: "/admin/orders", icon: Package },
-  { name: "Inventory", href: "/admin/inventory", icon: Boxes }, // <-- Added this line!
-  { name: "Banners", href: "/admin/banners", icon: ImageIcon },
-];
+  const navItems = [
+    { name: "Dashboard", href: "/admin", icon: TrendingUp }, // <-- Added the new Dashboard link!
+    { name: "Orders", href: "/admin/orders", icon: Package },
+    { name: "Inventory", href: "/admin/inventory", icon: Boxes },
+    { name: "Banners", href: "/admin/banners", icon: ImageIcon },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
       {/* SIDEBAR NAVIGATION */}
@@ -24,7 +26,11 @@ const navItems = [
 
         <nav className="p-4 space-y-2">
           {navItems.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+            // Fix: Exact match for the Dashboard, "startsWith" for the others
+            const isActive = item.href === "/admin"
+              ? pathname === "/admin"
+              : pathname.startsWith(item.href);
+
             return (
               <Link
                 key={item.name}
@@ -53,7 +59,7 @@ const navItems = [
         </nav>
       </aside>
 
-      {/* MAIN PAGE CONTENT (Where Orders or Banners will render) */}
+      {/* MAIN PAGE CONTENT */}
       <main className="flex-1 w-full overflow-x-hidden">
         {children}
       </main>
