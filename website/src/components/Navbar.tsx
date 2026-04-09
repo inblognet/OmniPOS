@@ -1,13 +1,19 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation"; // 1. Added usePathname import
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { ShoppingCart, User, LogOut, Award, Store } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useUserStore();
-  // We grab openCart from the store now!
   const { items, openCart } = useCartStore();
+  const pathname = usePathname(); // 2. Get the current URL
+
+  // 3. Hide the navbar completely if we are on the admin page!
+  if (pathname.startsWith("/admin")) {
+    return null;
+  }
 
   const cartCount = items.reduce((acc, item) => acc + item.quantity, 0);
 
@@ -47,7 +53,6 @@ export default function Navbar() {
             </div>
           )}
 
-          {/* THE FIX IS HERE: onClick={openCart} */}
           <button onClick={openCart} className="relative p-2 text-gray-600 hover:text-blue-600 transition-colors cursor-pointer group">
             <ShoppingCart size={24} />
             {cartCount > 0 && (

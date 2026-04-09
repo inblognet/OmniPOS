@@ -19,10 +19,16 @@ router.get('/carousel', async (req, res) => {
     }
 });
 
-// 2. GET CATEGORIES (New route for the filter bar)
+// 2. GET CATEGORIES (Now pulling unique categories directly from your products table!)
 router.get('/categories', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT id, name FROM categories ORDER BY name ASC');
+        // This grabs every unique category name you've typed into the products table
+        const { rows } = await pool.query(`
+            SELECT DISTINCT category AS id, category AS name
+            FROM products
+            WHERE category IS NOT NULL
+            ORDER BY category ASC
+        `);
         res.json({ success: true, categories: rows });
     } catch (error) {
         console.error("Categories Fetch Error:", error);
@@ -30,7 +36,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Now with Search & Category Filtering)
+// 3. GET PRODUCTS (Fixed to use your text 'category' column instead of category_id)
 router.get('/products', async (req, res) => {
     const { search, category } = req.query; // Get search/category from the URL parameters
     const client = await pool.connect();
@@ -38,7 +44,7 @@ router.get('/products', async (req, res) => {
     try {
         let query = `
             SELECT
-                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category_id,
+                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category,
                 COALESCE(
                     json_agg(
                         json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)
@@ -61,7 +67,7 @@ router.get('/products', async (req, res) => {
         // Add category filter if provided
         if (category) {
             params.push(category);
-            query += ` AND p.category_id = $${params.length}`;
+            query += ` AND p.category = $${params.length}`;
         }
 
         query += ` GROUP BY p.id ORDER BY p.id DESC`;

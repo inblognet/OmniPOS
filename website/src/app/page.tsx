@@ -15,7 +15,7 @@ interface Product {
 }
 
 interface Category {
-  id: number;
+  id: string; // <-- Changed to string to match your Neon database
   name: string;
 }
 
@@ -24,7 +24,7 @@ export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null); // <-- Changed to string
 
   const { addItem } = useCartStore();
 
@@ -42,7 +42,7 @@ export default function Home() {
       try {
         const params = new URLSearchParams();
         if (searchTerm) params.append("search", searchTerm);
-        if (selectedCategory) params.append("category", selectedCategory.toString());
+        if (selectedCategory) params.append("category", selectedCategory); // Removed .toString() since it's already a string!
 
         const res = await api.get(`/web/products?${params.toString()}`);
         setProducts(res.data.products || []);
