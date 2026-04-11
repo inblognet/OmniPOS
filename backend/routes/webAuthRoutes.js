@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../config/db'); // Adjust path if your db.js is elsewhere
+const bcrypt = require('bcrypt'); // <-- Added bcrypt to handle hashed passwords!
+const { pool } = require('../config/db');
 
 // POST /api/web/auth/register
 router.post('/register', async (req, res) => {
@@ -51,7 +52,7 @@ router.post('/login/customer', async (req, res) => {
 
         const user = result.rows[0];
 
-        // Checking against your specific 'password_hash' column!
+        // Customers are currently using plaintext password_hash column based on previous code
         if (user.password_hash !== password) {
              return res.status(401).json({ success: false, message: "Invalid email or password." });
         }
@@ -76,16 +77,24 @@ router.post('/login/employee', async (req, res) => {
     const client = await pool.connect();
 
     try {
-        // This targets your Neon DB 'users' table specifically for Admin/POS staff
-        const result = await client.query('SELECT * FROM users WHERE email = $1 AND password = $2', [email, password]);
+        // 1. Find the admin by email FIRST (Don't check password in SQL)
+        const result = await client.query('SELECT * FROM users WHERE email = $1', [email]);
 
         if (result.rows.length > 0) {
             const adminUser = result.rows[0];
-            res.json({
-                success: true,
-                user: { id: adminUser.id, name: adminUser.name, email: adminUser.email, role: adminUser.role },
-                message: "Admin access granted"
-            });
+
+            // 2. Use bcrypt to compare the typed password with the hashed password in the DB
+            const isMatch = await bcrypt.compare(password, adminUser.password);
+
+            if (isMatch) {
+                res.json({
+                    success: true,
+                    user: { id: adminUser.id, name: adminUser.name, email: adminUser.email, role: adminUser.role },
+                    message: "Admin access granted"
+                });
+            } else {
+                res.status(401).json({ success: false, message: "Invalid admin credentials." });
+            }
         } else {
             res.status(401).json({ success: false, message: "Invalid admin credentials." });
         }
@@ -99,7 +108,6 @@ router.post('/login/employee', async (req, res) => {
 
 // Fallback for older code just in case it's still looking for /login exactly
 router.post('/login', async (req, res) => {
-    // Reroute standard /login requests to the customer logic
     req.url = '/login/customer';
     router.handle(req, res);
 });
