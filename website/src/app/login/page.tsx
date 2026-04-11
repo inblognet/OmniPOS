@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [isEmployee, setIsEmployee] = useState(false);
   const [formData, setFormData] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(""); // Replaces the alert() with a clean UI message
+  const [errorMsg, setErrorMsg] = useState("");
 
   const router = useRouter();
   const setUser = useUserStore((state) => state.setUser);
@@ -22,8 +22,9 @@ export default function LoginPage() {
     setErrorMsg("");
 
     try {
-      // 1. Choose the correct backend route based on the toggle switch
-      const endpoint = isEmployee ? "/web/login/employee" : "/web/login/customer";
+      // 🔥 THE FIX IS HERE: Added /auth/ into both URLs!
+      const endpoint = isEmployee ? "/web/auth/login/employee" : "/web/auth/login/customer";
+
       const res = await api.post(endpoint, formData);
 
       if (res.data.success) {
@@ -37,7 +38,6 @@ export default function LoginPage() {
         }
       }
     } catch (err: unknown) {
-      // Safely extract the error using your axios logic
       const message = axios.isAxiosError(err)
         ? err.response?.data?.message
         : "Login failed. Please check your credentials.";
@@ -91,7 +91,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin} className="space-y-4">
           <input
             type="email"
-            placeholder={isEmployee ? "admin@omnistore.com" : "Email Address"}
+            placeholder={isEmployee ? "admin@omnipos.com" : "Email Address"}
             required
             className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-blue-500 outline-none transition-all"
             value={formData.email}

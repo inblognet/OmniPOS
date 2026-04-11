@@ -258,7 +258,6 @@ router.delete('/admin/banners/:id', async (req, res) => {
     }
 });
 
-
 // ==========================================
 // ADMIN INVENTORY ROUTES
 // ==========================================
@@ -359,49 +358,6 @@ router.delete('/admin/products/:id', async (req, res) => {
         await client.query('ROLLBACK');
         console.error("Delete Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to delete product. Ensure it has no active orders." });
-    } finally {
-        client.release();
-    }
-});
-
-// ==========================================
-// AUTHENTICATION ROUTES
-// ==========================================
-
-// 15. CUSTOMER LOGIN
-router.post('/login/customer', async (req, res) => {
-    const { email, password } = req.body;
-    const client = await pool.connect();
-    try {
-        const { rows } = await client.query('SELECT * FROM customers WHERE email = $1 AND password = $2', [email, password]);
-        if (rows.length > 0) {
-            res.json({ success: true, user: rows[0], message: "Welcome back!" });
-        } else {
-            res.status(401).json({ success: false, message: "Invalid email or password" });
-        }
-    } catch (error) {
-        console.error("Customer Login Error:", error);
-        res.status(500).json({ success: false, message: "Server error" });
-    } finally {
-        client.release();
-    }
-});
-
-// 16. EMPLOYEE/ADMIN LOGIN
-router.post('/login/employee', async (req, res) => {
-    const { email, password } = req.body;
-    const client = await pool.connect();
-    try {
-        // This targets your ALREADY EXISTING 'users' table!
-        const { rows } = await client.query('SELECT * FROM users WHERE email = $1 AND password = $2', [email, password]);
-        if (rows.length > 0) {
-            res.json({ success: true, user: rows[0], message: "Admin access granted" });
-        } else {
-            res.status(401).json({ success: false, message: "Invalid admin credentials" });
-        }
-    } catch (error) {
-        console.error("Employee Login Error:", error);
-        res.status(500).json({ success: false, message: "Server error" });
     } finally {
         client.release();
     }
