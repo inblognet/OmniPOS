@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db'); // Correctly pulling the pool object
-const upload = require('../middleware/upload'); // 🔥 Added your Cloudinary upload middleware!
+const { upload } = require('../config/cloudinary');
 
 // 1. GET CAROUSEL BANNERS
 // Fetches active banners for the homepage hero section

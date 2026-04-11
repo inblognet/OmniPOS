@@ -13,7 +13,6 @@ interface Product {
   images?: { url: string; is_primary: boolean }[];
 }
 
-// A special type to track the row being edited
 interface EditFormState {
   id: number;
   name: string;
@@ -27,11 +26,9 @@ export default function AdminInventory() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // NEW: State for the inline row editor
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // Add Product Form State
   const [newProduct, setNewProduct] = useState({ name: "", sku: "", price: "", stock: "", category: "" });
   const [imageFile, setImageFile] = useState<File | null>(null);
 
@@ -55,26 +52,26 @@ export default function AdminInventory() {
     const formData = new FormData();
     formData.append("name", newProduct.name);
     formData.append("sku", newProduct.sku);
-    formData.append("price", newProduct.price);
-    formData.append("web_allocated_stock", newProduct.stock);
+    formData.append("price", newProduct.price.toString());
+    formData.append("web_allocated_stock", newProduct.stock.toString());
     formData.append("category", newProduct.category);
     if (imageFile) formData.append("image", imageFile);
 
     try {
-      const res = await api.post("/web/admin/products", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      // 🔥 FIX: Removed the manual headers! Axios handles the boundary automatically now.
+      const res = await api.post("/web/admin/products", formData);
       if (res.data.success) {
         setNewProduct({ name: "", sku: "", price: "", stock: "", category: "" });
         setImageFile(null);
         fetchProducts();
       }
     } catch (err) {
-      alert("Failed to add product.");
+      alert("Failed to add product. Make sure Render has finished deploying your backend!");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // NEW: Advanced handleUpdateProduct function using FormData!
   const handleUpdateProduct = async () => {
     if (!editForm) return;
     setIsUpdating(true);
@@ -84,21 +81,19 @@ export default function AdminInventory() {
     formData.append("price", editForm.price.toString());
     formData.append("web_allocated_stock", editForm.stock.toString());
 
-    // Only append an image if they specifically chose to replace the old one
     if (editForm.file) {
       formData.append("image", editForm.file);
     }
 
     try {
-      const res = await api.put(`/web/admin/products/${editForm.id}`, formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      // 🔥 FIX: Removed the manual headers here too!
+      const res = await api.put(`/web/admin/products/${editForm.id}`, formData);
       if (res.data.success) {
-        setEditForm(null); // Close the inline editor
-        fetchProducts();   // Refresh the grid
+        setEditForm(null);
+        fetchProducts();
       }
     } catch (err) {
-      alert("Failed to update product");
+      alert("Failed to update product. Make sure Render has finished deploying your backend!");
     } finally {
       setIsUpdating(false);
     }
@@ -166,7 +161,6 @@ export default function AdminInventory() {
                   </div>
                 </div>
 
-                {/* File Upload UI */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1">Product Image</label>
                   <label className={`flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
@@ -218,7 +212,7 @@ export default function AdminInventory() {
                         <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                           <td className="p-4 flex items-center gap-4">
 
-                            {/* Editable Image w/ Hover Overlay */}
+                            {/* Editable Image */}
                             {isEditing ? (
                               <div className="relative group w-12 h-12 flex-shrink-0 cursor-pointer">
                                 <label className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
