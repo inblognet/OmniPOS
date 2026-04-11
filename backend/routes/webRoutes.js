@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db'); // Correctly pulling the pool object
+const upload = require('../middleware/upload'); // 🔥 Added your Cloudinary upload middleware!
 
 // 1. GET CAROUSEL BANNERS
 // Fetches active banners for the homepage hero section
@@ -19,15 +20,19 @@ router.get('/carousel', async (req, res) => {
     }
 });
 
-// 2. GET CATEGORIES (Now pulling unique categories directly from your products table!)
+// 2. GET CATEGORIES (Now joining with category_images!)
 router.get('/categories', async (req, res) => {
     try {
-        // This grabs every unique category name you've typed into the products table
+        // This grabs unique categories from products AND their matching image from category_images
         const { rows } = await pool.query(`
-            SELECT DISTINCT category AS id, category AS name
-            FROM products
-            WHERE category IS NOT NULL
-            ORDER BY category ASC
+            SELECT DISTINCT
+                p.category AS id,
+                p.category AS name,
+                ci.image_url
+            FROM products p
+            LEFT JOIN category_images ci ON p.category = ci.category
+            WHERE p.category IS NOT NULL
+            ORDER BY p.category ASC
         `);
         res.json({ success: true, categories: rows });
     } catch (error) {
@@ -36,7 +41,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Fixed to use your text 'category' column instead of category_id)
+// 3. GET PRODUCTS
 router.get('/products', async (req, res) => {
     const { search, category } = req.query; // Get search/category from the URL parameters
     const client = await pool.connect();
@@ -60,7 +65,6 @@ router.get('/products', async (req, res) => {
         // Add search filter if provided
         if (search) {
             params.push(`%${search}%`);
-            // ILIKE makes the search case-insensitive
             query += ` AND (p.name ILIKE $${params.length} OR p.sku ILIKE $${params.length})`;
         }
 
@@ -82,7 +86,7 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (Now with Loyalty Points!)
+// 4. POST CHECKOUT
 router.post('/checkout', async (req, res) => {
     const { items, totalAmount, paymentMethod, customerId } = req.body;
     const client = await pool.connect();
@@ -113,7 +117,7 @@ router.post('/checkout', async (req, res) => {
             );
         }
 
-        // 3. Award Loyalty Points (1 point per $10 spent)
+        // 3. Award Loyalty Points
         let pointsEarned = 0;
         if (customerId) {
             pointsEarned = Math.floor(totalAmount / 10);
@@ -145,7 +149,7 @@ router.post('/checkout', async (req, res) => {
 // ADMIN ROUTES (Store Owner Features)
 // ==========================================
 
-// 5. GET ALL ORDERS (For the Admin Dashboard)
+// 5. GET ALL ORDERS
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -192,7 +196,7 @@ router.put('/admin/orders/:id/status', async (req, res) => {
     }
 });
 
-// 7. GET ALL BANNERS (Admin - Includes inactive)
+// 7. GET ALL BANNERS
 router.get('/admin/banners', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -262,7 +266,7 @@ router.delete('/admin/banners/:id', async (req, res) => {
 // ADMIN INVENTORY ROUTES
 // ==========================================
 
-// 11. GET ALL PRODUCTS (Admin - Includes zero stock)
+// 11. GET ALL PRODUCTS
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -288,13 +292,14 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 12. ADD NEW PRODUCT
-router.post('/admin/products', async (req, res) => {
-    const { name, sku, price, web_allocated_stock, category, image_url } = req.body;
+// 12. ADD NEW PRODUCT (Restored Cloudinary Upload!)
+router.post('/admin/products', upload.single('image'), async (req, res) => {
+    // Because we are using FormData, we grab text fields from req.body
+    const { name, sku, price, web_allocated_stock, category } = req.body;
     const client = await pool.connect();
 
     try {
-        await client.query('BEGIN'); // Start transaction
+        await client.query('BEGIN');
 
         // Insert the main product
         const productResult = await client.query(
@@ -304,12 +309,12 @@ router.post('/admin/products', async (req, res) => {
         );
         const newProductId = productResult.rows[0].id;
 
-        // Insert the primary image if provided
-        if (image_url) {
+        // Insert the primary image if Cloudinary successfully processed the file
+        if (req.file && req.file.path) {
             await client.query(
                 `INSERT INTO product_images (product_id, image_url, is_primary)
                  VALUES ($1, $2, TRUE)`,
-                [newProductId, image_url]
+                [newProductId, req.file.path] // req.file.path holds the secure Cloudinary URL
             );
         }
 
@@ -324,18 +329,39 @@ router.post('/admin/products', async (req, res) => {
     }
 });
 
-// 13. UPDATE PRODUCT (Quick Stock/Price Edit)
-router.put('/admin/products/:id', async (req, res) => {
+// 13. UPDATE PRODUCT (Now handles Name and Cloudinary Images!)
+router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
-    const { web_allocated_stock, price } = req.body;
+
+    // Because we use FormData, we extract these from req.body
+    const { name, web_allocated_stock, price } = req.body;
     const client = await pool.connect();
+
     try {
+        await client.query('BEGIN');
+
+        // 1. Update the text-based fields (Name, Stock, Price)
         await client.query(
-            'UPDATE products SET web_allocated_stock = $1, price = $2 WHERE id = $3',
-            [web_allocated_stock, price, id]
+            'UPDATE products SET name = $1, web_allocated_stock = $2, price = $3 WHERE id = $4',
+            [name, web_allocated_stock, price, id]
         );
+
+        // 2. If the user uploaded a NEW image, replace the old one
+        if (req.file && req.file.path) {
+            // Delete existing images for this product to prevent duplicates
+            await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+
+            // Insert the shiny new Cloudinary URL
+            await client.query(
+                'INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)',
+                [id, req.file.path]
+            );
+        }
+
+        await client.query('COMMIT');
         res.json({ success: true, message: "Product updated successfully" });
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Update Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to update product" });
     } finally {
@@ -349,7 +375,6 @@ router.delete('/admin/products/:id', async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        // Must delete images first due to foreign key constraints!
         await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
         await client.query('DELETE FROM products WHERE id = $1', [id]);
         await client.query('COMMIT');
@@ -358,6 +383,42 @@ router.delete('/admin/products/:id', async (req, res) => {
         await client.query('ROLLBACK');
         console.error("Delete Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to delete product. Ensure it has no active orders." });
+    } finally {
+        client.release();
+    }
+});
+
+// 15. UPLOAD CATEGORY IMAGE TO CLOUDINARY
+// 🔥 Uses your existing 'upload' middleware to securely handle the file!
+router.post('/admin/categories/upload', upload.single('image'), async (req, res) => {
+    const { category } = req.body;
+    const client = await pool.connect();
+
+    try {
+        // Cloudinary automatically attaches the secure URL to req.file.path
+        if (!req.file || !req.file.path) {
+            return res.status(400).json({ success: false, message: "No image uploaded to Cloudinary." });
+        }
+
+        const image_url = req.file.path;
+
+        await client.query('BEGIN');
+
+        // Delete any old image link for this category to avoid clutter
+        await client.query('DELETE FROM category_images WHERE category = $1', [category]);
+
+        // Insert the shiny new Cloudinary URL
+        await client.query(
+            'INSERT INTO category_images (category, image_url) VALUES ($1, $2)',
+            [category, image_url]
+        );
+
+        await client.query('COMMIT');
+        res.json({ success: true, image_url: image_url, message: "Category image uploaded successfully!" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Category Upload Error:", error);
+        res.status(500).json({ success: false, message: "Failed to upload category image" });
     } finally {
         client.release();
     }

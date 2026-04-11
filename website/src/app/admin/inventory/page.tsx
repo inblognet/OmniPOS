@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { Boxes, Plus, Trash2, Save, Edit2 } from "lucide-react";
+import { Boxes, Plus, Trash2, Save, Edit2, UploadCloud, X } from "lucide-react";
 
 interface Product {
   id: number;
@@ -13,14 +13,27 @@ interface Product {
   images?: { url: string; is_primary: boolean }[];
 }
 
+// A special type to track the row being edited
+interface EditFormState {
+  id: number;
+  name: string;
+  price: string | number;
+  stock: number;
+  file: File | null;
+}
+
 export default function AdminInventory() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
 
-  // New Product Form State
-  const [newProduct, setNewProduct] = useState({ name: "", sku: "", price: "", stock: "", category: "", image_url: "" });
+  // NEW: State for the inline row editor
+  const [editForm, setEditForm] = useState<EditFormState | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Add Product Form State
+  const [newProduct, setNewProduct] = useState({ name: "", sku: "", price: "", stock: "", category: "" });
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const fetchProducts = async () => {
     try {
@@ -38,52 +51,69 @@ export default function AdminInventory() {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    const formData = new FormData();
+    formData.append("name", newProduct.name);
+    formData.append("sku", newProduct.sku);
+    formData.append("price", newProduct.price);
+    formData.append("web_allocated_stock", newProduct.stock);
+    formData.append("category", newProduct.category);
+    if (imageFile) formData.append("image", imageFile);
+
     try {
-      const res = await api.post("/web/admin/products", {
-        name: newProduct.name,
-        sku: newProduct.sku,
-        price: parseFloat(newProduct.price),
-        web_allocated_stock: parseInt(newProduct.stock),
-        category: newProduct.category,
-        image_url: newProduct.image_url
-      });
+      const res = await api.post("/web/admin/products", formData, { headers: { "Content-Type": "multipart/form-data" } });
       if (res.data.success) {
-        alert("Product Added!");
-        setNewProduct({ name: "", sku: "", price: "", stock: "", category: "", image_url: "" });
-        fetchProducts(); // Refresh list
+        setNewProduct({ name: "", sku: "", price: "", stock: "", category: "" });
+        setImageFile(null);
+        fetchProducts();
       }
     } catch (err) {
-      alert("Failed to add product");
+      alert("Failed to add product.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const updateProduct = async (id: number, stock: number, price: string | number) => {
+  // NEW: Advanced handleUpdateProduct function using FormData!
+  const handleUpdateProduct = async () => {
+    if (!editForm) return;
+    setIsUpdating(true);
+
+    const formData = new FormData();
+    formData.append("name", editForm.name);
+    formData.append("price", editForm.price.toString());
+    formData.append("web_allocated_stock", editForm.stock.toString());
+
+    // Only append an image if they specifically chose to replace the old one
+    if (editForm.file) {
+      formData.append("image", editForm.file);
+    }
+
     try {
-      const res = await api.put(`/web/admin/products/${id}`, { web_allocated_stock: stock, price: parseFloat(price.toString()) });
+      const res = await api.put(`/web/admin/products/${editForm.id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
       if (res.data.success) {
-        setEditingId(null);
-        fetchProducts(); // Refresh to see changes
+        setEditForm(null); // Close the inline editor
+        fetchProducts();   // Refresh the grid
       }
     } catch (err) {
       alert("Failed to update product");
+    } finally {
+      setIsUpdating(false);
     }
   };
 
   const deleteProduct = async (id: number) => {
-    if (!confirm("Delete this product permanently? (This will fail if customers have already ordered it!)")) return;
+    if (!confirm("Delete this product permanently?")) return;
     try {
       const res = await api.delete(`/web/admin/products/${id}`);
-      if (res.data.success) {
-        setProducts(products.filter(p => p.id !== id));
-      }
+      if (res.data.success) setProducts(products.filter(p => p.id !== id));
     } catch (err) {
-      alert("Cannot delete product. It is likely tied to existing order history.");
+      alert("Cannot delete product.");
     }
   };
 
-  // Helper function to safely get the image URL, just like on the homepage
   const getImageUrl = (product: Product) => {
     return product.images?.find((img) => img.is_primary)?.url ||
            product.images?.[0]?.url ||
@@ -135,12 +165,27 @@ export default function AdminInventory() {
                     <input required type="number" className="w-full bg-gray-50 px-4 py-3 rounded-xl focus:ring-2 outline-none" value={newProduct.stock} onChange={e => setNewProduct({...newProduct, stock: e.target.value})} />
                   </div>
                 </div>
+
+                {/* File Upload UI */}
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Image URL</label>
-                  <input type="text" placeholder="https://..." className="w-full bg-gray-50 px-4 py-3 rounded-xl focus:ring-2 outline-none" value={newProduct.image_url} onChange={e => setNewProduct({...newProduct, image_url: e.target.value})} />
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Product Image</label>
+                  <label className={`flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                    imageFile ? "bg-blue-50 border-blue-300 text-blue-700" : "bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100"
+                  }`}>
+                    <UploadCloud size={20} />
+                    <span className="font-bold text-sm truncate">
+                      {imageFile ? imageFile.name : "Choose local image..."}
+                    </span>
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) setImageFile(file);
+                      }}
+                    />
+                  </label>
                 </div>
-                <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg cursor-pointer">
-                  {isSubmitting ? "Saving..." : "Create Product"}
+
+                <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg cursor-pointer mt-4">
+                  {isSubmitting ? "Uploading to Cloudinary..." : "Create Product"}
                 </button>
               </form>
             </div>
@@ -166,54 +211,81 @@ export default function AdminInventory() {
                     ) : products.length === 0 ? (
                       <tr><td colSpan={5} className="p-10 text-center text-gray-400 font-bold">No products found.</td></tr>
                     ) : products.map(product => {
-                      const imgUrl = getImageUrl(product); // Use the helper function here!
-                      const isEditing = editingId === product.id;
+                      const imgUrl = getImageUrl(product);
+                      const isEditing = editForm?.id === product.id;
 
                       return (
                         <tr key={product.id} className="hover:bg-gray-50 transition-colors">
                           <td className="p-4 flex items-center gap-4">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={imgUrl} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100" />
-                            <span className="font-bold text-gray-900">{product.name}</span>
+
+                            {/* Editable Image w/ Hover Overlay */}
+                            {isEditing ? (
+                              <div className="relative group w-12 h-12 flex-shrink-0 cursor-pointer">
+                                <label className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                                  <UploadCloud size={20} className="text-white" />
+                                  <input type="file" accept="image/*" className="hidden" onChange={e => setEditForm({ ...editForm!, file: e.target.files?.[0] || null })} />
+                                </label>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={editForm.file ? URL.createObjectURL(editForm.file) : imgUrl} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100" />
+                              </div>
+                            ) : (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={imgUrl} alt="" className="w-12 h-12 rounded-lg flex-shrink-0 object-cover bg-gray-100" />
+                            )}
+
+                            {/* Editable Name */}
+                            {isEditing ? (
+                              <input type="text" className="border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500 w-full font-bold" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} />
+                            ) : (
+                              <span className="font-bold text-gray-900 line-clamp-2">{product.name}</span>
+                            )}
                           </td>
+
                           <td className="p-4">
                             <div className="text-sm font-bold text-gray-700">{product.category || 'Uncategorized'}</div>
                             <div className="text-xs text-gray-400 uppercase">{product.sku}</div>
                           </td>
+
                           <td className="p-4 font-bold text-gray-900">
                             {isEditing ? (
-                              <input type="number" step="0.01" defaultValue={product.price} id={`price-${product.id}`} className="w-20 border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500" />
+                              <input type="number" step="0.01" className="w-20 border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500" value={editForm.price} onChange={e => setEditForm({...editForm, price: e.target.value})} />
                             ) : `$${parseFloat(product.price.toString()).toFixed(2)}`}
                           </td>
+
                           <td className="p-4">
                             {isEditing ? (
-                              <input type="number" defaultValue={product.web_allocated_stock} id={`stock-${product.id}`} className="w-20 border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500" />
+                              <input type="number" className="w-20 border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500" value={editForm.stock} onChange={e => setEditForm({...editForm, stock: parseInt(e.target.value) || 0})} />
                             ) : (
                               <span className={`px-3 py-1 rounded-full text-xs font-bold ${product.web_allocated_stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                                 {product.web_allocated_stock} in stock
                               </span>
                             )}
                           </td>
-                          <td className="p-4 text-right">
+
+                          <td className="p-4 text-right whitespace-nowrap">
                             {isEditing ? (
-                              <button
-                                onClick={() => {
-                                  const newStock = parseInt((document.getElementById(`stock-${product.id}`) as HTMLInputElement).value);
-                                  const newPrice = parseFloat((document.getElementById(`price-${product.id}`) as HTMLInputElement).value);
-                                  updateProduct(product.id, newStock, newPrice);
-                                }}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors inline-block cursor-pointer"
-                              >
-                                <Save size={18} />
-                              </button>
+                              <>
+                                <button disabled={isUpdating} onClick={handleUpdateProduct} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors inline-block cursor-pointer disabled:opacity-50">
+                                  <Save size={18} />
+                                </button>
+                                <button disabled={isUpdating} onClick={() => setEditForm(null)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors inline-block ml-1 cursor-pointer">
+                                  <X size={18} />
+                                </button>
+                              </>
                             ) : (
-                              <button onClick={() => setEditingId(product.id)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-block cursor-pointer">
+                              <button
+                                onClick={() => setEditForm({ id: product.id, name: product.name, price: product.price, stock: product.web_allocated_stock, file: null })}
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-block cursor-pointer"
+                              >
                                 <Edit2 size={18} />
                               </button>
                             )}
-                            <button onClick={() => deleteProduct(product.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-block ml-2 cursor-pointer">
-                              <Trash2 size={18} />
-                            </button>
+
+                            {!isEditing && (
+                              <button onClick={() => deleteProduct(product.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors inline-block ml-1 cursor-pointer">
+                                <Trash2 size={18} />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

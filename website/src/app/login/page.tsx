@@ -27,13 +27,15 @@ export default function LoginPage() {
 
       const res = await api.post(endpoint, formData);
 
-      if (res.data.success) {
+if (res.data.success) {
+        // 🔥 FIX: We must save the user to the global store NO MATTER WHO logs in!
+        setUser(res.data.user);
+
         if (isEmployee) {
           // Admin Login Success -> Go to Admin Dashboard
           router.push("/admin");
         } else {
-          // Customer Login Success -> Save to Store & Go to Homepage
-          setUser(res.data.user);
+          // Customer Login Success -> Go to Homepage
           router.push("/");
         }
       }

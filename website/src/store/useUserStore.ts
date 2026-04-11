@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-interface User {
+export interface User {
   id: number;
   name: string;
   email: string;
-  points: number;
+  points?: number; // The '?' makes this optional (Employees don't have points)
+  role?: string;   // The '?' makes this optional (Customers don't have roles)
 }
 
 interface UserState {
