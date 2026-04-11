@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt'); // <-- Added bcrypt to handle hashed passwords!
+const bcrypt = require('bcryptjs'); // 🔥 CRITICAL FIX: Changed to bcryptjs to match your POS!
 const { pool } = require('../config/db');
 
 // POST /api/web/auth/register
@@ -18,7 +18,6 @@ router.post('/register', async (req, res) => {
              return res.status(400).json({ success: false, message: "Email already registered." });
         }
 
-        // Note: For production, we will add bcrypt hashing later.
         const result = await client.query(
             `INSERT INTO customers (name, email, phone, password_hash, points)
              VALUES ($1, $2, $3, $4, 0) RETURNING id, name, email, points`,
@@ -52,7 +51,7 @@ router.post('/login/customer', async (req, res) => {
 
         const user = result.rows[0];
 
-        // Customers are currently using plaintext password_hash column based on previous code
+        // Customers use plaintext password_hash column
         if (user.password_hash !== password) {
              return res.status(401).json({ success: false, message: "Invalid email or password." });
         }
@@ -77,13 +76,12 @@ router.post('/login/employee', async (req, res) => {
     const client = await pool.connect();
 
     try {
-        // 1. Find the admin by email FIRST (Don't check password in SQL)
         const result = await client.query('SELECT * FROM users WHERE email = $1', [email]);
 
         if (result.rows.length > 0) {
             const adminUser = result.rows[0];
 
-            // 2. Use bcrypt to compare the typed password with the hashed password in the DB
+            // 🔒 This now uses bcryptjs exactly like your POS system!
             const isMatch = await bcrypt.compare(password, adminUser.password);
 
             if (isMatch) {
@@ -106,10 +104,32 @@ router.post('/login/employee', async (req, res) => {
     }
 });
 
-// Fallback for older code just in case it's still looking for /login exactly
+// Fallback for older code
 router.post('/login', async (req, res) => {
     req.url = '/login/customer';
     router.handle(req, res);
+});
+
+
+// ==========================================
+// MASTER KEY (EMERGENCY PASSWORD RESET)
+// ==========================================
+router.get('/force-reset', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        // Creates a perfect bcryptjs hash for 'admin123'
+        const salt = await bcrypt.genSalt(10);
+        const newHash = await bcrypt.hash('admin123', salt);
+
+        // Injects it into Neon
+        await client.query("UPDATE users SET password = $1 WHERE email = 'admin@omnipos.com'", [newHash]);
+
+        res.send("<h1 style='color:green; font-family:sans-serif;'>Password Reset Successful!</h1><p style='font-family:sans-serif;'>The password for <b>admin@omnipos.com</b> is now officially <b>admin123</b>.</p>");
+    } catch (error) {
+        res.send("Error: " + error.message);
+    } finally {
+        client.release();
+    }
 });
 
 module.exports = router;
