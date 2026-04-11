@@ -33,8 +33,12 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// POST /api/web/auth/login
-router.post('/login', async (req, res) => {
+// ==========================================
+// DUAL LOGIN SYSTEM
+// ==========================================
+
+// POST /api/web/auth/login/customer
+router.post('/login/customer', async (req, res) => {
     const { email, password } = req.body;
     const client = await pool.connect();
 
@@ -47,6 +51,7 @@ router.post('/login', async (req, res) => {
 
         const user = result.rows[0];
 
+        // Checking against your specific 'password_hash' column!
         if (user.password_hash !== password) {
              return res.status(401).json({ success: false, message: "Invalid email or password." });
         }
@@ -58,11 +63,45 @@ router.post('/login', async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Login Error:", error);
+        console.error("Customer Login Error:", error);
         res.status(500).json({ success: false, message: "Login failed." });
     } finally {
         client.release();
     }
+});
+
+// POST /api/web/auth/login/employee
+router.post('/login/employee', async (req, res) => {
+    const { email, password } = req.body;
+    const client = await pool.connect();
+
+    try {
+        // This targets your Neon DB 'users' table specifically for Admin/POS staff
+        const result = await client.query('SELECT * FROM users WHERE email = $1 AND password = $2', [email, password]);
+
+        if (result.rows.length > 0) {
+            const adminUser = result.rows[0];
+            res.json({
+                success: true,
+                user: { id: adminUser.id, name: adminUser.name, email: adminUser.email, role: adminUser.role },
+                message: "Admin access granted"
+            });
+        } else {
+            res.status(401).json({ success: false, message: "Invalid admin credentials." });
+        }
+    } catch (error) {
+        console.error("Employee Login Error:", error);
+        res.status(500).json({ success: false, message: "Server error" });
+    } finally {
+        client.release();
+    }
+});
+
+// Fallback for older code just in case it's still looking for /login exactly
+router.post('/login', async (req, res) => {
+    // Reroute standard /login requests to the customer logic
+    req.url = '/login/customer';
+    router.handle(req, res);
 });
 
 module.exports = router;
