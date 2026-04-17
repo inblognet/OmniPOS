@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { Boxes, Plus, Trash2, Save, Edit2, UploadCloud, X, Eye, EyeOff, AlignLeft } from "lucide-react";
+import { Boxes, Plus, Trash2, Save, Edit2, UploadCloud, X, Eye, EyeOff, AlignLeft, Layers } from "lucide-react";
 
 interface Product {
   id: number;
@@ -29,6 +29,9 @@ export default function AdminInventory() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 🔥 NEW: View Mode State (Default is 'grouped' to hide duplicates)
+  const [viewMode, setViewMode] = useState<"grouped" | "all">("grouped");
 
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -104,14 +107,13 @@ export default function AdminInventory() {
     }
   };
 
-  // 🔥 NEW: 1-Click Hide/Show Toggle!
   const toggleVisibility = async (product: Product) => {
     const formData = new FormData();
     formData.append("name", product.name);
     formData.append("price", product.price.toString());
     formData.append("web_allocated_stock", product.web_allocated_stock.toString());
     formData.append("description", product.description || "");
-    formData.append("is_active", String(!product.is_active)); // Flip the state!
+    formData.append("is_active", String(!product.is_active));
 
     try {
       await api.put(`/web/admin/products/${product.id}`, formData);
@@ -134,6 +136,13 @@ export default function AdminInventory() {
   const getImageUrl = (product: Product) => {
     return product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url || "https://placehold.co/100x100?text=No+Img";
   };
+
+  // 🔥 NEW: Filter logic for deduplicating products by name
+  const displayedProducts = viewMode === "grouped"
+    ? products.filter((product, index, self) =>
+        index === self.findIndex((p) => p.name === product.name)
+      )
+    : products;
 
   return (
     <div className="min-h-screen bg-gray-50 py-10">
@@ -181,7 +190,6 @@ export default function AdminInventory() {
                   </div>
                 </div>
 
-                {/* NEW: Description Field */}
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1"><AlignLeft size={14}/> Description</label>
                   <textarea
@@ -210,6 +218,32 @@ export default function AdminInventory() {
 
           {/* Product Catalog Table */}
           <div className="xl:col-span-2">
+
+            {/* 🔥 NEW: View Mode Toggle */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-4 gap-4">
+              <div className="bg-gray-200/60 p-1 rounded-xl inline-flex border border-gray-200">
+                <button
+                  onClick={() => setViewMode("grouped")}
+                  className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+                    viewMode === "grouped" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-900 hover:bg-gray-200"
+                  }`}
+                >
+                  <Boxes size={16} /> Unique Products
+                </button>
+                <button
+                  onClick={() => setViewMode("all")}
+                  className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${
+                    viewMode === "all" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-900 hover:bg-gray-200"
+                  }`}
+                >
+                  <Layers size={16} /> All Items (Bulk)
+                </button>
+              </div>
+              <div className="text-sm font-bold text-gray-400">
+                Showing {displayedProducts.length} items
+              </div>
+            </div>
+
             <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -224,9 +258,9 @@ export default function AdminInventory() {
                   <tbody className="divide-y divide-gray-100">
                     {loading ? (
                       <tr><td colSpan={4} className="p-10 text-center text-gray-400 font-bold animate-pulse">Loading Inventory...</td></tr>
-                    ) : products.length === 0 ? (
+                    ) : displayedProducts.length === 0 ? (
                       <tr><td colSpan={4} className="p-10 text-center text-gray-400 font-bold">No products found.</td></tr>
-                    ) : products.map(product => {
+                    ) : displayedProducts.map(product => {
                       const imgUrl = getImageUrl(product);
                       const isEditing = editForm?.id === product.id;
 
@@ -297,7 +331,6 @@ export default function AdminInventory() {
                               </>
                             ) : (
                               <>
-                                {/* 🔥 NEW: Hide/Show Toggle Button */}
                                 <button
                                   onClick={() => toggleVisibility(product)}
                                   className={`p-2 rounded-lg transition-colors inline-block cursor-pointer mr-1 ${product.is_active ? 'text-blue-600 hover:bg-blue-50' : 'text-gray-400 hover:bg-gray-200'}`}

@@ -33,7 +33,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Public Storefront - ONLY shows active products)
+// 3. GET PRODUCTS (Public Storefront)
 router.get('/products', async (req, res) => {
     const { search, category } = req.query;
     const client = await pool.connect();
@@ -73,18 +73,18 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT
+// 4. POST CHECKOUT (🔥 UPDATED to capture Shipping Info!)
 router.post('/checkout', async (req, res) => {
-    const { items, totalAmount, paymentMethod, customerId } = req.body;
+    const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code } = req.body;
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
 
         const orderResult = await client.query(
-            `INSERT INTO orders (total_amount, payment_method, payment_status, order_status, customer_id)
-             VALUES ($1, $2, 'PENDING', 'PENDING', $3) RETURNING id`,
-            [totalAmount, paymentMethod || 'COD', customerId || null]
+            `INSERT INTO orders (total_amount, payment_method, payment_status, order_status, customer_id, delivery_phone, delivery_address, delivery_city, delivery_postal_code)
+             VALUES ($1, $2, 'PENDING', 'PENDING', $3, $4, $5, $6, $7) RETURNING id`,
+            [totalAmount, paymentMethod || 'COD', customerId || null, delivery_phone, delivery_address, delivery_city, delivery_postal_code]
         );
         const orderId = orderResult.rows[0].id;
 
@@ -121,7 +121,7 @@ router.post('/checkout', async (req, res) => {
 // ADMIN ROUTES (Store Owner Features)
 // ==========================================
 
-// 5. GET ALL ORDERS
+// 5. GET ALL ORDERS (🔥 UPDATED to fetch Shipping Info!)
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -129,6 +129,7 @@ router.get('/admin/orders', async (req, res) => {
             SELECT
                 o.id, o.total_amount, o.payment_method, o.payment_status, o.order_status,
                 o.payment_slip_url, o.admin_note, o.created_at,
+                o.delivery_phone, o.delivery_address, o.delivery_city, o.delivery_postal_code,
                 c.name as customer_name, c.email as customer_email,
                 json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)) as items
             FROM orders o
@@ -191,7 +192,7 @@ router.delete('/admin/banners/:id', async (req, res) => {
 // ADMIN INVENTORY ROUTES
 // ==========================================
 
-// 11. GET ALL PRODUCTS (Admin - Shows EVERYTHING)
+// 11. GET ALL PRODUCTS
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -212,7 +213,7 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 12. ADD NEW PRODUCT (Saves description, defaults is_active to TRUE)
+// 12. ADD NEW PRODUCT
 router.post('/admin/products', upload.single('image'), async (req, res) => {
     const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
@@ -233,7 +234,7 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
     } finally { client.release(); }
 });
 
-// 13. UPDATE PRODUCT (Saves description and is_active toggle)
+// 13. UPDATE PRODUCT
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { name, web_allocated_stock, price, description, is_active } = req.body;
@@ -297,14 +298,12 @@ router.get('/products/:id', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
-        // Fetch Product
         const productRes = await client.query(`
             SELECT p.*, COALESCE(json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)) FILTER (WHERE pi.id IS NOT NULL), '[]') as images
             FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id WHERE p.id = $1 GROUP BY p.id
         `, [id]);
         if (productRes.rows.length === 0) return res.status(404).json({ success: false, message: "Not found" });
 
-        // Fetch Reviews
         const reviewRes = await client.query(`
             SELECT pr.*, c.name as customer_name FROM product_reviews pr
             JOIN customers c ON pr.customer_id = c.id WHERE pr.product_id = $1 ORDER BY pr.created_at DESC
@@ -366,13 +365,43 @@ router.post('/products/:id/reviews', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 22. ADMIN UPDATE ORDER ADVANCED (Delivery Status, Payment Status, Admin Note)
+// 22. ADMIN UPDATE ORDER ADVANCED
 router.put('/admin/orders/:id/advanced', async (req, res) => {
     const { order_status, payment_status, admin_note } = req.body;
     const client = await pool.connect();
     try {
         await client.query('UPDATE orders SET order_status = $1, payment_status = $2, admin_note = $3 WHERE id = $4', [order_status, payment_status, admin_note, req.params.id]);
         res.json({ success: true, message: "Order updated successfully" });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+
+// ==========================================
+// NEW PHASE 2.5 ROUTES (Customer Profile)
+// ==========================================
+
+// 23. GET CUSTOMER PROFILE (Including new address fields)
+router.get('/customers/:id/profile', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT id, name, email, phone, address, city, postal_code, points FROM customers WHERE id = $1', [id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Customer not found" });
+        res.json({ success: true, profile: rows[0] });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// 24. UPDATE CUSTOMER PROFILE
+router.put('/customers/:id/profile', async (req, res) => {
+    const { id } = req.params;
+    const { phone, address, city, postal_code } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'UPDATE customers SET phone = $1, address = $2, city = $3, postal_code = $4 WHERE id = $5',
+            [phone, address, city, postal_code, id]
+        );
+        res.json({ success: true, message: "Profile updated successfully" });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 

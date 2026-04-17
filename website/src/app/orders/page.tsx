@@ -5,7 +5,7 @@ import { useUserStore } from "@/store/useUserStore";
 import api from "@/lib/api";
 import {
   Package, UploadCloud, MessageCircle, Send, Star,
-  CheckCircle, Clock, Truck, X, Loader2, Info
+  CheckCircle, Loader2, Info, X, Clock, Box, Truck
 } from "lucide-react";
 
 interface OrderItem {
@@ -166,6 +166,15 @@ export default function CustomerOrdersPage() {
     }
   };
 
+  // 🔥 NEW: Progress Bar Helper
+  const getProgressLevel = (status: string) => {
+    const s = status.toUpperCase();
+    if (s === 'DELIVERED') return 3;
+    if (s === 'ONGOING') return 2;
+    if (s === 'PENDING') return 1;
+    return 0; // Cancelled
+  };
+
   if (loading) {
     return <div className="min-h-screen flex justify-center pt-20"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
   }
@@ -190,162 +199,205 @@ export default function CustomerOrdersPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {orders.map((order) => (
-              <div key={order.id} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+            {orders.map((order) => {
+              const progress = getProgressLevel(order.order_status);
 
-                {/* Order Header (Always Visible) */}
-                <div
-                  className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:bg-gray-50 transition-colors"
-                  onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                >
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <span className="text-lg font-black text-gray-900">Order #{order.id}</span>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(order.order_status)}`}>
-                        {order.order_status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-500 font-medium">
-                      Placed on {new Date(order.created_at).toLocaleDateString()}
-                    </p>
-                  </div>
+              return (
+                <div key={order.id} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
 
-                  <div className="text-left md:text-right">
-                    <p className="text-2xl font-black text-gray-900">${parseFloat(order.total_amount).toFixed(2)}</p>
-                    <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
-                  </div>
-                </div>
+                  {/* Order Header (Always Visible) */}
+                  <div
+                    className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="text-lg font-black text-gray-900">Order #{order.id}</span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(order.order_status)}`}>
+                          {order.order_status}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-500 font-medium">
+                        Placed on {new Date(order.created_at).toLocaleDateString()}
+                      </p>
 
-                {/* Expanded Details Section */}
-                {expandedOrderId === order.id && (
-                  <div className="border-t border-gray-100 p-6 bg-gray-50 grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* 🔥 NEW: Visual Progress Bar */}
+                      {order.order_status !== 'CANCELLED' && (
+                        <div className="mt-6 flex items-center max-w-md w-full relative">
+                          {/* Background Track */}
+                          <div className="absolute top-1/2 left-0 w-full h-1 bg-gray-200 -translate-y-1/2 rounded-full z-0"></div>
+                          {/* Active Blue Fill */}
+                          <div className="absolute top-1/2 left-0 h-1 bg-blue-600 -translate-y-1/2 rounded-full z-0 transition-all duration-500" style={{ width: progress === 1 ? '0%' : progress === 2 ? '50%' : '100%' }}></div>
 
-                    {/* Left Column: Items & Slip */}
-                    <div className="space-y-6">
+                          {/* Step 1: Pending */}
+                          <div className="relative z-10 flex flex-col items-center justify-center bg-white">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 transition-colors ${progress >= 1 ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-gray-200 bg-white text-gray-300'}`}>
+                              <Clock size={16} className={progress >= 1 ? 'animate-pulse' : ''}/>
+                            </div>
+                            <span className={`text-[10px] font-bold mt-2 uppercase tracking-wider absolute -bottom-5 ${progress >= 1 ? 'text-gray-900' : 'text-gray-400'}`}>Pending</span>
+                          </div>
 
-                      {/* Admin Note Alert */}
-                      {order.admin_note && (
-                        <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex gap-3 text-blue-800">
-                          <Info size={20} className="shrink-0 mt-0.5" />
-                          <div>
-                            <p className="font-bold text-sm">Note from OmniStore</p>
-                            <p className="text-sm mt-1">{order.admin_note}</p>
+                          <div className="flex-1"></div>
+
+                          {/* Step 2: Ongoing */}
+                          <div className="relative z-10 flex flex-col items-center justify-center bg-white">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 transition-colors ${progress >= 2 ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-gray-200 bg-white text-gray-300'}`}>
+                              <Box size={16} />
+                            </div>
+                            <span className={`text-[10px] font-bold mt-2 uppercase tracking-wider absolute -bottom-5 ${progress >= 2 ? 'text-gray-900' : 'text-gray-400'}`}>Ongoing</span>
+                          </div>
+
+                          <div className="flex-1"></div>
+
+                          {/* Step 3: Delivered */}
+                          <div className="relative z-10 flex flex-col items-center justify-center bg-white">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 transition-colors ${progress >= 3 ? 'border-green-500 bg-green-50 text-green-600' : 'border-gray-200 bg-white text-gray-300'}`}>
+                              <CheckCircle size={16} />
+                            </div>
+                            <span className={`text-[10px] font-bold mt-2 uppercase tracking-wider absolute -bottom-5 ${progress >= 3 ? 'text-gray-900' : 'text-gray-400'}`}>Delivered</span>
                           </div>
                         </div>
                       )}
 
-                      {/* Items List */}
-                      <div className="bg-white p-4 rounded-2xl border border-gray-100">
-                        <h4 className="font-bold text-gray-900 mb-4 border-b border-gray-100 pb-2">Order Items</h4>
-                        <div className="space-y-4">
-                          {order.items.map((item, idx) => (
-                            <div key={idx} className="flex items-center justify-between gap-4">
-                              <div>
-                                <p className="font-bold text-gray-900">{item.name}</p>
-                                <p className="text-sm text-gray-500">Qty: {item.quantity} x ${parseFloat(item.price).toFixed(2)}</p>
-                              </div>
+                    </div>
 
-                              {/* Leave Review Button (Only if Delivered!) */}
-                              {order.order_status === 'DELIVERED' && (
-                                <button
-                                  onClick={() => setReviewModal({ productId: item.product_id, orderId: order.id, productName: item.name })}
-                                  className="text-xs font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 px-3 py-2 rounded-lg flex items-center gap-1 transition-colors"
-                                >
-                                  <Star size={14} /> Review
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    <div className="text-left md:text-right mt-6 md:mt-0 md:self-start">
+                      <p className="text-2xl font-black text-gray-900">${parseFloat(order.total_amount).toFixed(2)}</p>
+                      <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
+                    </div>
+                  </div>
 
-                      {/* Payment Slip Upload (Only for Bank/COD if not paid) */}
-                      {order.payment_status !== 'PAID' && (
-                        <div className="bg-white p-4 rounded-2xl border border-gray-100">
-                          <h4 className="font-bold text-gray-900 mb-2">Payment Verification</h4>
-                          {order.payment_slip_url ? (
-                            <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-xl border border-green-200">
-                              <CheckCircle size={20} />
-                              <span className="text-sm font-bold">Slip uploaded! Awaiting admin approval.</span>
-                            </div>
-                          ) : (
+                  {/* Expanded Details Section */}
+                  {expandedOrderId === order.id && (
+                    <div className="border-t border-gray-100 p-6 bg-gray-50 grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
+
+                      {/* Left Column: Items & Slip */}
+                      <div className="space-y-6">
+
+                        {/* Admin Note Alert */}
+                        {order.admin_note && (
+                          <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex gap-3 text-blue-800">
+                            <Info size={20} className="shrink-0 mt-0.5" />
                             <div>
-                              <p className="text-sm text-gray-500 mb-4">Please upload your bank transfer or deposit slip to confirm your order.</p>
-                              <label className={`flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
-                                uploadingSlip === order.id ? "bg-gray-100 border-gray-200 text-gray-400" : "bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100"
-                              }`}>
-                                {uploadingSlip === order.id ? <Loader2 size={20} className="animate-spin" /> : <UploadCloud size={20} />}
-                                <span className="font-bold text-sm">
-                                  {uploadingSlip === order.id ? "Uploading..." : "Upload Slip"}
-                                </span>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  disabled={uploadingSlip === order.id}
-                                  onChange={(e) => {
-                                    if (e.target.files?.[0]) handleSlipUpload(order.id, e.target.files[0]);
-                                  }}
-                                />
-                              </label>
+                              <p className="font-bold text-sm">Note from OmniStore</p>
+                              <p className="text-sm mt-1">{order.admin_note}</p>
                             </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right Column: Chat System */}
-                    <div className="bg-white rounded-2xl border border-gray-100 flex flex-col h-[400px] overflow-hidden">
-                      <div className="bg-gray-900 p-4 text-white flex items-center gap-2">
-                        <MessageCircle size={18} />
-                        <h4 className="font-bold">Order Support Chat</h4>
-                      </div>
-
-                      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
-                        {chats.length === 0 ? (
-                          <div className="h-full flex items-center justify-center text-center text-gray-400 text-sm font-medium">
-                            No messages yet.<br/>Send a message to contact support.
                           </div>
-                        ) : (
-                          chats.map((chat) => (
-                            <div key={chat.id} className={`flex ${chat.sender_type === 'CUSTOMER' ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-                                chat.sender_type === 'CUSTOMER'
-                                  ? 'bg-blue-600 text-white rounded-br-none'
-                                  : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm'
-                              }`}>
-                                <p className="text-sm">{chat.message}</p>
-                                <p className={`text-[10px] mt-1 text-right ${chat.sender_type === 'CUSTOMER' ? 'text-blue-200' : 'text-gray-400'}`}>
-                                  {new Date(chat.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                </p>
+                        )}
+
+                        {/* Items List */}
+                        <div className="bg-white p-4 rounded-2xl border border-gray-100">
+                          <h4 className="font-bold text-gray-900 mb-4 border-b border-gray-100 pb-2">Order Items</h4>
+                          <div className="space-y-4">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="flex items-center justify-between gap-4">
+                                <div>
+                                  <p className="font-bold text-gray-900">{item.name}</p>
+                                  <p className="text-sm text-gray-500">Qty: {item.quantity} x ${parseFloat(item.price).toFixed(2)}</p>
+                                </div>
+
+                                {/* Leave Review Button (Only if Delivered!) */}
+                                {order.order_status === 'DELIVERED' && (
+                                  <button
+                                    onClick={() => setReviewModal({ productId: item.product_id, orderId: order.id, productName: item.name })}
+                                    className="text-xs font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 px-3 py-2 rounded-lg flex items-center gap-1 transition-colors"
+                                  >
+                                    <Star size={14} /> Review
+                                  </button>
+                                )}
                               </div>
-                            </div>
-                          ))
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Payment Slip Upload (Only for Bank/COD if not paid) */}
+                        {order.payment_status !== 'PAID' && (
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100">
+                            <h4 className="font-bold text-gray-900 mb-2">Payment Verification</h4>
+                            {order.payment_slip_url ? (
+                              <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-xl border border-green-200">
+                                <CheckCircle size={20} />
+                                <span className="text-sm font-bold">Slip uploaded! Awaiting admin approval.</span>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-sm text-gray-500 mb-4">Please upload your bank transfer or deposit slip to confirm your order.</p>
+                                <label className={`flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed rounded-xl cursor-pointer transition-all ${
+                                  uploadingSlip === order.id ? "bg-gray-100 border-gray-200 text-gray-400" : "bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100"
+                                }`}>
+                                  {uploadingSlip === order.id ? <Loader2 size={20} className="animate-spin" /> : <UploadCloud size={20} />}
+                                  <span className="font-bold text-sm">
+                                    {uploadingSlip === order.id ? "Uploading..." : "Upload Slip"}
+                                  </span>
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={uploadingSlip === order.id}
+                                    onChange={(e) => {
+                                      if (e.target.files?.[0]) handleSlipUpload(order.id, e.target.files[0]);
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
 
-                      <form onSubmit={handleSendChat} className="p-3 bg-white border-t border-gray-100 flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Type a message..."
-                          value={chatMessage}
-                          onChange={(e) => setChatMessage(e.target.value)}
-                          className="flex-1 bg-gray-50 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                        />
-                        <button
-                          type="submit"
-                          disabled={sendingChat || !chatMessage.trim()}
-                          className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                        >
-                          {sendingChat ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
-                        </button>
-                      </form>
-                    </div>
+                      {/* Right Column: Chat System */}
+                      <div className="bg-white rounded-2xl border border-gray-100 flex flex-col h-[400px] overflow-hidden">
+                        <div className="bg-gray-900 p-4 text-white flex items-center gap-2">
+                          <MessageCircle size={18} />
+                          <h4 className="font-bold">Order Support Chat</h4>
+                        </div>
 
-                  </div>
-                )}
-              </div>
-            ))}
+                        <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
+                          {chats.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-center text-gray-400 text-sm font-medium">
+                              No messages yet.<br/>Send a message to contact support.
+                            </div>
+                          ) : (
+                            chats.map((chat) => (
+                              <div key={chat.id} className={`flex ${chat.sender_type === 'CUSTOMER' ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
+                                  chat.sender_type === 'CUSTOMER'
+                                    ? 'bg-blue-600 text-white rounded-br-none'
+                                    : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm'
+                                }`}>
+                                  <p className="text-sm">{chat.message}</p>
+                                  <p className={`text-[10px] mt-1 text-right ${chat.sender_type === 'CUSTOMER' ? 'text-blue-200' : 'text-gray-400'}`}>
+                                    {new Date(chat.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                  </p>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+
+                        <form onSubmit={handleSendChat} className="p-3 bg-white border-t border-gray-100 flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Type a message..."
+                            value={chatMessage}
+                            onChange={(e) => setChatMessage(e.target.value)}
+                            className="flex-1 bg-gray-50 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          />
+                          <button
+                            type="submit"
+                            disabled={sendingChat || !chatMessage.trim()}
+                            className="bg-blue-600 text-white p-2 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                          >
+                            {sendingChat ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                          </button>
+                        </form>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
