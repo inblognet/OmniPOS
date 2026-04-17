@@ -33,7 +33,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Now pulls description too!)
+// 3. GET PRODUCTS (Public Storefront - ONLY shows active products)
 router.get('/products', async (req, res) => {
     const { search, category } = req.query;
     const client = await pool.connect();
@@ -41,7 +41,7 @@ router.get('/products', async (req, res) => {
     try {
         let query = `
             SELECT
-                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description,
+                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description, p.is_active,
                 COALESCE(
                     json_agg(
                         json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)
@@ -49,7 +49,7 @@ router.get('/products', async (req, res) => {
                 ) as images
             FROM products p
             LEFT JOIN product_images pi ON p.id = pi.product_id
-            WHERE p.web_allocated_stock > 0
+            WHERE p.web_allocated_stock > 0 AND p.is_active = TRUE
         `;
 
         const params = [];
@@ -121,7 +121,7 @@ router.post('/checkout', async (req, res) => {
 // ADMIN ROUTES (Store Owner Features)
 // ==========================================
 
-// 5. GET ALL ORDERS (Now includes Statuses, Slips, and Notes!)
+// 5. GET ALL ORDERS
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -191,13 +191,13 @@ router.delete('/admin/banners/:id', async (req, res) => {
 // ADMIN INVENTORY ROUTES
 // ==========================================
 
-// 11. GET ALL PRODUCTS
+// 11. GET ALL PRODUCTS (Admin - Shows EVERYTHING)
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
         const query = `
             SELECT
-                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description,
+                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description, p.is_active,
                 COALESCE(json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)) FILTER (WHERE pi.id IS NOT NULL), '[]') as images
             FROM products p
             LEFT JOIN product_images pi ON p.id = pi.product_id
@@ -212,15 +212,15 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 12. ADD NEW PRODUCT
+// 12. ADD NEW PRODUCT (Saves description, defaults is_active to TRUE)
 router.post('/admin/products', upload.single('image'), async (req, res) => {
-    const { name, sku, price, web_allocated_stock, category } = req.body;
+    const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
         const productResult = await client.query(
-            `INSERT INTO products (name, sku, price, web_allocated_stock, category) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-            [name, sku, price, web_allocated_stock, category]
+            `INSERT INTO products (name, sku, price, web_allocated_stock, category, description, is_active) VALUES ($1, $2, $3, $4, $5, $6, TRUE) RETURNING id`,
+            [name, sku, price, web_allocated_stock, category, description || '']
         );
         if (req.file && req.file.path) {
             await client.query(`INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)`, [productResult.rows[0].id, req.file.path]);
@@ -233,14 +233,17 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
     } finally { client.release(); }
 });
 
-// 13. UPDATE PRODUCT
+// 13. UPDATE PRODUCT (Saves description and is_active toggle)
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
-    const { name, web_allocated_stock, price } = req.body;
+    const { name, web_allocated_stock, price, description, is_active } = req.body;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        await client.query('UPDATE products SET name = $1, web_allocated_stock = $2, price = $3 WHERE id = $4', [name, web_allocated_stock, price, id]);
+        await client.query(
+            'UPDATE products SET name = $1, web_allocated_stock = $2, price = $3, description = $4, is_active = $5 WHERE id = $6',
+            [name, web_allocated_stock, price, description || '', is_active === 'true', id]
+        );
         if (req.file && req.file.path) {
             await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
             await client.query('INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)', [id, req.file.path]);

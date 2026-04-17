@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link"; // 🔥 FIX: Imported Link
 import api from "@/lib/api";
 import { useCartStore } from "@/store/useCartStore";
 import { ShoppingCart, Search, LayoutGrid } from "lucide-react";
@@ -80,7 +81,6 @@ export default function Home() {
           <div className="mb-16">
             <h2 className="text-3xl font-black text-gray-900 text-center mb-6">Shop By Category</h2>
 
-            {/* 🔥 FIX: Added pt-4 and px-4 here so the active rings don't get chopped off! */}
             <div className="flex gap-6 overflow-x-auto pt-4 pb-8 px-4 snap-x hide-scrollbar justify-start md:justify-center">
 
               {/* 'All Items' Default Button */}
@@ -145,19 +145,24 @@ export default function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
             {products.map((product) => (
               <div key={product.id} className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 flex flex-col group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={getProductImageUrl(product)}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-gray-700 shadow-sm border border-gray-100">
-                    {product.web_allocated_stock} in stock
-                  </div>
-                </div>
 
-                <h3 className="font-bold text-gray-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">{product.name}</h3>
+                {/* 🔥 FIX: Wrapped Image and Title in a Link */}
+                <Link href={`/product/${product.id}`} className="cursor-pointer block">
+                  <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={getProductImageUrl(product)}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-gray-700 shadow-sm border border-gray-100">
+                      {product.web_allocated_stock} in stock
+                    </div>
+                  </div>
+
+                  <h3 className="font-bold text-gray-900 text-xl mb-1 line-clamp-1 group-hover:text-blue-600 transition-colors">{product.name}</h3>
+                </Link>
+
                 <p className="text-gray-400 text-xs font-medium uppercase tracking-wider mb-4">SKU: {product.sku}</p>
 
                 <div className="mt-auto flex items-center justify-between pt-4 border-t border-gray-50">
