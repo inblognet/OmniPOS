@@ -41,6 +41,7 @@ export default function AdminCategories() {
     formData.append("category", categoryName);
 
     try {
+      // 🔥 Put the headers back so the backend knows this is a physical file!
       const res = await api.post("/web/admin/categories/upload", formData, {
         headers: {
           "Content-Type": "multipart/form-data",

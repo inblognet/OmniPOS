@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useCartStore } from "@/store/useCartStore";
-import { ShoppingCart, Search } from "lucide-react";
+import { ShoppingCart, Search, LayoutGrid } from "lucide-react";
 import HeroCarousel from "@/components/HeroCarousel";
 
 interface Product {
@@ -15,8 +15,9 @@ interface Product {
 }
 
 interface Category {
-  id: string; // <-- Changed to string to match your Neon database
+  id: string;
   name: string;
+  image_url?: string;
 }
 
 export default function Home() {
@@ -24,25 +25,21 @@ export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null); // <-- Changed to string
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const { addItem } = useCartStore();
 
-  // 1. Fetch Categories once on load
   useEffect(() => {
     api.get("/web/categories").then(res => setCategories(res.data.categories || []));
   }, []);
 
-  // 2. Fetch Products whenever search or category changes (ESLint fix applied)
   useEffect(() => {
     const fetchFilteredProducts = async () => {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(true);
-
       try {
         const params = new URLSearchParams();
         if (searchTerm) params.append("search", searchTerm);
-        if (selectedCategory) params.append("category", selectedCategory); // Removed .toString() since it's already a string!
+        if (selectedCategory) params.append("category", selectedCategory);
 
         const res = await api.get(`/web/products?${params.toString()}`);
         setProducts(res.data.products || []);
@@ -52,11 +49,10 @@ export default function Home() {
         setLoading(false);
       }
     };
-
     fetchFilteredProducts();
   }, [searchTerm, selectedCategory]);
 
-  const getImageUrl = (product: Product) => {
+  const getProductImageUrl = (product: Product) => {
     return product.images?.find((img) => img.is_primary)?.url ||
            product.images?.[0]?.url ||
            "https://placehold.co/400x400?text=No+Image";
@@ -67,44 +63,72 @@ export default function Home() {
       <main className="max-w-7xl mx-auto px-4 pt-10">
         <HeroCarousel />
 
-        {/* --- SEARCH & FILTER BAR --- */}
-        <div className="flex flex-col md:flex-row gap-4 mb-12 items-center">
-          <div className="relative flex-grow w-full">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-            <input
-              type="text"
-              placeholder="Search for products or SKUs..."
-              className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border-none shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 hide-scrollbar">
-            <button
-              onClick={() => setSelectedCategory(null)}
-              className={`px-6 py-4 rounded-2xl font-bold whitespace-nowrap transition-all cursor-pointer ${!selectedCategory ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-            >
-              All
-            </button>
-            {categories.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-6 py-4 rounded-2xl font-bold whitespace-nowrap transition-all cursor-pointer ${selectedCategory === cat.id ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
+        {/* --- SEARCH BAR --- */}
+        <div className="relative w-full max-w-2xl mx-auto mb-12">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+          <input
+            type="text"
+            placeholder="Search for products or SKUs..."
+            className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-gray-100 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
 
-        <div className="mb-10">
-          <h1 className="text-4xl font-black text-gray-900 tracking-tight">
-            {searchTerm ? `Results for "${searchTerm}"` : selectedCategory ? "Category Results" : "Latest Arrivals"}
+        {/* --- VISUAL CATEGORY GRID --- */}
+        {!searchTerm && (
+          <div className="mb-16">
+            <h2 className="text-3xl font-black text-gray-900 text-center mb-6">Shop By Category</h2>
+
+            {/* 🔥 FIX: Added pt-4 and px-4 here so the active rings don't get chopped off! */}
+            <div className="flex gap-6 overflow-x-auto pt-4 pb-8 px-4 snap-x hide-scrollbar justify-start md:justify-center">
+
+              {/* 'All Items' Default Button */}
+              <div
+                onClick={() => setSelectedCategory(null)}
+                className={`snap-center shrink-0 flex flex-col items-center justify-start gap-3 cursor-pointer group w-28 ${!selectedCategory ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
+              >
+                <div className={`w-24 h-24 rounded-2xl flex items-center justify-center transition-all duration-300 ${!selectedCategory ? 'bg-blue-50 text-blue-600 shadow-md ring-4 ring-blue-600 ring-offset-2 scale-105' : 'bg-white text-gray-400 border border-gray-200 group-hover:border-blue-300 group-hover:text-blue-500 shadow-sm'}`}>
+                  <LayoutGrid size={32} />
+                </div>
+                <span className={`text-sm font-bold text-center transition-colors ${!selectedCategory ? 'text-blue-600' : 'text-gray-600 group-hover:text-gray-900'}`}>
+                  All Items
+                </span>
+              </div>
+
+              {/* Dynamic Category Cards */}
+              {categories.map(cat => (
+                <div
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`snap-center shrink-0 flex flex-col items-center justify-start gap-3 cursor-pointer group w-28 ${selectedCategory === cat.id ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
+                >
+                  <div className={`w-24 h-24 rounded-2xl overflow-hidden bg-white flex items-center justify-center transition-all duration-300 ${selectedCategory === cat.id ? 'shadow-md ring-4 ring-blue-600 ring-offset-2 scale-105' : 'border border-gray-200 group-hover:border-blue-300 shadow-sm'}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={cat.image_url || `https://placehold.co/150x150?text=${encodeURIComponent(cat.name)}`}
+                      alt={cat.name}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    />
+                  </div>
+                  <span className={`text-sm font-bold text-center leading-tight transition-colors ${selectedCategory === cat.id ? 'text-blue-600' : 'text-gray-600 group-hover:text-gray-900'}`}>
+                    {cat.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent mt-2"></div>
+          </div>
+        )}
+
+        {/* --- PRODUCT GRID HEADER --- */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-black text-gray-900 tracking-tight flex items-center gap-3">
+            {searchTerm ? `Results for "${searchTerm}"` : selectedCategory ? `${selectedCategory} Products` : "Latest Arrivals"}
           </h1>
           {!searchTerm && !selectedCategory && (
-            <p className="text-gray-500 mt-2 text-lg">Available for immediate web delivery.</p>
+            <p className="text-gray-500 mt-1 font-medium">Available for immediate web delivery.</p>
           )}
         </div>
 
@@ -124,7 +148,7 @@ export default function Home() {
                 <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={getImageUrl(product)}
+                    src={getProductImageUrl(product)}
                     alt={product.name}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />
@@ -143,7 +167,7 @@ export default function Home() {
                       id: product.id,
                       name: product.name,
                       price: parseFloat(product.price.toString()),
-                      imageUrl: getImageUrl(product),
+                      imageUrl: getProductImageUrl(product),
                       quantity: 1
                     })}
                     className="bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-2xl transition-all active:scale-90 shadow-lg shadow-blue-100 cursor-pointer"

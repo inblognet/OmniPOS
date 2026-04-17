@@ -58,8 +58,10 @@ export default function AdminInventory() {
     if (imageFile) formData.append("image", imageFile);
 
     try {
-      // 🔥 FIX: Removed the manual headers! Axios handles the boundary automatically now.
-      const res = await api.post("/web/admin/products", formData);
+      // 🔥 Put the headers back so the backend knows this is a physical file!
+      const res = await api.post("/web/admin/products", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
       if (res.data.success) {
         setNewProduct({ name: "", sku: "", price: "", stock: "", category: "" });
         setImageFile(null);
@@ -86,8 +88,10 @@ export default function AdminInventory() {
     }
 
     try {
-      // 🔥 FIX: Removed the manual headers here too!
-      const res = await api.put(`/web/admin/products/${editForm.id}`, formData);
+      // 🔥 Put the headers back here too!
+      const res = await api.put(`/web/admin/products/${editForm.id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
       if (res.data.success) {
         setEditForm(null);
         fetchProducts();
