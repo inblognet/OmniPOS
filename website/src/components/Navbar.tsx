@@ -48,13 +48,13 @@ export default function Navbar() {
                 My Orders
               </Link>
 
-              {/* User Profile Info */}
-              <div className="flex items-center gap-2 text-gray-900 font-bold border-l pl-4 border-gray-100">
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs">
+              {/* 🔥 FIX: User Profile Info is now a clickable link to /profile */}
+              <Link href="/profile" className="flex items-center gap-2 text-gray-900 font-bold border-l pl-4 border-gray-100 hover:text-blue-600 transition-colors group cursor-pointer">
+                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 text-xs group-hover:bg-blue-600 group-hover:text-white transition-colors">
                     {user.name.charAt(0)}
                 </div>
                 <span className="hidden sm:inline">{user.name.split(" ")[0]}</span>
-              </div>
+              </Link>
 
               <button onClick={() => { logout(); window.location.href = "/"; }} className="text-gray-400 hover:text-red-500 transition-colors cursor-pointer p-1" title="Logout">
                 <LogOut size={20} />

@@ -1,9 +1,10 @@
 "use client";
-import React, { useEffect, useState } from "react"; // 🔥 FIX: Imported React here!
+import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
 import {
   Package, MessageCircle, Send, FileText,
-  Save, Loader2, Search, ExternalLink
+  Save, Loader2, Search, ExternalLink,
+  MapPin, Phone, Building, Hash
 } from "lucide-react";
 
 interface OrderItem {
@@ -23,6 +24,13 @@ interface Order {
   payment_slip_url: string | null;
   admin_note: string | null;
   created_at: string;
+
+  // NEW: Shipping Details
+  delivery_phone: string | null;
+  delivery_address: string | null;
+  delivery_city: string | null;
+  delivery_postal_code: string | null;
+
   items: OrderItem[];
 }
 
@@ -41,7 +49,7 @@ export default function AdminOrdersPage() {
   // Expanded State
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
-  // Edit Form States (Populated when an order is expanded)
+  // Edit Form States
   const [orderStatus, setOrderStatus] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("");
   const [adminNote, setAdminNote] = useState("");
@@ -74,7 +82,6 @@ export default function AdminOrdersPage() {
       setExpandedOrderId(null);
     } else {
       setExpandedOrderId(order.id);
-      // Pre-fill the edit form with current data
       setOrderStatus(order.order_status || "PENDING");
       setPaymentStatus(order.payment_status || "PENDING");
       setAdminNote(order.admin_note || "");
@@ -87,7 +94,7 @@ export default function AdminOrdersPage() {
       const res = await api.get(`/web/orders/${orderId}/chat`);
       if (res.data.success) setChats(res.data.chats);
     } catch (error) {
-      console.error("Failed to fetch chats", error); // 🔥 FIX: Used the error variable
+      console.error("Failed to fetch chats", error);
     }
   };
 
@@ -98,7 +105,7 @@ export default function AdminOrdersPage() {
 
     try {
       const res = await api.post(`/web/orders/${expandedOrderId}/chat`, {
-        sender_type: "ADMIN", // Sent by Admin!
+        sender_type: "ADMIN",
         message: chatMessage
       });
       if (res.data.success) {
@@ -106,7 +113,7 @@ export default function AdminOrdersPage() {
         setChatMessage("");
       }
     } catch (error) {
-      console.error(error); // 🔥 FIX: Used the error variable
+      console.error(error);
       alert("Failed to send message.");
     } finally {
       setSendingChat(false);
@@ -124,10 +131,10 @@ export default function AdminOrdersPage() {
       });
       if (res.data.success) {
         alert("Order updated successfully!");
-        fetchOrders(); // Refresh the data
+        fetchOrders();
       }
     } catch (error) {
-      console.error(error); // 🔥 FIX: Used the error variable
+      console.error(error);
       alert("Failed to update order.");
     } finally {
       setIsSaving(false);
@@ -161,7 +168,7 @@ export default function AdminOrdersPage() {
             <Package className="text-blue-600" size={32} />
             Order Management
           </h1>
-          <p className="text-gray-500 mt-2">Approve payments, update statuses, and chat with customers.</p>
+          <p className="text-gray-500 mt-2">Approve payments, update statuses, and view shipping details.</p>
         </div>
 
         <div className="relative w-full md:w-72">
@@ -223,11 +230,43 @@ export default function AdminOrdersPage() {
                       <td colSpan={5} className="p-0 border-b-4 border-blue-600">
                         <div className="bg-gray-50 p-6 grid grid-cols-1 lg:grid-cols-2 gap-8 shadow-inner">
 
-                          {/* Left Side: Controls & Slip */}
+                          {/* Left Side: Shipping, Controls & Slip */}
                           <div className="space-y-6">
 
+                            {/* 🔥 NEW: Shipping Details Card */}
+                            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                              <h3 className="font-black text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                                <MapPin className="text-blue-600" size={18} /> Shipping Information
+                              </h3>
+
+                              {order.delivery_address ? (
+                                <div className="space-y-3 text-sm text-gray-700">
+                                  <div className="flex items-start gap-3">
+                                    <MapPin size={16} className="text-gray-400 mt-0.5 shrink-0" />
+                                    <span className="font-medium leading-relaxed">{order.delivery_address}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <Building size={16} className="text-gray-400 shrink-0" />
+                                    <span className="font-medium">{order.delivery_city}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <Hash size={16} className="text-gray-400 shrink-0" />
+                                    <span className="font-medium">{order.delivery_postal_code}</span>
+                                  </div>
+                                  <div className="flex items-center gap-3 pt-2 border-t border-gray-50">
+                                    <Phone size={16} className="text-gray-400 shrink-0" />
+                                    <span className="font-bold text-gray-900">{order.delivery_phone}</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-sm font-bold text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                                  No shipping information provided for this order. (Likely an old point-of-sale order).
+                                </p>
+                              )}
+                            </div>
+
                             {/* Status Controls */}
-                            <div className="bg-white p-5 rounded-2xl border border-gray-200 space-y-4">
+                            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4">
                               <h3 className="font-black text-gray-900 border-b border-gray-100 pb-2">Order Controls</h3>
 
                               <div className="grid grid-cols-2 gap-4">
@@ -281,7 +320,7 @@ export default function AdminOrdersPage() {
 
                             {/* Payment Slip Viewer */}
                             {order.payment_slip_url && (
-                              <div className="bg-white p-5 rounded-2xl border border-gray-200">
+                              <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
                                 <div className="flex justify-between items-center mb-3">
                                   <h3 className="font-black text-gray-900 flex items-center gap-2"><FileText size={18}/> Payment Slip</h3>
                                   <a href={order.payment_slip_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800 text-sm font-bold flex items-center gap-1">
@@ -301,7 +340,7 @@ export default function AdminOrdersPage() {
                           </div>
 
                           {/* Right Side: Chat System */}
-                          <div className="bg-white rounded-2xl border border-gray-200 flex flex-col h-[500px] overflow-hidden shadow-sm">
+                          <div className="bg-white rounded-2xl border border-gray-200 flex flex-col h-[600px] overflow-hidden shadow-sm">
                             <div className="bg-gray-900 p-4 text-white flex items-center gap-2">
                               <MessageCircle size={18} />
                               <h4 className="font-bold">Customer Chat</h4>
@@ -317,8 +356,8 @@ export default function AdminOrdersPage() {
                                   <div key={chat.id} className={`flex ${chat.sender_type === 'ADMIN' ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${
                                       chat.sender_type === 'ADMIN'
-                                        ? 'bg-blue-600 text-white rounded-br-none' // Admin messages are blue on the right
-                                        : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm' // Customer is white on left
+                                        ? 'bg-blue-600 text-white rounded-br-none'
+                                        : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none shadow-sm'
                                     }`}>
                                       <p className="text-sm font-bold mb-1 opacity-75 text-[10px] uppercase tracking-wider">{chat.sender_type}</p>
                                       <p className="text-sm">{chat.message}</p>

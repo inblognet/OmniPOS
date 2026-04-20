@@ -1,61 +1,11 @@
 "use client";
 import { useCartStore } from "@/store/useCartStore";
-import { useUserStore } from "@/store/useUserStore"; // 1. Import User Store
-import { X, ShoppingBag, Trash2, Banknote, Building } from "lucide-react";
-import api from "@/lib/api";
-import { useState } from "react";
-import axios from "axios";
+import { X, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const { items, removeItem, getTotal, clearCart } = useCartStore();
-  const user = useUserStore((state) => state.user); // 2. Get the logged-in user
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("COD");
-
-  const handleCheckout = async () => {
-    if (items.length === 0) return;
-    setIsProcessing(true);
-
-    try {
-      const response = await api.post("/web/checkout", {
-        // 3. Fixed mapping to send 'id' instead of 'productId'
-        items: items.map(item => ({ id: item.id, quantity: item.quantity, price: item.price })),
-        totalAmount: getTotal(),
-        paymentMethod: paymentMethod,
-        customerId: user?.id // 4. Send the customer ID to earn points!
-      });
-
-      if (response.data.success) {
-        let successMessage = `🎉 Order Success! Order ID: ${response.data.orderId}\n`;
-
-        // 5. Notify the user of their new points!
-        if (response.data.pointsEarned > 0) {
-            successMessage += `⭐ You earned ${response.data.pointsEarned} loyalty points!\n\n`;
-        } else {
-            successMessage += `\n`;
-        }
-
-        if (paymentMethod === "BANK_TRANSFER") {
-          successMessage += "Please transfer the total amount to:\nBank: OmniBank\nAcct: 123-456-789\nInclude your Order ID in the reference.";
-        } else {
-          successMessage += "You selected Cash on Delivery. Please have the exact amount ready upon arrival.";
-        }
-
-        alert(successMessage);
-        clearCart();
-        onClose();
-
-        // Reloading will automatically fetch the fresh user points for the Navbar!
-        window.location.reload();
-      }
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) alert("Checkout failed: " + (err.response?.data?.message || "Error"));
-      else if (err instanceof Error) alert("Checkout failed: " + err.message);
-      else alert("Checkout failed: Unknown error");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  const { items, removeItem, getTotal } = useCartStore();
+  const router = useRouter();
 
   if (!isOpen) return null;
 
@@ -98,37 +48,20 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
 
         {items.length > 0 && (
           <div className="p-6 border-t bg-gray-50 space-y-6">
-
-            <div className="space-y-3">
-              <p className="text-sm font-bold text-gray-700">Payment Method</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setPaymentMethod("COD")}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer ${paymentMethod === 'COD' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-blue-300'}`}
-                >
-                  <Banknote size={24} className="mb-1" />
-                  <span className="text-xs font-bold">Cash on Delivery</span>
-                </button>
-                <button
-                  onClick={() => setPaymentMethod("BANK_TRANSFER")}
-                  className={`flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer ${paymentMethod === 'BANK_TRANSFER' ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-500 hover:border-blue-300'}`}
-                >
-                  <Building size={24} className="mb-1" />
-                  <span className="text-xs font-bold">Bank Transfer</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <div className="flex justify-between text-lg font-black text-gray-800 mb-4">
-                <span>Total</span>
+            <div className="border-t pt-2">
+              <div className="flex justify-between text-lg font-black text-gray-800 mb-6">
+                <span>Subtotal</span>
                 <span>${getTotal().toFixed(2)}</span>
               </div>
+
               <button
-                onClick={handleCheckout} disabled={isProcessing}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all active:scale-[0.98] cursor-pointer"
+                onClick={() => {
+                  onClose(); // Close the drawer
+                  router.push("/checkout"); // Jump to the new checkout page!
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
-                {isProcessing ? "Processing..." : `Place Order (${paymentMethod === 'COD' ? 'COD' : 'Bank'})`}
+                Proceed to Checkout <ArrowRight size={20} />
               </button>
             </div>
           </div>

@@ -33,7 +33,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Public Storefront)
+// 3. GET PRODUCTS (Public Storefront - ONLY shows active products)
 router.get('/products', async (req, res) => {
     const { search, category } = req.query;
     const client = await pool.connect();
@@ -73,18 +73,18 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (🔥 UPDATED to capture Shipping Info!)
+// 4. POST CHECKOUT (🔥 UPDATED to capture Voucher Discounts!)
 router.post('/checkout', async (req, res) => {
-    const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code } = req.body;
+    const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount } = req.body;
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
 
         const orderResult = await client.query(
-            `INSERT INTO orders (total_amount, payment_method, payment_status, order_status, customer_id, delivery_phone, delivery_address, delivery_city, delivery_postal_code)
-             VALUES ($1, $2, 'PENDING', 'PENDING', $3, $4, $5, $6, $7) RETURNING id`,
-            [totalAmount, paymentMethod || 'COD', customerId || null, delivery_phone, delivery_address, delivery_city, delivery_postal_code]
+            `INSERT INTO orders (total_amount, payment_method, payment_status, order_status, customer_id, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount)
+             VALUES ($1, $2, 'PENDING', 'PENDING', $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+            [totalAmount, paymentMethod || 'COD', customerId || null, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code || null, discount_amount || 0.00]
         );
         const orderId = orderResult.rows[0].id;
 
@@ -101,6 +101,7 @@ router.post('/checkout', async (req, res) => {
 
         let pointsEarned = 0;
         if (customerId) {
+            // Points calculated based on final amount AFTER discount
             pointsEarned = Math.floor(totalAmount / 10);
             if (pointsEarned > 0) {
                 await client.query(`UPDATE customers SET points = COALESCE(points, 0) + $1 WHERE id = $2`, [pointsEarned, customerId]);
@@ -118,17 +119,81 @@ router.post('/checkout', async (req, res) => {
 });
 
 // ==========================================
+// NEW PHASE 1: VOUCHER SYSTEM ROUTES
+// ==========================================
+
+// Validate a voucher at checkout (Public)
+router.post('/vouchers/validate', async (req, res) => {
+    const { code } = req.body;
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM vouchers WHERE code = $1 AND is_active = TRUE', [code.toUpperCase()]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Invalid or expired voucher code." });
+        res.json({ success: true, discount_percentage: rows[0].discount_percentage, description: rows[0].description });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// Get all active vouchers for the storefront/profile (Public)
+router.get('/vouchers/active', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT code, discount_percentage, description FROM vouchers WHERE is_active = TRUE ORDER BY created_at DESC');
+        res.json({ success: true, vouchers: rows });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// Admin: Get all vouchers
+router.get('/admin/vouchers', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM vouchers ORDER BY created_at DESC');
+        res.json({ success: true, vouchers: rows });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// Admin: Create voucher
+router.post('/admin/vouchers', async (req, res) => {
+    const { code, discount_percentage, description } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'INSERT INTO vouchers (code, discount_percentage, description) VALUES ($1, $2, $3)',
+            [code.toUpperCase(), discount_percentage, description]
+        );
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ success: false, message: "Code might already exist." }); } finally { client.release(); }
+});
+
+// Admin: Toggle voucher status
+router.put('/admin/vouchers/:id/toggle', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('UPDATE vouchers SET is_active = NOT is_active WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// Admin: Delete voucher
+router.delete('/admin/vouchers/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('DELETE FROM vouchers WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// ==========================================
 // ADMIN ROUTES (Store Owner Features)
 // ==========================================
 
-// 5. GET ALL ORDERS (🔥 UPDATED to fetch Shipping Info!)
+// 5. GET ALL ORDERS
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
         const query = `
             SELECT
                 o.id, o.total_amount, o.payment_method, o.payment_status, o.order_status,
-                o.payment_slip_url, o.admin_note, o.created_at,
+                o.payment_slip_url, o.admin_note, o.created_at, o.discount_code, o.discount_amount,
                 o.delivery_phone, o.delivery_address, o.delivery_city, o.delivery_postal_code,
                 c.name as customer_name, c.email as customer_email,
                 json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)) as items
@@ -192,7 +257,7 @@ router.delete('/admin/banners/:id', async (req, res) => {
 // ADMIN INVENTORY ROUTES
 // ==========================================
 
-// 11. GET ALL PRODUCTS
+// 11. GET ALL PRODUCTS (Admin - Shows EVERYTHING)
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -213,7 +278,7 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 12. ADD NEW PRODUCT
+// 12. ADD NEW PRODUCT (Saves description, defaults is_active to TRUE)
 router.post('/admin/products', upload.single('image'), async (req, res) => {
     const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
@@ -234,7 +299,7 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
     } finally { client.release(); }
 });
 
-// 13. UPDATE PRODUCT
+// 13. UPDATE PRODUCT (Saves description and is_active toggle)
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { name, web_allocated_stock, price, description, is_active } = req.body;
@@ -290,7 +355,7 @@ router.post('/admin/categories/upload', upload.single('image'), async (req, res)
 });
 
 // ==========================================
-// NEW PHASE 2 ROUTES (Slips, Chats, Reviews, Slugs)
+// PHASE 2 ROUTES (Slips, Chats, Reviews, Slugs)
 // ==========================================
 
 // 16. GET SINGLE PRODUCT (For the Slug Page)
@@ -377,7 +442,7 @@ router.put('/admin/orders/:id/advanced', async (req, res) => {
 
 
 // ==========================================
-// NEW PHASE 2.5 ROUTES (Customer Profile)
+// PHASE 2.5 ROUTES (Customer Profile)
 // ==========================================
 
 // 23. GET CUSTOMER PROFILE (Including new address fields)
