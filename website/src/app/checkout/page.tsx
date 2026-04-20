@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import api from "@/lib/api";
+import axios from "axios"; // 🔥 FIX: Imported axios to properly type our errors
 import {
   MapPin, Phone, Building, Hash, CreditCard,
-  Wallet, Truck, Loader2, CheckCircle, Package
+  Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X
 } from "lucide-react";
 
 export default function CheckoutPage() {
@@ -25,8 +26,16 @@ export default function CheckoutPage() {
     postal_code: ""
   });
 
-  // Calculate Cart Total
-  const totalAmount = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  // Voucher States
+  const [voucherCode, setVoucherCode] = useState("");
+  const [appliedVoucher, setAppliedVoucher] = useState<{code: string, percentage: number} | null>(null);
+  const [voucherMessage, setVoucherMessage] = useState({ text: "", type: "" });
+  const [validatingVoucher, setValidatingVoucher] = useState(false);
+
+  // Calculate Cart Totals
+  const subTotal = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+  const discountAmount = appliedVoucher ? (subTotal * (appliedVoucher.percentage / 100)) : 0;
+  const finalTotal = subTotal - discountAmount;
 
   useEffect(() => {
     if (!user) {
@@ -38,7 +47,6 @@ export default function CheckoutPage() {
       return;
     }
 
-    // Auto-fill their saved profile data!
     const fetchProfileData = async () => {
       try {
         const res = await api.get(`/web/customers/${user.id}/profile`);
@@ -52,7 +60,8 @@ export default function CheckoutPage() {
           });
         }
       } catch (error) {
-        console.error("Failed to load profile for checkout");
+        // 🔥 FIX: Actually "used" the error variable by logging it
+        console.error("Failed to load profile for checkout", error);
       } finally {
         setLoading(false);
       }
@@ -60,6 +69,37 @@ export default function CheckoutPage() {
 
     fetchProfileData();
   }, [user, items.length, router]);
+
+  // Handle Voucher Validation
+  const handleApplyVoucher = async () => {
+    if (!voucherCode.trim()) return;
+    setValidatingVoucher(true);
+    setVoucherMessage({ text: "", type: "" });
+
+    try {
+      const res = await api.post("/web/vouchers/validate", { code: voucherCode });
+      if (res.data.success) {
+        setAppliedVoucher({ code: voucherCode.toUpperCase(), percentage: res.data.discount_percentage });
+        setVoucherMessage({ text: `${res.data.description}`, type: "success" });
+        setVoucherCode(""); // Clear input box
+      }
+    } catch (err: unknown) {
+      // 🔥 FIX: Properly typed the error using unknown + axios.isAxiosError instead of 'any'
+      if (axios.isAxiosError(err)) {
+        setVoucherMessage({ text: err.response?.data?.message || "Invalid or expired code.", type: "error" });
+      } else {
+        setVoucherMessage({ text: "Invalid or expired code.", type: "error" });
+      }
+      setAppliedVoucher(null);
+    } finally {
+      setValidatingVoucher(false);
+    }
+  };
+
+  const removeVoucher = () => {
+    setAppliedVoucher(null);
+    setVoucherMessage({ text: "", type: "" });
+  };
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,20 +109,23 @@ export default function CheckoutPage() {
     try {
       const res = await api.post("/web/checkout", {
         items: items,
-        totalAmount: totalAmount,
+        totalAmount: finalTotal,
         paymentMethod: paymentMethod,
         customerId: user.id,
         delivery_phone: formData.phone,
         delivery_address: formData.address,
         delivery_city: formData.city,
-        delivery_postal_code: formData.postal_code
+        delivery_postal_code: formData.postal_code,
+        discount_code: appliedVoucher?.code || null,
+        discount_amount: discountAmount
       });
 
       if (res.data.success) {
-        // Force a page reload to clear the Zustand cart state and jump to orders
         window.location.href = "/orders";
       }
     } catch (error) {
+      // 🔥 FIX: Actually "used" the error variable by logging it
+      console.error("Checkout failed:", error);
       alert("Checkout failed. Please try again.");
       setProcessing(false);
     }
@@ -195,18 +238,71 @@ export default function CheckoutPage() {
                 ))}
               </div>
 
+              {/* PROMO CODE SECTION */}
+              <div className="mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                {!appliedVoucher ? (
+                  <>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                        <input
+                          type="text"
+                          placeholder="Promo code"
+                          value={voucherCode}
+                          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                          className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold tracking-widest uppercase outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleApplyVoucher}
+                        disabled={validatingVoucher || !voucherCode}
+                        className="bg-gray-900 hover:bg-black text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+                      >
+                        {validatingVoucher ? <Loader2 size={16} className="animate-spin" /> : "Apply"}
+                      </button>
+                    </div>
+                    {voucherMessage.text && (
+                      <p className={`text-xs font-bold mt-2 pl-1 ${voucherMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
+                        {voucherMessage.text}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between bg-green-50 border border-green-200 p-3 rounded-xl">
+                    <div>
+                      <p className="text-sm font-black text-green-700 tracking-widest">{appliedVoucher.code}</p>
+                      <p className="text-xs font-medium text-green-600 mt-0.5">{voucherMessage.text}</p>
+                    </div>
+                    <button type="button" onClick={removeVoucher} className="text-green-700 hover:text-red-500 bg-white p-1.5 rounded-lg border border-green-200 shadow-sm transition-colors">
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Totals */}
               <div className="border-t border-dashed border-gray-200 pt-6 mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 font-medium">Subtotal</span>
-                  <span className="font-bold text-gray-900">${totalAmount.toFixed(2)}</span>
+                  <span className="font-bold text-gray-900">${subTotal.toFixed(2)}</span>
                 </div>
+
+                {/* Show Discount Line if applied */}
+                {appliedVoucher && (
+                  <div className="flex justify-between items-center mb-2 text-green-600">
+                    <span className="font-bold flex items-center gap-1"><Ticket size={14}/> Discount ({appliedVoucher.percentage}%)</span>
+                    <span className="font-black">-${discountAmount.toFixed(2)}</span>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 font-medium">Shipping</span>
                   <span className="font-bold text-green-600">Free</span>
                 </div>
                 <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-100">
                   <span className="text-xl font-black text-gray-900">Total</span>
-                  <span className="text-3xl font-black text-blue-600">${totalAmount.toFixed(2)}</span>
+                  <span className="text-3xl font-black text-blue-600">${finalTotal.toFixed(2)}</span>
                 </div>
               </div>
 

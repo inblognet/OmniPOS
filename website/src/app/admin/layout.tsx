@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Package, Image as ImageIcon, Store, LayoutDashboard, Boxes, TrendingUp,
-  LogOut, Settings, UserCircle, Tags // 🔥 Added 'Tags' icon here!
+  LogOut, Settings, UserCircle, Tags, Ticket // 🔥 Added Ticket icon here!
 } from "lucide-react";
 import { useUserStore } from "@/store/useUserStore";
 
@@ -36,7 +36,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Dashboard", href: "/admin", icon: TrendingUp },
     { name: "Orders", href: "/admin/orders", icon: Package },
     { name: "Inventory", href: "/admin/inventory", icon: Boxes },
-    { name: "Categories", href: "/admin/categories", icon: Tags }, // 🔥 Added Categories Link!
+    { name: "Categories", href: "/admin/categories", icon: Tags },
+    { name: "Vouchers", href: "/admin/vouchers", icon: Ticket }, // 🔥 Added Vouchers Link!
     { name: "Banners", href: "/admin/banners", icon: ImageIcon },
   ];
 

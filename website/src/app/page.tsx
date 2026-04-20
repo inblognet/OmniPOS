@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import Link from "next/link"; // 🔥 FIX: Imported Link
+import Link from "next/link";
 import api from "@/lib/api";
 import { useCartStore } from "@/store/useCartStore";
-import { ShoppingCart, Search, LayoutGrid } from "lucide-react";
+import { ShoppingCart, Search, LayoutGrid, Ticket, Copy, CheckCircle2 } from "lucide-react";
 import HeroCarousel from "@/components/HeroCarousel";
 
 interface Product {
@@ -21,17 +21,34 @@ interface Category {
   image_url?: string;
 }
 
+interface Voucher {
+  code: string;
+  discount_percentage: number;
+  description: string;
+}
+
 export default function Home() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [latestVoucher, setLatestVoucher] = useState<Voucher | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { addItem } = useCartStore();
 
   useEffect(() => {
+    // Fetch Categories
     api.get("/web/categories").then(res => setCategories(res.data.categories || []));
+
+    // 🔥 NEW: Fetch latest active voucher
+    api.get("/web/vouchers/active").then(res => {
+      if (res.data.success && res.data.vouchers && res.data.vouchers.length > 0) {
+        setLatestVoucher(res.data.vouchers[0]); // Grab the newest one!
+      }
+    }).catch(err => console.error("No active vouchers found"));
   }, []);
 
   useEffect(() => {
@@ -59,10 +76,45 @@ export default function Home() {
            "https://placehold.co/400x400?text=No+Image";
   };
 
+  const handleCopyCode = () => {
+    if (!latestVoucher) return;
+    navigator.clipboard.writeText(latestVoucher.code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       <main className="max-w-7xl mx-auto px-4 pt-10">
+
         <HeroCarousel />
+
+        {/* 🔥 NEW: PROMO BANNER (Only shows if a voucher is active!) */}
+        {latestVoucher && (
+          <div className="max-w-2xl mx-auto mb-8 bg-gradient-to-r from-amber-400 to-orange-500 rounded-3xl p-1 shadow-lg shadow-orange-200/50 transform hover:scale-[1.02] transition-transform duration-300">
+            <div className="bg-white/95 backdrop-blur-sm rounded-[22px] p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="bg-orange-100 text-orange-600 p-3 rounded-2xl">
+                  <Ticket size={28} className="animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
+                    {latestVoucher.discount_percentage}% OFF SPECIAL
+                  </h3>
+                  <p className="text-sm font-medium text-gray-600 line-clamp-1">{latestVoucher.description}</p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleCopyCode}
+                className="shrink-0 flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-5 py-3 rounded-xl font-bold transition-all active:scale-95"
+              >
+                <span className="tracking-widest uppercase">{latestVoucher.code}</span>
+                {copied ? <CheckCircle2 size={18} className="text-green-400" /> : <Copy size={18} className="text-gray-400" />}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* --- SEARCH BAR --- */}
         <div className="relative w-full max-w-2xl mx-auto mb-12">
@@ -82,7 +134,6 @@ export default function Home() {
             <h2 className="text-3xl font-black text-gray-900 text-center mb-6">Shop By Category</h2>
 
             <div className="flex gap-6 overflow-x-auto pt-4 pb-8 px-4 snap-x hide-scrollbar justify-start md:justify-center">
-
               {/* 'All Items' Default Button */}
               <div
                 onClick={() => setSelectedCategory(null)}
@@ -117,7 +168,6 @@ export default function Home() {
                 </div>
               ))}
             </div>
-
             <div className="w-full h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent mt-2"></div>
           </div>
         )}
@@ -146,7 +196,6 @@ export default function Home() {
             {products.map((product) => (
               <div key={product.id} className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 flex flex-col group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
 
-                {/* 🔥 FIX: Wrapped Image and Title in a Link */}
                 <Link href={`/product/${product.id}`} className="cursor-pointer block">
                   <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
