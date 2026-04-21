@@ -479,7 +479,12 @@ router.post('/customers/:id/cart', async (req, res) => {
             `, [id, product_id, quantity]);
         }
         res.json({ success: true });
-    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+    } catch (error) {
+    console.error("🔥 CART CRASH:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+} finally {
+    client.release();
+}
 });
 
 
