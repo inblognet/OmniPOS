@@ -33,7 +33,7 @@ router.get('/categories', async (req, res) => {
     }
 });
 
-// 3. GET PRODUCTS (Public Storefront - ONLY shows active products)
+// 3. GET PRODUCTS (Public Storefront)
 router.get('/products', async (req, res) => {
     const { search, category } = req.query;
     const client = await pool.connect();
@@ -73,7 +73,7 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (🔥 UPDATED to capture Voucher Discounts!)
+// 4. POST CHECKOUT (🔥 UPDATED to clear the cloud cart upon success!)
 router.post('/checkout', async (req, res) => {
     const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount } = req.body;
     const client = await pool.connect();
@@ -101,11 +101,12 @@ router.post('/checkout', async (req, res) => {
 
         let pointsEarned = 0;
         if (customerId) {
-            // Points calculated based on final amount AFTER discount
             pointsEarned = Math.floor(totalAmount / 10);
             if (pointsEarned > 0) {
                 await client.query(`UPDATE customers SET points = COALESCE(points, 0) + $1 WHERE id = $2`, [pointsEarned, customerId]);
             }
+            // 🔥 Wipe the cloud cart clean since they bought the items!
+            await client.query(`DELETE FROM cart_items WHERE customer_id = $1`, [customerId]);
         }
 
         await client.query('COMMIT');
@@ -119,10 +120,9 @@ router.post('/checkout', async (req, res) => {
 });
 
 // ==========================================
-// NEW PHASE 1: VOUCHER SYSTEM ROUTES
+// VOUCHER SYSTEM ROUTES
 // ==========================================
 
-// Validate a voucher at checkout (Public)
 router.post('/vouchers/validate', async (req, res) => {
     const { code } = req.body;
     const client = await pool.connect();
@@ -133,7 +133,6 @@ router.post('/vouchers/validate', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// Get all active vouchers for the storefront/profile (Public)
 router.get('/vouchers/active', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -142,7 +141,6 @@ router.get('/vouchers/active', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// Admin: Get all vouchers
 router.get('/admin/vouchers', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -151,7 +149,6 @@ router.get('/admin/vouchers', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// Admin: Create voucher
 router.post('/admin/vouchers', async (req, res) => {
     const { code, discount_percentage, description } = req.body;
     const client = await pool.connect();
@@ -164,7 +161,6 @@ router.post('/admin/vouchers', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: "Code might already exist." }); } finally { client.release(); }
 });
 
-// Admin: Toggle voucher status
 router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -173,7 +169,6 @@ router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// Admin: Delete voucher
 router.delete('/admin/vouchers/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -183,10 +178,9 @@ router.delete('/admin/vouchers/:id', async (req, res) => {
 });
 
 // ==========================================
-// ADMIN ROUTES (Store Owner Features)
+// ADMIN ROUTES
 // ==========================================
 
-// 5. GET ALL ORDERS
 router.get('/admin/orders', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -213,7 +207,6 @@ router.get('/admin/orders', async (req, res) => {
     }
 });
 
-// 6. UPDATE ORDER STATUS (Legacy simple update)
 router.put('/admin/orders/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
@@ -228,7 +221,6 @@ router.put('/admin/orders/:id/status', async (req, res) => {
     }
 });
 
-// 7-10. BANNER ROUTES
 router.get('/admin/banners', async (req, res) => {
     const client = await pool.connect();
     try { res.json({ success: true, banners: (await client.query('SELECT * FROM carousel_banners ORDER BY id DESC')).rows }); }
@@ -253,11 +245,6 @@ router.delete('/admin/banners/:id', async (req, res) => {
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// ==========================================
-// ADMIN INVENTORY ROUTES
-// ==========================================
-
-// 11. GET ALL PRODUCTS (Admin - Shows EVERYTHING)
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -278,7 +265,6 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 12. ADD NEW PRODUCT (Saves description, defaults is_active to TRUE)
 router.post('/admin/products', upload.single('image'), async (req, res) => {
     const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
@@ -299,7 +285,6 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
     } finally { client.release(); }
 });
 
-// 13. UPDATE PRODUCT (Saves description and is_active toggle)
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { name, web_allocated_stock, price, description, is_active } = req.body;
@@ -322,7 +307,6 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     } finally { client.release(); }
 });
 
-// 14. DELETE PRODUCT
 router.delete('/admin/products/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -337,7 +321,6 @@ router.delete('/admin/products/:id', async (req, res) => {
     } finally { client.release(); }
 });
 
-// 15. UPLOAD CATEGORY IMAGE
 router.post('/admin/categories/upload', upload.single('image'), async (req, res) => {
     const { category } = req.body;
     const client = await pool.connect();
@@ -355,10 +338,9 @@ router.post('/admin/categories/upload', upload.single('image'), async (req, res)
 });
 
 // ==========================================
-// PHASE 2 ROUTES (Slips, Chats, Reviews, Slugs)
+// PUBLIC & CUSTOMER ROUTES
 // ==========================================
 
-// 16. GET SINGLE PRODUCT (For the Slug Page)
 router.get('/products/:id', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
@@ -378,7 +360,6 @@ router.get('/products/:id', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 17. GET CUSTOMER SPECIFIC ORDERS (For Customer /orders page)
 router.get('/customer/:customerId/orders', async (req, res) => {
     const { customerId } = req.params;
     const client = await pool.connect();
@@ -392,7 +373,6 @@ router.get('/customer/:customerId/orders', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 18. UPLOAD PAYMENT SLIP
 router.post('/orders/:id/slip', upload.single('slip'), async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
@@ -403,14 +383,12 @@ router.post('/orders/:id/slip', upload.single('slip'), async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 19. GET ORDER CHATS
 router.get('/orders/:id/chat', async (req, res) => {
     const client = await pool.connect();
     try { res.json({ success: true, chats: (await client.query('SELECT * FROM order_chats WHERE order_id = $1 ORDER BY created_at ASC', [req.params.id])).rows }); }
     catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 20. SEND CHAT MESSAGE
 router.post('/orders/:id/chat', async (req, res) => {
     const { sender_type, message } = req.body;
     const client = await pool.connect();
@@ -420,7 +398,6 @@ router.post('/orders/:id/chat', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 21. POST PRODUCT REVIEW
 router.post('/products/:id/reviews', async (req, res) => {
     const { customerId, orderId, rating, comment } = req.body;
     const client = await pool.connect();
@@ -430,7 +407,6 @@ router.post('/products/:id/reviews', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 22. ADMIN UPDATE ORDER ADVANCED
 router.put('/admin/orders/:id/advanced', async (req, res) => {
     const { order_status, payment_status, admin_note } = req.body;
     const client = await pool.connect();
@@ -440,12 +416,6 @@ router.put('/admin/orders/:id/advanced', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-
-// ==========================================
-// PHASE 2.5 ROUTES (Customer Profile)
-// ==========================================
-
-// 23. GET CUSTOMER PROFILE (Including new address fields)
 router.get('/customers/:id/profile', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
@@ -456,7 +426,6 @@ router.get('/customers/:id/profile', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 24. UPDATE CUSTOMER PROFILE
 router.put('/customers/:id/profile', async (req, res) => {
     const { id } = req.params;
     const { phone, address, city, postal_code } = req.body;
@@ -467,6 +436,49 @@ router.put('/customers/:id/profile', async (req, res) => {
             [phone, address, city, postal_code, id]
         );
         res.json({ success: true, message: "Profile updated successfully" });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+
+// ==========================================
+// 🔥 NEW: CLOUD CART ROUTES
+// ==========================================
+
+// 25. GET CUSTOMER CART
+router.get('/customers/:id/cart', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        const query = `
+            SELECT c.product_id as id, p.name, p.price, c.quantity,
+                   COALESCE((SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = TRUE LIMIT 1),
+                            (SELECT image_url FROM product_images WHERE product_id = p.id LIMIT 1)) as "imageUrl"
+            FROM cart_items c
+            JOIN products p ON c.product_id = p.id
+            WHERE c.customer_id = $1
+        `;
+        const { rows } = await client.query(query, [id]);
+        res.json({ success: true, cart: rows });
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+// 26. SYNC/UPDATE CART ITEM
+router.post('/customers/:id/cart', async (req, res) => {
+    const { id } = req.params;
+    const { product_id, quantity } = req.body;
+    const client = await pool.connect();
+    try {
+        if (quantity <= 0) {
+            await client.query('DELETE FROM cart_items WHERE customer_id = $1 AND product_id = $2', [id, product_id]);
+        } else {
+            await client.query(`
+                INSERT INTO cart_items (customer_id, product_id, quantity)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (customer_id, product_id)
+                DO UPDATE SET quantity = EXCLUDED.quantity
+            `, [id, product_id, quantity]);
+        }
+        res.json({ success: true });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
