@@ -482,4 +482,52 @@ router.post('/customers/:id/cart', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
+
+
+// ==========================================
+// STORE SETTINGS & THEME ROUTES
+// ==========================================
+
+// 27. GET PUBLIC SETTINGS (Used by the frontend to apply the theme!)
+router.get('/settings', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM web_settings WHERE id = 1');
+        res.json({ success: true, settings: rows[0] || {} });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 28. UPDATE ADMIN SETTINGS
+router.put('/admin/settings', async (req, res) => {
+    const {
+        store_name, phone_number, email_address, address, tax_rate, currency_symbol,
+        theme_primary, theme_navbar, theme_sidebar, theme_background, theme_card,
+        theme_text, theme_sidebar_text, theme_label, theme_sub_text
+    } = req.body;
+
+    const client = await pool.connect();
+    try {
+        await client.query(`
+            UPDATE web_settings SET
+            store_name = $1, phone_number = $2, email_address = $3, address = $4, tax_rate = $5, currency_symbol = $6,
+            theme_primary = $7, theme_navbar = $8, theme_sidebar = $9, theme_background = $10, theme_card = $11,
+            theme_text = $12, theme_sidebar_text = $13, theme_label = $14, theme_sub_text = $15
+            WHERE id = 1
+        `, [
+            store_name, phone_number, email_address, address, tax_rate, currency_symbol,
+            theme_primary, theme_navbar, theme_sidebar, theme_background, theme_card,
+            theme_text, theme_sidebar_text, theme_label, theme_sub_text
+        ]);
+        res.json({ success: true, message: "Settings saved!" });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
