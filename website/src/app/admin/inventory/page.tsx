@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
 import { Boxes, Plus, Trash2, Save, Edit2, UploadCloud, X, Eye, EyeOff, AlignLeft, Layers } from "lucide-react";
 
 interface Product {
@@ -26,11 +27,14 @@ interface EditFormState {
 }
 
 export default function AdminInventory() {
+  // 🔥 Fetch the dynamic currency symbol
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 🔥 NEW: View Mode State (Default is 'grouped' to hide duplicates)
+  // View Mode State (Default is 'grouped' to hide duplicates)
   const [viewMode, setViewMode] = useState<"grouped" | "all">("grouped");
 
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
@@ -137,7 +141,7 @@ export default function AdminInventory() {
     return product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url || "https://placehold.co/100x100?text=No+Img";
   };
 
-  // 🔥 NEW: Filter logic for deduplicating products by name
+  // Filter logic for deduplicating products by name
   const displayedProducts = viewMode === "grouped"
     ? products.filter((product, index, self) =>
         index === self.findIndex((p) => p.name === product.name)
@@ -181,7 +185,8 @@ export default function AdminInventory() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1">Price ($)</label>
+                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                    <label className="block text-sm font-bold text-gray-700 mb-1">Price ({currencySymbol})</label>
                     <input required type="number" step="0.01" className="w-full bg-gray-50 px-4 py-3 rounded-xl focus:ring-2 outline-none" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
                   </div>
                   <div>
@@ -219,7 +224,7 @@ export default function AdminInventory() {
           {/* Product Catalog Table */}
           <div className="xl:col-span-2">
 
-            {/* 🔥 NEW: View Mode Toggle */}
+            {/* View Mode Toggle */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-4 gap-4">
               <div className="bg-gray-200/60 p-1 rounded-xl inline-flex border border-gray-200">
                 <button
@@ -310,12 +315,14 @@ export default function AdminInventory() {
                           <td className="p-4 align-top">
                             {isEditing ? (
                               <div className="space-y-2">
-                                <div className="flex items-center gap-1"><span className="text-gray-400 text-xs font-bold">$</span><input type="number" step="0.01" className="w-16 border-2 rounded-lg px-1 py-1 outline-none focus:border-blue-500 text-sm font-bold" value={editForm.price} onChange={e => setEditForm({...editForm, price: e.target.value})} /></div>
+                                {/* 🔥 Swapped hardcoded $ for currencySymbol in edit mode */}
+                                <div className="flex items-center gap-1"><span className="text-gray-400 text-xs font-bold">{currencySymbol}</span><input type="number" step="0.01" className="w-16 border-2 rounded-lg px-1 py-1 outline-none focus:border-blue-500 text-sm font-bold" value={editForm.price} onChange={e => setEditForm({...editForm, price: e.target.value})} /></div>
                                 <div className="flex items-center gap-1"><span className="text-gray-400 text-xs font-bold">Qty</span><input type="number" className="w-16 border-2 rounded-lg px-1 py-1 outline-none focus:border-blue-500 text-sm" value={editForm.stock} onChange={e => setEditForm({...editForm, stock: parseInt(e.target.value) || 0})} /></div>
                               </div>
                             ) : (
                               <div>
-                                <div className="font-black text-gray-900">${parseFloat(product.price.toString()).toFixed(2)}</div>
+                                {/* 🔥 Swapped hardcoded $ for currencySymbol in display mode */}
+                                <div className="font-black text-gray-900">{currencySymbol}{parseFloat(product.price.toString()).toFixed(2)}</div>
                                 <div className={`text-xs font-bold mt-1 ${product.web_allocated_stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                   {product.web_allocated_stock} in stock
                                 </div>

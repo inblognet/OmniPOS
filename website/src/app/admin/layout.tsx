@@ -1,10 +1,10 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Package, Image as ImageIcon, Store, LayoutDashboard, Boxes, TrendingUp,
-  LogOut, Settings, UserCircle, Tags, Ticket // 🔥 Added Ticket icon here!
+  LogOut, Settings, Tags, Ticket, Menu, ChevronLeft
 } from "lucide-react";
 import { useUserStore } from "@/store/useUserStore";
 
@@ -15,6 +15,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // Bring in the global store AND the logout function
   const user = useUserStore((state) => state.user);
   const logout = useUserStore((state) => state.logout);
+
+  // 🔥 NEW: State for the collapsible sidebar!
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Instantly check if they are allowed in
   const isAuthorized = user && user.role;
@@ -28,17 +31,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // --- LOGOUT HANDLER ---
   const handleLogout = () => {
-    logout(); // Clears the Zustand store
-    router.push("/login"); // Boots them back to the login screen
+    logout();
+    router.push("/login");
   };
 
+  // The EXACT same data you had before
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: TrendingUp },
     { name: "Orders", href: "/admin/orders", icon: Package },
     { name: "Inventory", href: "/admin/inventory", icon: Boxes },
     { name: "Categories", href: "/admin/categories", icon: Tags },
-    { name: "Vouchers", href: "/admin/vouchers", icon: Ticket }, // 🔥 Added Vouchers Link!
+    { name: "Vouchers", href: "/admin/vouchers", icon: Ticket },
     { name: "Banners", href: "/admin/banners", icon: ImageIcon },
+    { name: "Settings", href: "/admin/settings", icon: Settings },
   ];
 
   // --- KICKOUT / LOADING STATE ---
@@ -53,18 +58,30 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // --- MAIN LAYOUT ---
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-gray-50 flex">
 
-      {/* SIDEBAR NAVIGATION */}
-      <aside className="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 md:h-screen md:sticky md:top-0">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-2xl font-black text-gray-900 flex items-center gap-2 tracking-tight">
-            <LayoutDashboard className="text-blue-600" size={28} />
-            Admin Panel
-          </h2>
+      {/* 🔥 RE-DESIGNED COLLAPSIBLE SIDEBAR */}
+      <aside
+        className={`${isCollapsed ? 'w-20' : 'w-64'} transition-all duration-300 ease-in-out bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen sticky top-0 z-20`}
+      >
+        {/* Sidebar Header & Toggle */}
+        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100">
+          {!isCollapsed && (
+            <h2 className="text-xl font-black text-gray-900 flex items-center gap-2 whitespace-nowrap overflow-hidden">
+              <LayoutDashboard className="text-blue-600 shrink-0" size={24} />
+              Admin Panel
+            </h2>
+          )}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors ml-auto shrink-0"
+          >
+            {isCollapsed ? <Menu size={20} /> : <ChevronLeft size={20} />}
+          </button>
         </div>
 
-        <nav className="p-4 space-y-2">
+        {/* Navigation Links */}
+        <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1.5 custom-scrollbar">
           {navItems.map((item) => {
             const isActive = item.href === "/admin"
               ? pathname === "/admin"
@@ -74,73 +91,83 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${
+                title={isCollapsed ? item.name : ""} // Shows tooltip when collapsed!
+                className={`flex items-center gap-3.5 px-3 py-3 rounded-xl font-bold transition-all group overflow-hidden ${
                   isActive
                     ? "bg-blue-600 text-white shadow-md shadow-blue-200"
                     : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                 }`}
               >
-                <item.icon size={20} />
-                {item.name}
+                <div className="shrink-0 flex items-center justify-center">
+                  <item.icon size={20} className={isActive ? "text-white" : "text-gray-400 group-hover:text-blue-600 transition-colors"} />
+                </div>
+                {!isCollapsed && <span className="whitespace-nowrap">{item.name}</span>}
               </Link>
             );
           })}
-
-          <div className="pt-6 mt-6 border-t border-gray-100">
-             <Link
-               href="/"
-               className="flex items-center gap-3 px-4 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all"
-             >
-                <Store size={20} />
-                Back to Store
-             </Link>
-          </div>
         </nav>
+
+        {/* Bottom Actions (Back to Store & Logout) */}
+        <div className="p-3 border-t border-gray-100 space-y-1.5">
+          <Link
+            href="/"
+            title={isCollapsed ? "Back to Store" : ""}
+            className="flex items-center gap-3.5 px-3 py-3 rounded-xl font-bold text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-all overflow-hidden"
+          >
+            <div className="shrink-0 flex items-center justify-center">
+              <Store size={20} />
+            </div>
+            {!isCollapsed && <span className="whitespace-nowrap">Back to Store</span>}
+          </Link>
+
+          <button
+            onClick={handleLogout}
+            title={isCollapsed ? "Logout" : ""}
+            className="w-full flex items-center gap-3.5 px-3 py-3 rounded-xl font-bold text-red-500 hover:bg-red-50 transition-all overflow-hidden"
+          >
+            <div className="shrink-0 flex items-center justify-center">
+              <LogOut size={20} />
+            </div>
+            {!isCollapsed && <span className="whitespace-nowrap">Logout</span>}
+          </button>
+        </div>
       </aside>
 
       {/* MAIN PAGE CONTENT */}
-      <main className="flex-1 w-full flex flex-col overflow-x-hidden">
+      <main className="flex-1 min-w-0 flex flex-col">
 
-        {/* --- TOP ADMIN NAVIGATION BAR --- */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex justify-end items-center sticky top-0 z-10 shadow-sm">
-          <div className="flex items-center gap-6">
+        {/* 🔥 RE-DESIGNED POS-STYLE HEADER */}
+        <header className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-end sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center gap-4 md:gap-6">
 
-            {/* Profile Info */}
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-100 p-2 rounded-full text-blue-600">
-                <UserCircle size={24} />
-              </div>
-              <div className="hidden sm:block text-left">
-                <p className="text-sm font-bold text-gray-900 leading-tight">{user?.name}</p>
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{user?.role}</p>
-              </div>
+            {/* ONLINE PILL (Just like the POS) */}
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-200 bg-green-50 text-green-700 text-[10px] font-black tracking-widest uppercase shadow-sm">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+              Online
             </div>
 
             {/* Vertical Divider */}
-            <div className="h-8 w-px bg-gray-200"></div>
+            <div className="h-6 w-px bg-gray-200 hidden sm:block"></div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-3">
-              <button
-                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                title="Quick Settings"
-              >
-                <Settings size={20} />
-              </button>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 font-bold rounded-lg transition-all shadow-sm"
-              >
-                <LogOut size={16} />
-                <span className="hidden sm:inline">Logout</span>
-              </button>
+            {/* Settings Icon */}
+            <Link
+              href="/admin/settings"
+              className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+              title="Settings"
+            >
+              <Settings size={20} />
+            </Link>
+
+            {/* Profile Avatar */}
+            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-blue-200">
+              {user?.name?.charAt(0) || "A"}
             </div>
 
           </div>
         </header>
 
         {/* ACTUAL PAGE CONTENT */}
-        <div className="p-6">
+        <div className="p-6 overflow-x-hidden">
           {children}
         </div>
       </main>

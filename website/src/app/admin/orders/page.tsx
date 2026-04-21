@@ -1,6 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the store
 import {
   Package, MessageCircle, Send, FileText,
   Save, Loader2, Search, ExternalLink,
@@ -42,6 +43,9 @@ interface Chat {
 }
 
 export default function AdminOrdersPage() {
+  // 🔥 Fetch the dynamic currency symbol
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -211,7 +215,8 @@ export default function AdminOrdersPage() {
                       <p className="font-bold text-gray-900">{order.customer_name || 'Guest'}</p>
                       <p className="text-xs text-gray-500">{order.customer_email || 'No email'}</p>
                     </td>
-                    <td className="p-4 font-bold text-gray-900">${parseFloat(order.total_amount).toFixed(2)}</td>
+                    {/* 🔥 Replaced the hardcoded $ with {currencySymbol} */}
+                    <td className="p-4 font-bold text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</td>
                     <td className="p-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(order.payment_status)}`}>
                         {order.payment_method} - {order.payment_status || 'PENDING'}
@@ -233,7 +238,7 @@ export default function AdminOrdersPage() {
                           {/* Left Side: Shipping, Controls & Slip */}
                           <div className="space-y-6">
 
-                            {/* 🔥 NEW: Shipping Details Card */}
+                            {/* Shipping Details Card */}
                             <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
                               <h3 className="font-black text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
                                 <MapPin className="text-blue-600" size={18} /> Shipping Information

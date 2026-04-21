@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Navbar from "@/components/Navbar";
-import GlobalCart from "@/components/GlobalCart"; // <-- Import it here
+import GlobalCart from "@/components/GlobalCart";
+import ThemeProvider from "@/components/ThemeProvider"; // 🔥 NEW: Import the engine!
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -16,6 +17,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-gray-50 text-gray-900">
+
+        {/* 🔥 The Magical Bridge: Injects your database theme globally! */}
+        <ThemeProvider />
+
         <Navbar />
 
         <main className="flex-grow">
