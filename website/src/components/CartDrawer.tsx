@@ -1,10 +1,12 @@
 "use client";
 import { useCartStore } from "@/store/useCartStore";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
 import { X, ShoppingBag, Trash2, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { items, removeItem, getTotal } = useCartStore();
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol); // 🔥 Fetch dynamic currency symbol
   const router = useRouter();
 
   if (!isOpen) return null;
@@ -36,7 +38,8 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
                 <img src={item.imageUrl || "https://placehold.co/100x100"} alt={item.name} className="w-16 h-16 object-cover rounded-lg bg-gray-100" />
                 <div className="flex-1">
                   <p className="font-semibold text-gray-800 line-clamp-1">{item.name}</p>
-                  <p className="text-sm font-medium text-blue-600">${item.price.toFixed(2)} <span className="text-gray-400 font-normal">x {item.quantity}</span></p>
+                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                  <p className="text-sm font-medium text-blue-600">{currencySymbol}{item.price.toFixed(2)} <span className="text-gray-400 font-normal">x {item.quantity}</span></p>
                 </div>
                 <button onClick={() => removeItem(item.id)} className="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors cursor-pointer">
                   <Trash2 size={18}/>
@@ -51,7 +54,8 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
             <div className="border-t pt-2">
               <div className="flex justify-between text-lg font-black text-gray-800 mb-6">
                 <span>Subtotal</span>
-                <span>${getTotal().toFixed(2)}</span>
+                {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                <span>{currencySymbol}{getTotal().toFixed(2)}</span>
               </div>
 
               <button

@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
 import api from "@/lib/api";
-import axios from "axios"; // 🔥 FIX: Imported axios to properly type our errors
+import axios from "axios";
 import {
   MapPin, Phone, Building, Hash, CreditCard,
   Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X
@@ -14,6 +15,9 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { user } = useUserStore();
   const { items } = useCartStore();
+
+  // 🔥 Fetch dynamic currency symbol
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -60,7 +64,6 @@ export default function CheckoutPage() {
           });
         }
       } catch (error) {
-        // 🔥 FIX: Actually "used" the error variable by logging it
         console.error("Failed to load profile for checkout", error);
       } finally {
         setLoading(false);
@@ -84,7 +87,6 @@ export default function CheckoutPage() {
         setVoucherCode(""); // Clear input box
       }
     } catch (err: unknown) {
-      // 🔥 FIX: Properly typed the error using unknown + axios.isAxiosError instead of 'any'
       if (axios.isAxiosError(err)) {
         setVoucherMessage({ text: err.response?.data?.message || "Invalid or expired code.", type: "error" });
       } else {
@@ -124,7 +126,6 @@ export default function CheckoutPage() {
         window.location.href = "/orders";
       }
     } catch (error) {
-      // 🔥 FIX: Actually "used" the error variable by logging it
       console.error("Checkout failed:", error);
       alert("Checkout failed. Please try again.");
       setProcessing(false);
@@ -233,7 +234,8 @@ export default function CheckoutPage() {
                       <p className="font-bold text-gray-900 line-clamp-1 text-sm">{item.name}</p>
                       <p className="text-xs text-gray-500 mt-1">Qty: {item.quantity}</p>
                     </div>
-                    <p className="font-black text-gray-900">${(item.price * item.quantity).toFixed(2)}</p>
+                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                    <p className="font-black text-gray-900">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</p>
                   </div>
                 ))}
               </div>
@@ -285,14 +287,16 @@ export default function CheckoutPage() {
               <div className="border-t border-dashed border-gray-200 pt-6 mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 font-medium">Subtotal</span>
-                  <span className="font-bold text-gray-900">${subTotal.toFixed(2)}</span>
+                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                  <span className="font-bold text-gray-900">{currencySymbol}{subTotal.toFixed(2)}</span>
                 </div>
 
                 {/* Show Discount Line if applied */}
                 {appliedVoucher && (
                   <div className="flex justify-between items-center mb-2 text-green-600">
                     <span className="font-bold flex items-center gap-1"><Ticket size={14}/> Discount ({appliedVoucher.percentage}%)</span>
-                    <span className="font-black">-${discountAmount.toFixed(2)}</span>
+                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                    <span className="font-black">-{currencySymbol}{discountAmount.toFixed(2)}</span>
                   </div>
                 )}
 
@@ -302,7 +306,8 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-100">
                   <span className="text-xl font-black text-gray-900">Total</span>
-                  <span className="text-3xl font-black text-blue-600">${finalTotal.toFixed(2)}</span>
+                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                  <span className="text-3xl font-black text-blue-600">{currencySymbol}{finalTotal.toFixed(2)}</span>
                 </div>
               </div>
 

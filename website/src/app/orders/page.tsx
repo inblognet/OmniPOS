@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
 import api from "@/lib/api";
 import {
   Package, UploadCloud, MessageCircle, Send, Star,
@@ -37,6 +38,9 @@ interface Chat {
 export default function CustomerOrdersPage() {
   const router = useRouter();
   const { user } = useUserStore();
+
+  // 🔥 Fetch dynamic currency symbol
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,7 +170,7 @@ export default function CustomerOrdersPage() {
     }
   };
 
-  // 🔥 NEW: Progress Bar Helper
+  // Progress Bar Helper
   const getProgressLevel = (status: string) => {
     const s = status.toUpperCase();
     if (s === 'DELIVERED') return 3;
@@ -221,7 +225,7 @@ export default function CustomerOrdersPage() {
                         Placed on {new Date(order.created_at).toLocaleDateString()}
                       </p>
 
-                      {/* 🔥 NEW: Visual Progress Bar */}
+                      {/* Visual Progress Bar */}
                       {order.order_status !== 'CANCELLED' && (
                         <div className="mt-6 flex items-center max-w-md w-full relative">
                           {/* Background Track */}
@@ -262,7 +266,8 @@ export default function CustomerOrdersPage() {
                     </div>
 
                     <div className="text-left md:text-right mt-6 md:mt-0 md:self-start">
-                      <p className="text-2xl font-black text-gray-900">${parseFloat(order.total_amount).toFixed(2)}</p>
+                      {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                      <p className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</p>
                       <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
                     </div>
                   </div>
@@ -293,7 +298,8 @@ export default function CustomerOrdersPage() {
                               <div key={idx} className="flex items-center justify-between gap-4">
                                 <div>
                                   <p className="font-bold text-gray-900">{item.name}</p>
-                                  <p className="text-sm text-gray-500">Qty: {item.quantity} x ${parseFloat(item.price).toFixed(2)}</p>
+                                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+                                  <p className="text-sm text-gray-500">Qty: {item.quantity} x {currencySymbol}{parseFloat(item.price).toFixed(2)}</p>
                                 </div>
 
                                 {/* Leave Review Button (Only if Delivered!) */}

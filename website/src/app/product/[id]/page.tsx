@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import api from "@/lib/api";
 import { useCartStore } from "@/store/useCartStore";
+import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported global settings store
 import { ShoppingCart, Star, Box, Tag, Loader2, MessageSquare } from "lucide-react";
 
 interface Product {
@@ -29,6 +30,9 @@ export default function ProductPage() {
   const productId = params.id;
   const { addItem } = useCartStore();
 
+  // 🔥 Fetch dynamic currency symbol
+  const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+
   const [product, setProduct] = useState<Product | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +46,6 @@ export default function ProductPage() {
           setProduct(res.data.product);
           setReviews(res.data.reviews || []);
 
-          // 🔥 FIX: Added strict typing instead of 'any'
           const primaryImg = res.data.product.images?.find((img: { url: string; is_primary: boolean }) => img.is_primary)?.url;
           const firstImg = res.data.product.images?.[0]?.url;
           setMainImage(primaryImg || firstImg || "https://placehold.co/600x600?text=No+Image");
@@ -85,7 +88,7 @@ export default function ProductPage() {
                 <img src={mainImage} alt={product.name} className="w-full h-full object-cover" />
               </div>
 
-              {/* Thumbnails (If you ever add multiple images to a product) */}
+              {/* Thumbnails */}
               {product.images && product.images.length > 1 && (
                 <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
                   {product.images.map((img, idx) => (
@@ -120,7 +123,8 @@ export default function ProductPage() {
                 <p className="text-sm font-medium text-gray-500">{reviews.length} Reviews</p>
               </div>
 
-              <p className="text-5xl font-black text-gray-900 mb-8">${parseFloat(product.price.toString()).toFixed(2)}</p>
+              {/* 🔥 Swapped hardcoded $ for currencySymbol */}
+              <p className="text-5xl font-black text-gray-900 mb-8">{currencySymbol}{parseFloat(product.price.toString()).toFixed(2)}</p>
 
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3 text-gray-600">
@@ -197,7 +201,6 @@ export default function ProductPage() {
                         ))}
                       </div>
                     </div>
-                    {/* 🔥 FIX: Used &quot; instead of raw quotation marks */}
                     <p className="text-sm text-gray-600 italic">&quot;{review.comment}&quot;</p>
                   </div>
                 ))
