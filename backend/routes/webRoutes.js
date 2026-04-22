@@ -73,7 +73,7 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (🔥 UPDATED to clear the cloud cart upon success!)
+// 4. POST CHECKOUT (🔥 UPDATED to generate notifications!)
 router.post('/checkout', async (req, res) => {
     const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount } = req.body;
     const client = await pool.connect();
@@ -104,9 +104,22 @@ router.post('/checkout', async (req, res) => {
             pointsEarned = Math.floor(totalAmount / 10);
             if (pointsEarned > 0) {
                 await client.query(`UPDATE customers SET points = COALESCE(points, 0) + $1 WHERE id = $2`, [pointsEarned, customerId]);
+
+                // 🔥 NOTIFICATION: POINTS EARNED
+                await client.query(`
+                    INSERT INTO notifications (customer_id, category, type, title, message, action_url)
+                    VALUES ($1, 'PERSONAL', 'POINTS', 'Points Earned!', 'You earned ' || $2 || ' points from your recent purchase.', '/profile')
+                `, [customerId, pointsEarned]);
             }
-            // 🔥 Wipe the cloud cart clean since they bought the items!
+
+            // Wipe the cloud cart clean since they bought the items!
             await client.query(`DELETE FROM cart_items WHERE customer_id = $1`, [customerId]);
+
+            // 🔥 NOTIFICATION: ORDER PLACED
+            await client.query(`
+                INSERT INTO notifications (customer_id, category, type, title, message, action_url)
+                VALUES ($1, 'PERSONAL', 'ORDER', 'Order Placed Successfully!', 'Your order #' || $2 || ' is now pending.', '/orders')
+            `, [customerId, orderId]);
         }
 
         await client.query('COMMIT');
@@ -383,6 +396,7 @@ router.post('/orders/:id/slip', upload.single('slip'), async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
+// 🔥 UPDATED to create a notification when admin sends a chat!
 router.get('/orders/:id/chat', async (req, res) => {
     const client = await pool.connect();
     try { res.json({ success: true, chats: (await client.query('SELECT * FROM order_chats WHERE order_id = $1 ORDER BY created_at ASC', [req.params.id])).rows }); }
@@ -394,6 +408,20 @@ router.post('/orders/:id/chat', async (req, res) => {
     const client = await pool.connect();
     try {
         const { rows } = await client.query('INSERT INTO order_chats (order_id, sender_type, message) VALUES ($1, $2, $3) RETURNING *', [req.params.id, sender_type, message]);
+
+        // 🔥 NOTIFICATION: NEW CHAT FROM ADMIN
+        if (sender_type === 'ADMIN') {
+            const orderRes = await client.query('SELECT customer_id FROM orders WHERE id = $1', [req.params.id]);
+            const customerId = orderRes.rows[0]?.customer_id;
+
+            if (customerId) {
+                await client.query(`
+                    INSERT INTO notifications (customer_id, category, type, title, message, action_url)
+                    VALUES ($1, 'PERSONAL', 'SYSTEM', 'New Support Message', 'OmniStore sent a message regarding order #' || $2 || '.', '/orders')
+                `, [customerId, req.params.id]);
+            }
+        }
+
         res.json({ success: true, chat: rows[0] });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
@@ -407,11 +435,24 @@ router.post('/products/:id/reviews', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
+// 🔥 UPDATED to create a notification when admin changes order status!
 router.put('/admin/orders/:id/advanced', async (req, res) => {
     const { order_status, payment_status, admin_note } = req.body;
     const client = await pool.connect();
     try {
         await client.query('UPDATE orders SET order_status = $1, payment_status = $2, admin_note = $3 WHERE id = $4', [order_status, payment_status, admin_note, req.params.id]);
+
+        // 🔥 NOTIFICATION: STATUS UPDATE
+        const orderRes = await client.query('SELECT customer_id FROM orders WHERE id = $1', [req.params.id]);
+        const customerId = orderRes.rows[0]?.customer_id;
+
+        if (customerId) {
+            await client.query(`
+                INSERT INTO notifications (customer_id, category, type, title, message, action_url)
+                VALUES ($1, 'PERSONAL', 'ORDER', 'Order Status Updated', 'Your order #' || $2 || ' is now marked as ' || $3 || '.', '/orders')
+            `, [customerId, req.params.id, order_status]);
+        }
+
         res.json({ success: true, message: "Order updated successfully" });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
@@ -439,12 +480,10 @@ router.put('/customers/:id/profile', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-
 // ==========================================
-// 🔥 NEW: CLOUD CART ROUTES
+// CLOUD CART ROUTES
 // ==========================================
 
-// 25. GET CUSTOMER CART
 router.get('/customers/:id/cart', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
@@ -462,7 +501,6 @@ router.get('/customers/:id/cart', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 26. SYNC/UPDATE CART ITEM
 router.post('/customers/:id/cart', async (req, res) => {
     const { id } = req.params;
     const { product_id, quantity } = req.body;
@@ -479,21 +517,13 @@ router.post('/customers/:id/cart', async (req, res) => {
             `, [id, product_id, quantity]);
         }
         res.json({ success: true });
-    } catch (error) {
-    console.error("🔥 CART CRASH:", error.message);
-    res.status(500).json({ success: false, error: error.message });
-} finally {
-    client.release();
-}
+    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
-
-
 
 // ==========================================
 // STORE SETTINGS & THEME ROUTES
 // ==========================================
 
-// 27. GET PUBLIC SETTINGS (Used by the frontend to apply the theme!)
 router.get('/settings', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -506,7 +536,6 @@ router.get('/settings', async (req, res) => {
     }
 });
 
-// 28. UPDATE ADMIN SETTINGS
 router.put('/admin/settings', async (req, res) => {
     const {
         store_name, phone_number, email_address, address, tax_rate, currency_symbol,
@@ -535,9 +564,8 @@ router.put('/admin/settings', async (req, res) => {
     }
 });
 
-
 // ==========================================
-// NOTIFICATION SYSTEM ROUTES
+// 🔥 NEW: NOTIFICATION SYSTEM ROUTES
 // ==========================================
 
 // GET ALL NOTIFICATIONS FOR A CUSTOMER

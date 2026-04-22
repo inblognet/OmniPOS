@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import api from '@/lib/api';
+import axios from 'axios';
 
 export interface Notification {
   id: number;
@@ -28,25 +29,35 @@ export const useNotificationStore = create<NotificationState>((set) => ({
     try {
       const res = await api.get(`/web/customers/${customerId}/notifications`);
       if (res.data.success) {
-        const notifs = res.data.notifications;
-        const unread = notifs.filter((n: Notification) => !n.is_read).length;
-        set({ notifications: notifs, unreadCount: unread });
+        // Renamed 'notifs' to 'fetchedNotifications' to satisfy the spell checker
+        const fetchedNotifications = res.data.notifications || [];
+        const unread = fetchedNotifications.filter((n: Notification) => !n.is_read).length;
+        set({ notifications: fetchedNotifications, unreadCount: unread });
       }
-    } catch (error) {
-      console.error("Failed to fetch notifications");
+    } catch (error: unknown) {
+      // Strictly typed error handling
+      if (axios.isAxiosError(error)) {
+        console.error("🔥 Failed to fetch notifications:", error.response?.data || error.message);
+      } else if (error instanceof Error) {
+        console.error("🔥 Failed to fetch notifications:", error.message);
+      }
     }
   },
 
   clearNotifications: async (customerId) => {
     try {
       await api.put(`/web/customers/${customerId}/notifications/clear`);
-      // Update local state to mark all as read instantly
       set((state) => ({
         notifications: state.notifications.map(n => ({ ...n, is_read: true })),
         unreadCount: 0
       }));
-    } catch (error) {
-      console.error("Failed to clear notifications");
+    } catch (error: unknown) {
+      // Strictly typed error handling
+      if (axios.isAxiosError(error)) {
+        console.error("🔥 Failed to clear notifications:", error.response?.data || error.message);
+      } else if (error instanceof Error) {
+        console.error("🔥 Failed to clear notifications:", error.message);
+      }
     }
   }
 }));
