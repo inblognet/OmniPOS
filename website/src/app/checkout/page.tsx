@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
-import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
+import { useSettingsStore } from "@/store/useSettingsStore";
 import api from "@/lib/api";
 import axios from "axios";
 import {
@@ -14,9 +14,10 @@ import {
 export default function CheckoutPage() {
   const router = useRouter();
   const { user } = useUserStore();
-  const { items } = useCartStore();
 
-  // 🔥 Fetch dynamic currency symbol
+  // 🔥 FIX: Imported clearCart to wipe the frontend memory after checkout!
+  const { items, clearCart } = useCartStore();
+
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const [loading, setLoading] = useState(true);
@@ -30,13 +31,11 @@ export default function CheckoutPage() {
     postal_code: ""
   });
 
-  // Voucher States
   const [voucherCode, setVoucherCode] = useState("");
   const [appliedVoucher, setAppliedVoucher] = useState<{code: string, percentage: number} | null>(null);
   const [voucherMessage, setVoucherMessage] = useState({ text: "", type: "" });
   const [validatingVoucher, setValidatingVoucher] = useState(false);
 
-  // Calculate Cart Totals
   const subTotal = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const discountAmount = appliedVoucher ? (subTotal * (appliedVoucher.percentage / 100)) : 0;
   const finalTotal = subTotal - discountAmount;
@@ -73,7 +72,6 @@ export default function CheckoutPage() {
     fetchProfileData();
   }, [user, items.length, router]);
 
-  // Handle Voucher Validation
   const handleApplyVoucher = async () => {
     if (!voucherCode.trim()) return;
     setValidatingVoucher(true);
@@ -84,7 +82,7 @@ export default function CheckoutPage() {
       if (res.data.success) {
         setAppliedVoucher({ code: voucherCode.toUpperCase(), percentage: res.data.discount_percentage });
         setVoucherMessage({ text: `${res.data.description}`, type: "success" });
-        setVoucherCode(""); // Clear input box
+        setVoucherCode("");
       }
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -123,7 +121,10 @@ export default function CheckoutPage() {
       });
 
       if (res.data.success) {
-        window.location.href = "/orders";
+        // 🔥 FIX: Show alert, clear the frontend cart, and smoothly route without a hard refresh!
+        alert("Order placed successfully! Thank you for shopping with us.");
+        clearCart();
+        router.push("/orders");
       }
     } catch (error) {
       console.error("Checkout failed:", error);
@@ -234,7 +235,6 @@ export default function CheckoutPage() {
                       <p className="font-bold text-gray-900 line-clamp-1 text-sm">{item.name}</p>
                       <p className="text-xs text-gray-500 mt-1">Qty: {item.quantity}</p>
                     </div>
-                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                     <p className="font-black text-gray-900">{currencySymbol}{(item.price * item.quantity).toFixed(2)}</p>
                   </div>
                 ))}
@@ -287,7 +287,6 @@ export default function CheckoutPage() {
               <div className="border-t border-dashed border-gray-200 pt-6 mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 font-medium">Subtotal</span>
-                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                   <span className="font-bold text-gray-900">{currencySymbol}{subTotal.toFixed(2)}</span>
                 </div>
 
@@ -295,7 +294,6 @@ export default function CheckoutPage() {
                 {appliedVoucher && (
                   <div className="flex justify-between items-center mb-2 text-green-600">
                     <span className="font-bold flex items-center gap-1"><Ticket size={14}/> Discount ({appliedVoucher.percentage}%)</span>
-                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                     <span className="font-black">-{currencySymbol}{discountAmount.toFixed(2)}</span>
                   </div>
                 )}
@@ -306,7 +304,6 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-100">
                   <span className="text-xl font-black text-gray-900">Total</span>
-                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                   <span className="text-3xl font-black text-blue-600">{currencySymbol}{finalTotal.toFixed(2)}</span>
                 </div>
               </div>

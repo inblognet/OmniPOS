@@ -116,7 +116,7 @@ export default function AdminBanners() {
                     value={newBanner.subtitle} onChange={e => setNewBanner({...newBanner, subtitle: e.target.value})}
                   />
                 </div>
-                <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-100 cursor-pointer">
+                <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl cursor-pointer">
                   {isSubmitting ? "Saving..." : "Publish Banner"}
                 </button>
               </form>

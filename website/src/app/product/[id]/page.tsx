@@ -142,6 +142,7 @@ export default function ProductPage() {
               </div>
 
               <div className="mt-auto pt-8 border-t border-gray-100">
+                {/* 🔥 Removed the shadow-lg and shadow-blue-200 classes here */}
                 <button
                   disabled={product.web_allocated_stock <= 0}
                   onClick={() => addItem({
@@ -151,7 +152,7 @@ export default function ProductPage() {
                     imageUrl: mainImage,
                     quantity: 1
                   })}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95 shadow-lg shadow-blue-200"
+                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 transition-all active:scale-95"
                 >
                   <ShoppingCart size={24} />
                   {product.web_allocated_stock > 0 ? "Add to Cart" : "Out of Stock"}

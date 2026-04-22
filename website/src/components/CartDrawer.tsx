@@ -63,7 +63,7 @@ export default function CartDrawer({ isOpen, onClose }: { isOpen: boolean; onClo
                   onClose(); // Close the drawer
                   router.push("/checkout"); // Jump to the new checkout page!
                 }}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-blue-200 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-lg transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
               >
                 Proceed to Checkout <ArrowRight size={20} />
               </button>

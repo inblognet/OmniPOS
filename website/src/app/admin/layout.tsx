@@ -16,7 +16,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const user = useUserStore((state) => state.user);
   const logout = useUserStore((state) => state.logout);
 
-  // 🔥 NEW: State for the collapsible sidebar!
+  // State for the collapsible sidebar
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Instantly check if they are allowed in
@@ -35,7 +35,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
-  // The EXACT same data you had before
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: TrendingUp },
     { name: "Orders", href: "/admin/orders", icon: Package },
@@ -60,7 +59,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="min-h-screen bg-gray-50 flex">
 
-      {/* 🔥 RE-DESIGNED COLLAPSIBLE SIDEBAR */}
+      {/* COLLAPSIBLE SIDEBAR */}
       <aside
         className={`${isCollapsed ? 'w-20' : 'w-64'} transition-all duration-300 ease-in-out bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen sticky top-0 z-20`}
       >
@@ -91,10 +90,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <Link
                 key={item.name}
                 href={item.href}
-                title={isCollapsed ? item.name : ""} // Shows tooltip when collapsed!
+                title={isCollapsed ? item.name : ""}
+                // 🔥 Shadow removed here: removed 'shadow-md shadow-blue-200' from active state
                 className={`flex items-center gap-3.5 px-3 py-3 rounded-xl font-bold transition-all group overflow-hidden ${
                   isActive
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+                    ? "bg-blue-600 text-white"
                     : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
                 }`}
               >
@@ -136,11 +136,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       {/* MAIN PAGE CONTENT */}
       <main className="flex-1 min-w-0 flex flex-col">
 
-        {/* 🔥 RE-DESIGNED POS-STYLE HEADER */}
+        {/* HEADER */}
         <header className="h-16 bg-white border-b border-gray-200 px-6 flex items-center justify-end sticky top-0 z-10 shadow-sm">
           <div className="flex items-center gap-4 md:gap-6">
 
-            {/* ONLINE PILL (Just like the POS) */}
+            {/* ONLINE PILL */}
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border border-green-200 bg-green-50 text-green-700 text-[10px] font-black tracking-widest uppercase shadow-sm">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
               Online
@@ -159,7 +159,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </Link>
 
             {/* Profile Avatar */}
-            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-blue-200">
+            {/* 🔥 Shadow removed here: removed 'shadow-md shadow-blue-200' */}
+            <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
               {user?.name?.charAt(0) || "A"}
             </div>
 

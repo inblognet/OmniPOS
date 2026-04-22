@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
-import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Added for currency in search!
+import { useSettingsStore } from "@/store/useSettingsStore";
+import { useNotificationStore } from "@/store/useNotificationStore"; // 🔥 Added Notification Store
+import NotificationDropdown from "./NotificationDropdown"; // 🔥 Added Dropdown Component
 import api from "@/lib/api";
 import {
   ShoppingCart, LogOut, Award, Store, LayoutDashboard,
-  Search, X, Menu, Loader2, Package
+  Search, X, Menu, Loader2, Package, Bell
 } from "lucide-react";
 
 interface SearchResult {
@@ -23,17 +25,28 @@ export default function Navbar() {
   const { items, openCart, clearCart } = useCartStore();
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
+  // 🔥 Bring in Notification State
+  const { unreadCount, fetchNotifications } = useNotificationStore();
+
   const pathname = usePathname();
   const router = useRouter();
 
-  // Search & Mobile Menu States
+  // Search, Menu & Notification States
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotifOpen, setIsNotifOpen] = useState(false); // 🔥 Notification Toggle State
 
   const searchRef = useRef<HTMLDivElement>(null);
+
+  // Fetch Notifications when user logs in
+  useEffect(() => {
+    if (user) {
+      fetchNotifications(user.id);
+    }
+  }, [user, fetchNotifications]);
 
   // Close search if clicked outside
   useEffect(() => {
@@ -58,7 +71,6 @@ export default function Navbar() {
       try {
         const res = await api.get(`/web/products?search=${searchQuery}`);
         if (res.data.success) {
-          // Limit to top 5 results for the quick dropdown
           setSearchResults((res.data.products || []).slice(0, 5));
         }
       } catch (error) {
@@ -66,7 +78,7 @@ export default function Navbar() {
       } finally {
         setIsSearching(false);
       }
-    }, 300); // Wait 300ms after user stops typing
+    }, 300);
 
     return () => clearTimeout(fetchTimer);
   }, [searchQuery]);
@@ -86,6 +98,7 @@ export default function Navbar() {
   const closeAllMenus = () => {
     setIsSearchOpen(false);
     setIsMobileMenuOpen(false);
+    setIsNotifOpen(false); // 🔥 Ensure notifs close too
     setSearchQuery("");
   };
 
@@ -99,18 +112,36 @@ export default function Navbar() {
           <span>OmniStore</span>
         </Link>
 
-        {/* RIGHT: Actions (Mobile strict order: Search, Cart, Profile, Menu) */}
+        {/* RIGHT: Actions */}
         <div className="flex items-center gap-2 md:gap-5 z-20">
 
           {/* 1. Search Icon */}
           <button
-            onClick={() => { setIsSearchOpen(!isSearchOpen); setIsMobileMenuOpen(false); }}
+            onClick={() => { setIsSearchOpen(!isSearchOpen); setIsMobileMenuOpen(false); setIsNotifOpen(false); }}
             className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
           >
             <Search size={22} />
           </button>
 
-          {/* 2. Cart Icon */}
+          {/* 🔥 2. Notification Bell (Only if logged in) */}
+          {user && (
+            <div className="relative">
+              <button
+                onClick={() => { setIsNotifOpen(!isNotifOpen); setIsSearchOpen(false); setIsMobileMenuOpen(false); }}
+                className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+              >
+                <Bell size={22} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+              <NotificationDropdown isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} customerId={user.id} />
+            </div>
+          )}
+
+          {/* 3. Cart Icon */}
           <button onClick={openCart} className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors">
             <ShoppingCart size={22} />
             {cartCount > 0 && (
@@ -120,7 +151,7 @@ export default function Navbar() {
             )}
           </button>
 
-          {/* 3. User Profile / Auth */}
+          {/* 4. User Profile / Auth */}
           {user ? (
             <>
               {/* Desktop Only Extra Links */}
@@ -141,7 +172,7 @@ export default function Navbar() {
                 </button>
               </div>
 
-              {/* Clean Profile Icon (Visible on Mobile & Desktop) */}
+              {/* Clean Profile Icon */}
               <Link href="/profile" onClick={closeAllMenus} className="flex items-center justify-center w-9 h-9 bg-blue-100 border border-blue-200 rounded-full text-blue-700 text-sm font-black hover:bg-blue-600 hover:text-white transition-colors uppercase ml-1 md:ml-0 md:border-l md:border-gray-200 md:pl-0">
                 {user.name.charAt(0)}
               </Link>
@@ -152,17 +183,16 @@ export default function Navbar() {
                 <Link href="/login" className="text-gray-600 hover:text-blue-600 font-bold text-sm">Login</Link>
                 <Link href="/register" className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm">Join</Link>
               </div>
-              {/* Mobile Only Login Icon (If not logged in, show a quick icon instead of profile initial) */}
               <Link href="/login" onClick={closeAllMenus} className="md:hidden flex items-center justify-center w-9 h-9 bg-gray-100 rounded-full text-gray-600 text-sm font-black hover:bg-gray-200 transition-colors ml-1">
                 ?
               </Link>
             </>
           )}
 
-          {/* 4. Mobile Hamburger Menu */}
+          {/* 5. Mobile Hamburger Menu */}
           <button
             className="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors ml-1"
-            onClick={() => { setIsMobileMenuOpen(!isMobileMenuOpen); setIsSearchOpen(false); }}
+            onClick={() => { setIsMobileMenuOpen(!isMobileMenuOpen); setIsSearchOpen(false); setIsNotifOpen(false); }}
           >
             {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>

@@ -150,7 +150,7 @@ export default function AdminVouchersPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-blue-200 cursor-pointer mt-4 flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl  cursor-pointer mt-4 flex justify-center items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                 >
                   {isSubmitting ? <Loader2 size={20} className="animate-spin"/> : "Save Voucher"}
                 </button>

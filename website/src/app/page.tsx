@@ -39,7 +39,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
 
-  // 🔥 NEW: Sidebar Filter States
+  // Sidebar Filter States
   const [filterSearch, setFilterSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
   const [minPrice, setMinPrice] = useState("");
@@ -156,7 +156,7 @@ export default function Home() {
             imageUrl: getProductImageUrl(product),
             quantity: 1
           })}
-          className="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl transition-all active:scale-90 shadow-md shadow-blue-100 cursor-pointer flex items-center justify-center"
+          className="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl transition-all active:scale-90 cursor-pointer flex items-center justify-center"
         >
           <ShoppingCart size={18} />
         </button>
@@ -170,9 +170,9 @@ export default function Home() {
 
         <HeroCarousel />
 
-        {/* PROMO BANNER */}
+        {/* PROMO BANNER (Shadow removed) */}
         {latestVoucher && (
-          <div className="max-w-4xl mx-auto mb-12 bg-gradient-to-r from-amber-400 to-orange-500 rounded-3xl p-1 shadow-lg shadow-orange-200/50 transform hover:scale-[1.01] transition-transform duration-300">
+          <div className="max-w-4xl mx-auto mb-12 bg-gradient-to-r from-amber-400 to-orange-500 rounded-3xl p-1 transform hover:scale-[1.01] transition-transform duration-300">
             <div className="bg-white/95 backdrop-blur-sm rounded-[22px] p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="bg-orange-100 text-orange-600 p-3 rounded-2xl">
@@ -260,14 +260,23 @@ export default function Home() {
 
         {/* --- 3. ALL PRODUCTS SECTION (Sidebar + Grid) --- */}
         <div id="all-products-section" className="pt-8 scroll-mt-10">
-          <div className="mb-8 border-b border-gray-200 pb-4">
+          <div className="mb-4 lg:mb-8 border-b border-gray-200 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <h2 className="text-3xl font-black text-gray-900 tracking-tight">Explore All Products</h2>
+
+            {/* Mobile "Jump to Filters" Button (Hidden on Desktop) */}
+            <button
+              onClick={() => document.getElementById('mobile-filter-center')?.scrollIntoView({ behavior: 'smooth' })}
+              className="lg:hidden flex items-center gap-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors px-4 py-2.5 rounded-xl border border-blue-100 self-start sm:self-auto"
+            >
+              <SlidersHorizontal size={16} /> Jump to Filters
+            </button>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-8 items-start">
+          {/* flex-col-reverse flips the layout purely on mobile! */}
+          <div className="flex flex-col-reverse lg:flex-row gap-8 items-start">
 
-            {/* THE FILTER SIDEBAR */}
-            <aside className="w-full lg:w-72 flex-shrink-0 bg-white rounded-3xl p-6 shadow-sm border border-gray-100 sticky top-24 z-10">
+            {/* THE FILTER SIDEBAR / MOBILE CONTROL CENTER */}
+            <aside id="mobile-filter-center" className="w-full lg:w-72 flex-shrink-0 bg-white rounded-3xl p-6 shadow-sm border border-gray-100 lg:sticky lg:top-24 z-10 scroll-mt-24">
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
                   <SlidersHorizontal size={20} className="text-blue-600"/> Filters
@@ -321,7 +330,7 @@ export default function Home() {
                 {/* Price Range */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Price Range</h4>
+                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Price Range</h4>
                     <button onClick={() => {setMinPrice(""); setMaxPrice("");}} className="text-[10px] font-bold text-gray-400 hover:text-blue-600">Reset</button>
                   </div>
                   <div className="flex items-center gap-2">

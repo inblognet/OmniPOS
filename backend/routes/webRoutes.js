@@ -535,4 +535,44 @@ router.put('/admin/settings', async (req, res) => {
     }
 });
 
+
+// ==========================================
+// NOTIFICATION SYSTEM ROUTES
+// ==========================================
+
+// GET ALL NOTIFICATIONS FOR A CUSTOMER
+router.get('/customers/:id/notifications', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        // Fetch personal notifications AND store/public broadcasts (where customer_id IS NULL)
+        const query = `
+            SELECT * FROM notifications
+            WHERE customer_id = $1 OR customer_id IS NULL
+            ORDER BY created_at DESC LIMIT 50
+        `;
+        const { rows } = await client.query(query, [id]);
+        res.json({ success: true, notifications: rows });
+    } catch (error) {
+        console.error("Notification Fetch Error:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// MARK PERSONAL NOTIFICATIONS AS READ (Clear All)
+router.put('/customers/:id/notifications/clear', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query('UPDATE notifications SET is_read = TRUE WHERE customer_id = $1', [id]);
+        res.json({ success: true, message: "Notifications cleared" });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
