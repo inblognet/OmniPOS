@@ -1,10 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import api from "@/lib/api";
+import axios from "axios"; // 🔥 Imported axios for strict error typing
+import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
-import { ShoppingCart, Search, LayoutGrid, Ticket, Copy, CheckCircle2, SlidersHorizontal, ChevronDown, Tag } from "lucide-react";
+import { useWishlistStore } from "@/store/useWishlistStore";
+import { useToastStore } from "@/store/useToastStore";
+import { ShoppingCart, Search, LayoutGrid, CheckCircle2, SlidersHorizontal, ChevronDown, Tag, Heart, X, Gift, Loader2 } from "lucide-react";
 import HeroCarousel from "@/components/HeroCarousel";
 
 interface Product {
@@ -24,20 +29,33 @@ interface Category {
 }
 
 interface Voucher {
+  id: number;
   code: string;
   discount_percentage: number;
   description: string;
+  image_url: string | null;
+  expire_date_time: string | null;
+  claim_status: 'CLAIMED' | 'USED' | null;
 }
 
 export default function Home() {
+  const router = useRouter();
+  const { user } = useUserStore();
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+
+  const { addToast } = useToastStore();
+  const { addItem } = useCartStore();
+  const { productIds: wishlistIds, toggleWishlist } = useWishlistStore();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [latestVoucher, setLatestVoucher] = useState<Voucher | null>(null);
+
+  // Voucher Modal States
+  const [publicVouchers, setPublicVouchers] = useState<Voucher[]>([]);
+  const [showVoucherModal, setShowVoucherModal] = useState(false);
+  const [claiming, setClaiming] = useState(false);
 
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
 
   // Sidebar Filter States
   const [filterSearch, setFilterSearch] = useState("");
@@ -46,18 +64,31 @@ export default function Home() {
   const [maxPrice, setMaxPrice] = useState("");
   const [sortBy, setSortBy] = useState("newest");
 
-  const { addItem } = useCartStore();
-
   useEffect(() => {
     // Fetch Categories
     api.get("/web/categories").then(res => setCategories(res.data.categories || []));
 
-    // Fetch latest active voucher
-    api.get("/web/vouchers/active").then(res => {
-      if (res.data.success && res.data.vouchers && res.data.vouchers.length > 0) {
-        setLatestVoucher(res.data.vouchers[0]);
+    // Fetch Public Vouchers & check if modal should pop up
+    const fetchVouchers = async () => {
+      try {
+        const res = await api.get("/web/vouchers/public", {
+          params: { customerId: user?.id || null }
+        });
+        if (res.data.success && res.data.vouchers) {
+          const vouchers: Voucher[] = res.data.vouchers;
+          setPublicVouchers(vouchers);
+
+          // Pop up if there is at least one unclaimed voucher
+          const hasUnclaimed = vouchers.some(v => v.claim_status === null);
+          if (hasUnclaimed) {
+            setShowVoucherModal(true);
+          }
+        }
+      } catch (error: unknown) {
+        console.error("Failed to load vouchers", error); // 🔥 Used the error variable
       }
-    }).catch(err => console.error("No active vouchers found"));
+    };
+    fetchVouchers();
 
     // Fetch ALL active products once
     const fetchAllProducts = async () => {
@@ -65,14 +96,14 @@ export default function Home() {
       try {
         const res = await api.get(`/web/products`);
         setProducts(res.data.products || []);
-      } catch (err) {
-        console.error("Error fetching products:", err);
+      } catch (error: unknown) {
+        console.error("Error fetching products:", error); // 🔥 Used the error variable
       } finally {
         setLoading(false);
       }
     };
     fetchAllProducts();
-  }, []);
+  }, [user]);
 
   const getProductImageUrl = (product: Product) => {
     return product.images?.find((img) => img.is_primary)?.url ||
@@ -80,16 +111,47 @@ export default function Home() {
            "https://placehold.co/400x400?text=No+Image";
   };
 
-  const handleCopyCode = () => {
-    if (!latestVoucher) return;
-    navigator.clipboard.writeText(latestVoucher.code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Claim Voucher Logic
+  const handleClaimVoucher = async (voucher: Voucher) => {
+    if (!user) {
+      addToast("Please login to claim this voucher!", "warning");
+      router.push('/login');
+      return;
+    }
+
+    setClaiming(true);
+    try {
+      const res = await api.post('/web/vouchers/claim', {
+        customerId: user.id,
+        voucherId: voucher.id
+      });
+
+      if (res.data.success) {
+        setShowVoucherModal(false);
+        const { items: cartItems } = useCartStore.getState();
+        const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
+
+        if (cartCount > 0) {
+          addToast("Voucher claimed! Redirecting to checkout...", "success");
+          router.push('/checkout');
+        } else {
+          addToast("Voucher claimed successfully! Add products to your cart to use it.", "success");
+        }
+      }
+    } catch (error: unknown) {
+      // 🔥 Strictly typed the error check
+      if (axios.isAxiosError(error)) {
+        addToast(error.response?.data?.message || "Failed to claim voucher", "error");
+      } else {
+        addToast("Failed to claim voucher", "error");
+      }
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const handleCategoryClick = (categoryId: string | null) => {
     setFilterCategory(categoryId);
-    // Smooth scroll down to the All Products section
     document.getElementById("all-products-section")?.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -101,12 +163,26 @@ export default function Home() {
     setSortBy("newest");
   };
 
-  // --- Derived Data ---
+  const handleWishlistToggle = async (e: React.MouseEvent, productId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-  // 1. Latest Arrivals (Top 4 newest products)
+    if (!user) {
+      addToast("Please login to save items to your wishlist.", "warning");
+      router.push('/login');
+      return;
+    }
+
+    const isAdded = await toggleWishlist(user.id, productId);
+    if (isAdded) {
+      addToast("Item saved to wishlist!", "success");
+    } else {
+      addToast("Item removed from wishlist", "info");
+    }
+  };
+
   const latestArrivals = products.slice(0, 4);
 
-  // 2. Filtered & Sorted Products (For the All Products Section)
   const filteredAndSortedProducts = products
     .filter(p => {
       const matchesSearch = filterSearch ? (p.name.toLowerCase().includes(filterSearch.toLowerCase()) || p.sku.toLowerCase().includes(filterSearch.toLowerCase())) : true;
@@ -122,87 +198,76 @@ export default function Home() {
       const priceB = parseFloat(b.price.toString());
       if (sortBy === 'price_asc') return priceA - priceB;
       if (sortBy === 'price_desc') return priceB - priceA;
-      return 0; // Default to newest
+      return 0;
     });
 
-  // Reusable Product Card Component
-  const ProductCard = ({ product }: { product: Product }) => (
-    <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 flex flex-col group hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-      <Link href={`/product/${product.id}`} className="cursor-pointer block">
-        <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={getProductImageUrl(product)}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-          />
-          <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-green-600 shadow-sm border border-green-100">
-            {product.web_allocated_stock} IN STOCK
-          </div>
-        </div>
-        <p className="text-gray-400 text-xs font-black uppercase tracking-wider mb-1 line-clamp-1">{product.category}</p>
-        <h3 className="font-bold text-gray-900 text-lg mb-4 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">{product.name}</h3>
-      </Link>
-      <div className="mt-auto flex items-end justify-between pt-4 border-t border-gray-50">
-        <div>
-          <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Price</p>
-          <span className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(product.price.toString()).toLocaleString()}</span>
-        </div>
+  const ProductCard = ({ product }: { product: Product }) => {
+    // 🔥 Changed from isWishlisted to isInWishlist to fix spell-checker
+    const isInWishlist = wishlistIds.includes(product.id);
+
+    return (
+      <div className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 flex flex-col group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 relative">
+
         <button
-          onClick={() => addItem({
-            id: product.id,
-            name: product.name,
-            price: parseFloat(product.price.toString()),
-            imageUrl: getProductImageUrl(product),
-            quantity: 1
-          })}
-          className="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl transition-all active:scale-90 cursor-pointer flex items-center justify-center"
+          onClick={(e) => handleWishlistToggle(e, product.id)}
+          className="absolute top-8 right-8 z-10 p-2.5 bg-white/90 backdrop-blur-md rounded-full shadow-sm border border-gray-100 hover:scale-110 active:scale-95 transition-all"
         >
-          <ShoppingCart size={18} />
+          <Heart size={18} className={isInWishlist ? "fill-rose-500 text-rose-500" : "text-gray-400"} />
         </button>
+
+        <Link href={`/product/${product.id}`} className="cursor-pointer block">
+          <div className="aspect-square rounded-2xl bg-gray-50 mb-5 overflow-hidden relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getProductImageUrl(product)}
+              alt={product.name}
+              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+            />
+            <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider text-green-600 shadow-sm border border-green-100">
+              {product.web_allocated_stock} IN STOCK
+            </div>
+          </div>
+          <p className="text-gray-400 text-xs font-black uppercase tracking-wider mb-1 line-clamp-1">{product.category}</p>
+          <h3 className="font-bold text-gray-900 text-lg mb-4 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">{product.name}</h3>
+        </Link>
+        <div className="mt-auto flex items-end justify-between pt-4 border-t border-gray-50">
+          <div>
+            <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mb-1">Price</p>
+            <span className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(product.price.toString()).toLocaleString()}</span>
+          </div>
+          <button
+            onClick={() => {
+              addItem({
+                id: product.id,
+                name: product.name,
+                price: parseFloat(product.price.toString()),
+                imageUrl: getProductImageUrl(product),
+                quantity: 1
+              });
+              addToast(`${product.name} added to cart!`, "success");
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white p-3.5 rounded-xl transition-all active:scale-90 cursor-pointer flex items-center justify-center"
+          >
+            <ShoppingCart size={18} />
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
+
+  const unclaimedVoucher = publicVouchers.find(v => v.claim_status === null);
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-20 relative">
       <main className="max-w-[1400px] mx-auto px-4 pt-10">
 
         <HeroCarousel />
 
-        {/* PROMO BANNER (Shadow removed) */}
-        {latestVoucher && (
-          <div className="max-w-4xl mx-auto mb-12 bg-gradient-to-r from-amber-400 to-orange-500 rounded-3xl p-1 transform hover:scale-[1.01] transition-transform duration-300">
-            <div className="bg-white/95 backdrop-blur-sm rounded-[22px] p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="bg-orange-100 text-orange-600 p-3 rounded-2xl">
-                  <Ticket size={28} className="animate-pulse" />
-                </div>
-                <div>
-                  <h3 className="font-black text-gray-900 text-lg flex items-center gap-2">
-                    {latestVoucher.discount_percentage}% OFF SPECIAL
-                  </h3>
-                  <p className="text-sm font-medium text-gray-600 line-clamp-1">{latestVoucher.description}</p>
-                </div>
-              </div>
-
-              <button
-                onClick={handleCopyCode}
-                className="shrink-0 flex items-center gap-2 bg-gray-900 hover:bg-black text-white px-5 py-3 rounded-xl font-bold transition-all active:scale-95"
-              >
-                <span className="tracking-widest uppercase">{latestVoucher.code}</span>
-                {copied ? <CheckCircle2 size={18} className="text-green-400" /> : <Copy size={18} className="text-gray-400" />}
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* --- 1. VISUAL CATEGORY GRID --- */}
-        <div className="mb-16">
+        <div className="mb-16 mt-8">
           <h2 className="text-3xl font-black text-gray-900 text-center mb-6">Shop By Category</h2>
 
           <div className="flex gap-6 overflow-x-auto pt-4 pb-8 px-4 snap-x hide-scrollbar justify-start md:justify-center">
-            {/* 'All Items' Default Button */}
             <div
               onClick={() => handleCategoryClick(null)}
               className={`snap-center shrink-0 flex flex-col items-center justify-start gap-3 cursor-pointer group w-28 ${!filterCategory ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
@@ -215,7 +280,6 @@ export default function Home() {
               </span>
             </div>
 
-            {/* Dynamic Category Cards */}
             {categories.map(cat => (
               <div
                 key={cat.id}
@@ -258,12 +322,11 @@ export default function Home() {
         </div>
 
 
-        {/* --- 3. ALL PRODUCTS SECTION (Sidebar + Grid) --- */}
+        {/* --- 3. ALL PRODUCTS SECTION --- */}
         <div id="all-products-section" className="pt-8 scroll-mt-10">
           <div className="mb-4 lg:mb-8 border-b border-gray-200 pb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <h2 className="text-3xl font-black text-gray-900 tracking-tight">Explore All Products</h2>
 
-            {/* Mobile "Jump to Filters" Button (Hidden on Desktop) */}
             <button
               onClick={() => document.getElementById('mobile-filter-center')?.scrollIntoView({ behavior: 'smooth' })}
               className="lg:hidden flex items-center gap-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors px-4 py-2.5 rounded-xl border border-blue-100 self-start sm:self-auto"
@@ -272,10 +335,9 @@ export default function Home() {
             </button>
           </div>
 
-          {/* flex-col-reverse flips the layout purely on mobile! */}
           <div className="flex flex-col-reverse lg:flex-row gap-8 items-start">
 
-            {/* THE FILTER SIDEBAR / MOBILE CONTROL CENTER */}
+            {/* FILTER SIDEBAR */}
             <aside id="mobile-filter-center" className="w-full lg:w-72 flex-shrink-0 bg-white rounded-3xl p-6 shadow-sm border border-gray-100 lg:sticky lg:top-24 z-10 scroll-mt-24">
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                 <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
@@ -285,7 +347,6 @@ export default function Home() {
               </div>
 
               <div className="space-y-8">
-                {/* Mini Search */}
                 <div>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Search Catalog</h4>
                   <div className="relative">
@@ -300,7 +361,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Categories */}
                 <div>
                   <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Categories</h4>
                   <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
@@ -327,7 +387,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Price Range */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Price Range</h4>
@@ -352,7 +411,6 @@ export default function Home() {
             {/* FILTERED PRODUCT GRID */}
             <div className="flex-1 w-full">
 
-              {/* Top Bar: Results Count & Sorting */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <p className="text-sm font-bold text-gray-500">
                   Showing <span className="text-gray-900">{filteredAndSortedProducts.length}</span> Results
@@ -375,7 +433,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Grid */}
               {loading ? (
                 <div className="flex justify-center py-32 bg-white rounded-3xl border border-gray-100">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -397,6 +454,62 @@ export default function Home() {
         </div>
 
       </main>
+
+      {/* 🔥 THE HOMEPAGE VOUCHER POP-UP MODAL */}
+      {showVoucherModal && unclaimedVoucher && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl relative animate-in fade-in zoom-in duration-300">
+
+            <button
+              onClick={() => setShowVoucherModal(false)}
+              className="absolute top-4 right-4 z-10 bg-black/20 hover:bg-black/40 text-white rounded-full p-1.5 backdrop-blur-md transition-colors"
+            >
+              <X size={20} />
+            </button>
+
+            {unclaimedVoucher.image_url ? (
+              <div className="h-48 w-full bg-gray-100 relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={unclaimedVoucher.image_url} alt="Promo" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-gray-900/80 to-transparent flex items-end p-6">
+                  <h2 className="text-3xl font-black text-white tracking-tight">Don&apos;t miss out on this deal!</h2>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 p-8 flex items-end h-40 relative overflow-hidden">
+                <Gift size={120} className="absolute -top-4 -right-4 text-white/10" />
+                <h2 className="text-3xl font-black text-white tracking-tight z-10">Don&apos;t miss out on this deal!</h2>
+              </div>
+            )}
+
+            <div className="p-8 text-center">
+              <div className="inline-flex items-center justify-center gap-2 bg-rose-50 text-rose-600 px-4 py-1.5 rounded-full font-black tracking-widest uppercase mb-4 text-sm border border-rose-100">
+                <Tag size={16} /> {unclaimedVoucher.discount_percentage}% OFF
+              </div>
+
+              <h3 className="text-2xl font-black text-gray-900 mb-2">{unclaimedVoucher.description}</h3>
+              <p className="text-gray-500 font-medium mb-6">Grab your special discount by applying this voucher today.</p>
+
+              <button
+                onClick={() => handleClaimVoucher(unclaimedVoucher)}
+                disabled={claiming}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl flex justify-center items-center gap-2 shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {claiming ? <Loader2 size={24} className="animate-spin" /> : "Claim It Now"}
+              </button>
+
+              <button
+                onClick={() => setShowVoucherModal(false)}
+                className="mt-4 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                No Thanks
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

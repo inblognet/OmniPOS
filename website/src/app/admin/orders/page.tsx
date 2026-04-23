@@ -1,11 +1,11 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the store
+import { useSettingsStore } from "@/store/useSettingsStore";
 import {
   Package, MessageCircle, Send, FileText,
   Save, Loader2, Search, ExternalLink,
-  MapPin, Phone, Building, Hash
+  MapPin, Phone, Building, Hash, Ticket, Award // 🔥 Added Ticket & Award
 } from "lucide-react";
 
 interface OrderItem {
@@ -26,11 +26,13 @@ interface Order {
   admin_note: string | null;
   created_at: string;
 
-  // NEW: Shipping Details
   delivery_phone: string | null;
   delivery_address: string | null;
   delivery_city: string | null;
   delivery_postal_code: string | null;
+
+  discount_code: string | null;
+  discount_amount: string | number;
 
   items: OrderItem[];
 }
@@ -43,7 +45,6 @@ interface Chat {
 }
 
 export default function AdminOrdersPage() {
-  // 🔥 Fetch the dynamic currency symbol
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -215,7 +216,6 @@ export default function AdminOrdersPage() {
                       <p className="font-bold text-gray-900">{order.customer_name || 'Guest'}</p>
                       <p className="text-xs text-gray-500">{order.customer_email || 'No email'}</p>
                     </td>
-                    {/* 🔥 Replaced the hardcoded $ with {currencySymbol} */}
                     <td className="p-4 font-bold text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</td>
                     <td className="p-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${getStatusColor(order.payment_status)}`}>
@@ -237,6 +237,49 @@ export default function AdminOrdersPage() {
 
                           {/* Left Side: Shipping, Controls & Slip */}
                           <div className="space-y-6">
+
+                            {/* 🔥 NEW: Order Items & Voucher Summary */}
+                            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+                              <h3 className="font-black text-gray-900 border-b border-gray-100 pb-3 mb-4 flex items-center gap-2">
+                                <Package className="text-blue-600" size={18} /> Order Summary
+                              </h3>
+
+                              <div className="space-y-3 mb-4 border-b border-gray-100 pb-4">
+                                {order.items && order.items.map((item, idx) => (
+                                  <div key={idx} className="flex justify-between items-center text-sm">
+                                    <div>
+                                      <span className="font-bold text-gray-900">{item.name}</span>
+                                      <span className="text-gray-500 ml-2">x{item.quantity}</span>
+                                    </div>
+                                    <span className="font-medium text-gray-700">{currencySymbol}{parseFloat(item.price).toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="space-y-2 text-sm">
+                                <div className="flex justify-between text-gray-500">
+                                  <span>Subtotal</span>
+                                  <span>{currencySymbol}{(parseFloat(order.total_amount) + parseFloat(order.discount_amount?.toString() || "0")).toFixed(2)}</span>
+                                </div>
+
+                                {order.discount_code && (
+                                  <div className="flex justify-between text-rose-600 font-bold">
+                                    <span className="flex items-center gap-1"><Ticket size={14}/> Voucher ({order.discount_code})</span>
+                                    <span>-{currencySymbol}{parseFloat(order.discount_amount?.toString() || "0").toFixed(2)}</span>
+                                  </div>
+                                )}
+
+                                <div className="flex justify-between text-gray-900 font-black text-lg pt-2 border-t border-gray-100 mt-2">
+                                  <span>Total Paid</span>
+                                  <span>{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</span>
+                                </div>
+
+                                <div className="flex justify-between items-center mt-4 bg-amber-50 border border-amber-100 p-3 rounded-xl">
+                                  <span className="text-amber-700 font-bold flex items-center gap-1.5"><Award size={16}/> Points Earned by Customer</span>
+                                  <span className="text-amber-700 font-black">+{Math.floor(parseFloat(order.total_amount) / 10)}</span>
+                                </div>
+                              </div>
+                            </div>
 
                             {/* Shipping Details Card */}
                             <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">

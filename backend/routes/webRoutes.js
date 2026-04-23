@@ -73,7 +73,7 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (🔥 UPDATED to generate notifications!)
+// 4. POST CHECKOUT (🔥 UPDATED to generate notifications AND mark vouchers as used!)
 router.post('/checkout', async (req, res) => {
     const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount } = req.body;
     const client = await pool.connect();
@@ -115,6 +115,18 @@ router.post('/checkout', async (req, res) => {
             // Wipe the cloud cart clean since they bought the items!
             await client.query(`DELETE FROM cart_items WHERE customer_id = $1`, [customerId]);
 
+            // 🔥 NEW: Mark the voucher as USED if one was applied
+            if (discount_code) {
+                // Find the voucher ID from the code
+                const vRes = await client.query('SELECT id FROM vouchers WHERE code = $1', [discount_code]);
+                if (vRes.rows.length > 0) {
+                    await client.query(
+                        'UPDATE customer_vouchers SET status = $1, used_at = NOW() WHERE customer_id = $2 AND voucher_id = $3',
+                        ['USED', customerId, vRes.rows[0].id]
+                    );
+                }
+            }
+
             // 🔥 NOTIFICATION: ORDER PLACED
             await client.query(`
                 INSERT INTO notifications (customer_id, category, type, title, message, action_url)
@@ -136,24 +148,55 @@ router.post('/checkout', async (req, res) => {
 // VOUCHER SYSTEM ROUTES
 // ==========================================
 
-router.post('/vouchers/validate', async (req, res) => {
-    const { code } = req.body;
+// 1. PUBLIC: Get all active, public vouchers (and check if the user claimed them)
+router.get('/vouchers/public', async (req, res) => {
+    const { customerId } = req.query;
     const client = await pool.connect();
     try {
-        const { rows } = await client.query('SELECT * FROM vouchers WHERE code = $1 AND is_active = TRUE', [code.toUpperCase()]);
-        if (rows.length === 0) return res.status(404).json({ success: false, message: "Invalid or expired voucher code." });
-        res.json({ success: true, discount_percentage: rows[0].discount_percentage, description: rows[0].description });
+        let query = `
+            SELECT v.id, v.code, v.discount_percentage, v.description, v.image_url, v.expire_date_time
+            FROM vouchers v
+            WHERE v.is_active = TRUE AND v.is_public = TRUE
+            AND (v.expire_date_time IS NULL OR v.expire_date_time > NOW())
+            ORDER BY v.created_at DESC
+        `;
+        const { rows: vouchers } = await client.query(query);
+
+        // If user is logged in, attach their claim status
+        if (customerId) {
+            const { rows: claims } = await client.query('SELECT voucher_id, status FROM customer_vouchers WHERE customer_id = $1', [customerId]);
+            const claimMap = claims.reduce((acc, curr) => {
+                acc[curr.voucher_id] = curr.status; // 'CLAIMED' or 'USED'
+                return acc;
+            }, {});
+
+            const mappedVouchers = vouchers.map(v => ({
+                ...v,
+                claim_status: claimMap[v.id] || null // null means not claimed yet
+            }));
+            return res.json({ success: true, vouchers: mappedVouchers });
+        }
+
+        res.json({ success: true, vouchers: vouchers.map(v => ({ ...v, claim_status: null })) });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-router.get('/vouchers/active', async (req, res) => {
+// 2. CUSTOMER: Claim a voucher
+router.post('/vouchers/claim', async (req, res) => {
+    const { customerId, voucherId } = req.body;
     const client = await pool.connect();
     try {
-        const { rows } = await client.query('SELECT code, discount_percentage, description FROM vouchers WHERE is_active = TRUE ORDER BY created_at DESC');
-        res.json({ success: true, vouchers: rows });
-    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+        await client.query(
+            'INSERT INTO customer_vouchers (customer_id, voucher_id, status) VALUES ($1, $2, $3)',
+            [customerId, voucherId, 'CLAIMED']
+        );
+        res.json({ success: true, message: "Voucher claimed successfully!" });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "You already claimed this voucher." });
+    } finally { client.release(); }
 });
 
+// 3. ADMIN: Get all vouchers
 router.get('/admin/vouchers', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -162,18 +205,21 @@ router.get('/admin/vouchers', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-router.post('/admin/vouchers', async (req, res) => {
-    const { code, discount_percentage, description } = req.body;
+// 4. ADMIN: Create a voucher (with image upload)
+router.post('/admin/vouchers', upload.single('image'), async (req, res) => {
+    const { code, discount_percentage, description, expire_date_time, is_public } = req.body;
+    const imageUrl = req.file ? req.file.path : null;
     const client = await pool.connect();
     try {
         await client.query(
-            'INSERT INTO vouchers (code, discount_percentage, description) VALUES ($1, $2, $3)',
-            [code.toUpperCase(), discount_percentage, description]
+            'INSERT INTO vouchers (code, discount_percentage, description, expire_date_time, is_public, image_url) VALUES ($1, $2, $3, $4, $5, $6)',
+            [code.toUpperCase(), discount_percentage, description, expire_date_time || null, is_public === 'true', imageUrl]
         );
         res.json({ success: true });
     } catch (error) { res.status(500).json({ success: false, message: "Code might already exist." }); } finally { client.release(); }
 });
 
+// 5. ADMIN: Toggle Active Status
 router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -182,6 +228,7 @@ router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
+// 6. ADMIN: Delete Voucher
 router.delete('/admin/vouchers/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -396,7 +443,6 @@ router.post('/orders/:id/slip', upload.single('slip'), async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 🔥 UPDATED to create a notification when admin sends a chat!
 router.get('/orders/:id/chat', async (req, res) => {
     const client = await pool.connect();
     try { res.json({ success: true, chats: (await client.query('SELECT * FROM order_chats WHERE order_id = $1 ORDER BY created_at ASC', [req.params.id])).rows }); }
@@ -409,7 +455,6 @@ router.post('/orders/:id/chat', async (req, res) => {
     try {
         const { rows } = await client.query('INSERT INTO order_chats (order_id, sender_type, message) VALUES ($1, $2, $3) RETURNING *', [req.params.id, sender_type, message]);
 
-        // 🔥 NOTIFICATION: NEW CHAT FROM ADMIN
         if (sender_type === 'ADMIN') {
             const orderRes = await client.query('SELECT customer_id FROM orders WHERE id = $1', [req.params.id]);
             const customerId = orderRes.rows[0]?.customer_id;
@@ -432,13 +477,11 @@ router.post('/products/:id/reviews', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // 1. Save the actual review
         await client.query(
             'INSERT INTO product_reviews (product_id, customer_id, order_id, rating, comment) VALUES ($1, $2, $3, $4, $5)',
             [req.params.id, customerId, orderId, rating, comment]
         );
 
-        // 2. Grab the product name and customer name so the notification looks nice
         const infoRes = await client.query(`
             SELECT p.name as product_name, c.name as customer_name
             FROM products p, customers c
@@ -449,8 +492,6 @@ router.post('/products/:id/reviews', async (req, res) => {
         const customerName = infoRes.rows[0]?.customer_name || 'A customer';
         const firstName = customerName.split(' ')[0];
 
-        // 🔥 3. CREATE NOTIFICATION: PUBLIC BROADCAST
-        // Notice we pass NULL for the customer_id so it shows up in EVERYONE'S "PUBLIC" tab!
         await client.query(`
             INSERT INTO notifications (customer_id, category, type, title, message, action_url)
             VALUES (NULL, 'PUBLIC', 'REVIEW', 'New Customer Review!', $1, $2)
@@ -467,14 +508,12 @@ router.post('/products/:id/reviews', async (req, res) => {
     }
 });
 
-// 🔥 UPDATED to create a notification when admin changes order status!
 router.put('/admin/orders/:id/advanced', async (req, res) => {
     const { order_status, payment_status, admin_note } = req.body;
     const client = await pool.connect();
     try {
         await client.query('UPDATE orders SET order_status = $1, payment_status = $2, admin_note = $3 WHERE id = $4', [order_status, payment_status, admin_note, req.params.id]);
 
-        // 🔥 NOTIFICATION: STATUS UPDATE
         const orderRes = await client.query('SELECT customer_id FROM orders WHERE id = $1', [req.params.id]);
         const customerId = orderRes.rows[0]?.customer_id;
 
@@ -597,7 +636,7 @@ router.put('/admin/settings', async (req, res) => {
 });
 
 // ==========================================
-// 🔥 NEW: NOTIFICATION SYSTEM ROUTES
+// NOTIFICATION SYSTEM ROUTES
 // ==========================================
 
 // GET ALL NOTIFICATIONS FOR A CUSTOMER
@@ -634,7 +673,6 @@ router.put('/customers/:id/notifications/clear', async (req, res) => {
         client.release();
     }
 });
-
 
 // ==========================================
 // WISHLIST ROUTES
