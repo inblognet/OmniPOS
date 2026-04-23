@@ -5,8 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
-import { useNotificationStore } from "@/store/useNotificationStore"; // 🔥 Added Notification Store
-import NotificationDropdown from "./NotificationDropdown"; // 🔥 Added Dropdown Component
+import { useNotificationStore } from "@/store/useNotificationStore";
+import NotificationDropdown from "./NotificationDropdown";
 import api from "@/lib/api";
 import {
   ShoppingCart, LogOut, Award, Store, LayoutDashboard,
@@ -25,7 +25,6 @@ export default function Navbar() {
   const { items, openCart, clearCart } = useCartStore();
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
-  // 🔥 Bring in Notification State
   const { unreadCount, fetchNotifications } = useNotificationStore();
 
   const pathname = usePathname();
@@ -37,16 +36,24 @@ export default function Navbar() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isNotifOpen, setIsNotifOpen] = useState(false); // 🔥 Notification Toggle State
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
 
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // Fetch Notifications when user logs in
+  // 🔥 LIVE UPDATING LOGIC: Fetch on mount, on page change, and every 30 seconds
   useEffect(() => {
     if (user) {
+      // 1. Fetch immediately
       fetchNotifications(user.id);
+
+      // 2. Set up silent background polling every 30 seconds
+      const pollingInterval = setInterval(() => {
+        fetchNotifications(user.id);
+      }, 30000);
+
+      return () => clearInterval(pollingInterval);
     }
-  }, [user, fetchNotifications]);
+  }, [user, fetchNotifications, pathname]); // 🔥 pathname dependency triggers update on page change!
 
   // Close search if clicked outside
   useEffect(() => {
@@ -98,7 +105,7 @@ export default function Navbar() {
   const closeAllMenus = () => {
     setIsSearchOpen(false);
     setIsMobileMenuOpen(false);
-    setIsNotifOpen(false); // 🔥 Ensure notifs close too
+    setIsNotifOpen(false);
     setSearchQuery("");
   };
 
@@ -123,7 +130,7 @@ export default function Navbar() {
             <Search size={22} />
           </button>
 
-          {/* 🔥 2. Notification Bell (Only if logged in) */}
+          {/* 2. Notification Bell (Only if logged in) */}
           {user && (
             <div className="relative">
               <button

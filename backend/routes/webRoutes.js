@@ -430,9 +430,41 @@ router.post('/products/:id/reviews', async (req, res) => {
     const { customerId, orderId, rating, comment } = req.body;
     const client = await pool.connect();
     try {
-        await client.query('INSERT INTO product_reviews (product_id, customer_id, order_id, rating, comment) VALUES ($1, $2, $3, $4, $5)', [req.params.id, customerId, orderId, rating, comment]);
+        await client.query('BEGIN');
+
+        // 1. Save the actual review
+        await client.query(
+            'INSERT INTO product_reviews (product_id, customer_id, order_id, rating, comment) VALUES ($1, $2, $3, $4, $5)',
+            [req.params.id, customerId, orderId, rating, comment]
+        );
+
+        // 2. Grab the product name and customer name so the notification looks nice
+        const infoRes = await client.query(`
+            SELECT p.name as product_name, c.name as customer_name
+            FROM products p, customers c
+            WHERE p.id = $1 AND c.id = $2
+        `, [req.params.id, customerId]);
+
+        const productName = infoRes.rows[0]?.product_name || 'a product';
+        const customerName = infoRes.rows[0]?.customer_name || 'A customer';
+        const firstName = customerName.split(' ')[0];
+
+        // 🔥 3. CREATE NOTIFICATION: PUBLIC BROADCAST
+        // Notice we pass NULL for the customer_id so it shows up in EVERYONE'S "PUBLIC" tab!
+        await client.query(`
+            INSERT INTO notifications (customer_id, category, type, title, message, action_url)
+            VALUES (NULL, 'PUBLIC', 'REVIEW', 'New Customer Review!', $1, $2)
+        `, [`${firstName} left a ${rating}-star review for ${productName}.`, `/product/${req.params.id}`]);
+
+        await client.query('COMMIT');
         res.json({ success: true, message: "Review added!" });
-    } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Failed to post review:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
 });
 
 // 🔥 UPDATED to create a notification when admin changes order status!
