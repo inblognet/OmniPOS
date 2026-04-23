@@ -6,11 +6,12 @@ import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
 import { useNotificationStore } from "@/store/useNotificationStore";
+import { useWishlistStore } from "@/store/useWishlistStore"; // 🔥 Keeps the Wishlist store
 import NotificationDropdown from "./NotificationDropdown";
 import api from "@/lib/api";
 import {
   ShoppingCart, LogOut, Award, Store, LayoutDashboard,
-  Search, X, Menu, Loader2, Package, Bell
+  Search, X, Menu, Loader2, Package, Bell, Heart
 } from "lucide-react";
 
 interface SearchResult {
@@ -26,6 +27,7 @@ export default function Navbar() {
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const { unreadCount, fetchNotifications } = useNotificationStore();
+  const { items: wishlistItems, fetchWishlist, clearLocalWishlist } = useWishlistStore(); // 🔥
 
   const pathname = usePathname();
   const router = useRouter();
@@ -40,20 +42,17 @@ export default function Navbar() {
 
   const searchRef = useRef<HTMLDivElement>(null);
 
-  // 🔥 LIVE UPDATING LOGIC: Fetch on mount, on page change, and every 30 seconds
+  // Fetch Notifications and Wishlist
   useEffect(() => {
     if (user) {
-      // 1. Fetch immediately
       fetchNotifications(user.id);
-
-      // 2. Set up silent background polling every 30 seconds
+      fetchWishlist(user.id); // 🔥 Fetches the wishlist items
       const pollingInterval = setInterval(() => {
         fetchNotifications(user.id);
       }, 30000);
-
       return () => clearInterval(pollingInterval);
     }
-  }, [user, fetchNotifications, pathname]); // 🔥 pathname dependency triggers update on page change!
+  }, [user, fetchNotifications, fetchWishlist, pathname]);
 
   // Close search if clicked outside
   useEffect(() => {
@@ -95,9 +94,11 @@ export default function Navbar() {
   }
 
   const cartCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  const wishlistCount = wishlistItems.length;
 
   const handleLogout = () => {
     clearCart();
+    clearLocalWishlist(); // 🔥 Wipes the local wishlist on logout
     logout();
     window.location.href = "/";
   };
@@ -113,7 +114,6 @@ export default function Navbar() {
     <nav className="bg-white border-b border-gray-100 py-3 px-4 md:px-8 sticky top-0 z-50 shadow-sm relative">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
 
-        {/* LEFT: Store Logo */}
         <Link href="/" onClick={closeAllMenus} className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-600 tracking-tighter z-20">
           <Store size={28} />
           <span>OmniStore</span>
@@ -122,7 +122,6 @@ export default function Navbar() {
         {/* RIGHT: Actions */}
         <div className="flex items-center gap-2 md:gap-5 z-20">
 
-          {/* 1. Search Icon */}
           <button
             onClick={() => { setIsSearchOpen(!isSearchOpen); setIsMobileMenuOpen(false); setIsNotifOpen(false); }}
             className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
@@ -130,38 +129,51 @@ export default function Navbar() {
             <Search size={22} />
           </button>
 
-          {/* 2. Notification Bell (Only if logged in) */}
           {user && (
-            <div className="relative">
-              <button
-                onClick={() => { setIsNotifOpen(!isNotifOpen); setIsSearchOpen(false); setIsMobileMenuOpen(false); }}
-                className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+            <>
+              {/* 🔥 The Wishlist Heart Icon */}
+              <Link
+                href="/wishlist"
+                onClick={closeAllMenus}
+                className="relative p-2 text-gray-600 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors hidden sm:block"
               >
-                <Bell size={22} />
-                {unreadCount > 0 && (
-                  <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
-                    {unreadCount}
+                <Heart size={22} />
+                {wishlistCount > 0 && (
+                  <span className="absolute top-0 right-0 bg-rose-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
+                    {wishlistCount}
                   </span>
                 )}
-              </button>
-              <NotificationDropdown isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} customerId={user.id} />
-            </div>
+              </Link>
+
+              {/* Notification Bell */}
+              <div className="relative">
+                <button
+                  onClick={() => { setIsNotifOpen(!isNotifOpen); setIsSearchOpen(false); setIsMobileMenuOpen(false); }}
+                  className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                >
+                  <Bell size={22} />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+                <NotificationDropdown isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} customerId={user.id} />
+              </div>
+            </>
           )}
 
-          {/* 3. Cart Icon */}
           <button onClick={openCart} className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors">
             <ShoppingCart size={22} />
             {cartCount > 0 && (
-              <span className="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
+              <span className="absolute top-0 right-0 bg-blue-600 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full border-2 border-white transform scale-100 animate-in zoom-in">
                 {cartCount}
               </span>
             )}
           </button>
 
-          {/* 4. User Profile / Auth */}
           {user ? (
             <>
-              {/* Desktop Only Extra Links */}
               <div className="hidden md:flex items-center gap-4 border-l border-gray-200 pl-4">
                 {user.role && (
                   <Link href="/admin" className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-800 font-bold text-sm bg-indigo-50 px-2.5 py-1.5 rounded-lg transition-colors">
@@ -171,15 +183,9 @@ export default function Navbar() {
                 <div className="flex items-center gap-1.5 text-amber-600 bg-amber-50 px-2.5 py-1.5 rounded-lg font-bold text-sm">
                   <Award size={16} /> {user.points || 0}
                 </div>
-                <Link href="/orders" className="text-gray-600 hover:text-blue-600 font-bold text-sm transition-colors">
-                  Orders
-                </Link>
-                <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="Logout">
-                  <LogOut size={18} />
-                </button>
+                <Link href="/orders" className="text-gray-600 hover:text-blue-600 font-bold text-sm transition-colors">Orders</Link>
+                <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 transition-colors p-1" title="Logout"><LogOut size={18} /></button>
               </div>
-
-              {/* Clean Profile Icon */}
               <Link href="/profile" onClick={closeAllMenus} className="flex items-center justify-center w-9 h-9 bg-blue-100 border border-blue-200 rounded-full text-blue-700 text-sm font-black hover:bg-blue-600 hover:text-white transition-colors uppercase ml-1 md:ml-0 md:border-l md:border-gray-200 md:pl-0">
                 {user.name.charAt(0)}
               </Link>
@@ -190,13 +196,10 @@ export default function Navbar() {
                 <Link href="/login" className="text-gray-600 hover:text-blue-600 font-bold text-sm">Login</Link>
                 <Link href="/register" className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm">Join</Link>
               </div>
-              <Link href="/login" onClick={closeAllMenus} className="md:hidden flex items-center justify-center w-9 h-9 bg-gray-100 rounded-full text-gray-600 text-sm font-black hover:bg-gray-200 transition-colors ml-1">
-                ?
-              </Link>
+              <Link href="/login" onClick={closeAllMenus} className="md:hidden flex items-center justify-center w-9 h-9 bg-gray-100 rounded-full text-gray-600 text-sm font-black hover:bg-gray-200 transition-colors ml-1">?</Link>
             </>
           )}
 
-          {/* 5. Mobile Hamburger Menu */}
           <button
             className="md:hidden p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors ml-1"
             onClick={() => { setIsMobileMenuOpen(!isMobileMenuOpen); setIsSearchOpen(false); setIsNotifOpen(false); }}
@@ -206,7 +209,7 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* --- LIVE SEARCH OVERLAY --- */}
+      {/* LIVE SEARCH OVERLAY */}
       {isSearchOpen && (
         <div ref={searchRef} className="absolute top-full left-0 w-full bg-white border-b border-gray-100 shadow-xl p-4 md:p-6 z-40 animate-in slide-in-from-top-2 duration-200">
           <div className="max-w-3xl mx-auto relative">
@@ -221,19 +224,14 @@ export default function Navbar() {
                 className="w-full bg-transparent outline-none text-gray-900 font-medium placeholder-gray-400"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery("")} className="text-gray-400 hover:text-gray-600">
-                  <X size={18} />
-                </button>
+                <button onClick={() => setSearchQuery("")} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
               )}
             </div>
 
-            {/* Live Search Results Dropdown */}
             {searchQuery && (
               <div className="absolute top-full left-0 w-full bg-white border border-gray-100 shadow-xl rounded-2xl mt-2 overflow-hidden max-h-[60vh] overflow-y-auto custom-scrollbar">
                 {isSearching ? (
-                  <div className="p-6 flex justify-center text-blue-600">
-                    <Loader2 className="animate-spin" size={24} />
-                  </div>
+                  <div className="p-6 flex justify-center text-blue-600"><Loader2 className="animate-spin" size={24} /></div>
                 ) : searchResults.length > 0 ? (
                   <div className="py-2">
                     {searchResults.map((result) => {
@@ -241,10 +239,7 @@ export default function Navbar() {
                       return (
                         <div
                           key={result.id}
-                          onClick={() => {
-                            router.push(`/product/${result.id}`);
-                            closeAllMenus();
-                          }}
+                          onClick={() => { router.push(`/product/${result.id}`); closeAllMenus(); }}
                           className="flex items-center gap-4 px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors border-b border-gray-50 last:border-0"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -258,9 +253,7 @@ export default function Navbar() {
                     })}
                   </div>
                 ) : (
-                  <div className="p-6 text-center text-gray-500 font-medium text-sm">
-                    No products found for &quot;{searchQuery}&quot;
-                  </div>
+                  <div className="p-6 text-center text-gray-500 font-medium text-sm">No products found for &quot;{searchQuery}&quot;</div>
                 )}
               </div>
             )}
@@ -268,7 +261,7 @@ export default function Navbar() {
         </div>
       )}
 
-      {/* --- MOBILE ALL MENU OVERLAY --- */}
+      {/* MOBILE ALL MENU OVERLAY */}
       {isMobileMenuOpen && (
         <div className="md:hidden absolute top-full left-0 w-full bg-white border-b border-gray-100 shadow-lg animate-in slide-in-from-top-2 duration-200 z-30">
           <div className="flex flex-col py-2">
@@ -285,17 +278,20 @@ export default function Navbar() {
                     <p className="text-xs font-medium text-blue-600 mt-0.5">{user.points || 0} Reward Points</p>
                   </div>
                 </div>
-
                 {user.role && (
                   <Link href="/admin" onClick={closeAllMenus} className="flex items-center gap-3 px-6 py-4 text-gray-700 hover:bg-gray-50 font-bold border-b border-gray-50">
                     <LayoutDashboard size={18} className="text-indigo-600" /> Admin Dashboard
                   </Link>
                 )}
 
+                {/* 🔥 Wishlist Mobile Link */}
+                <Link href="/wishlist" onClick={closeAllMenus} className="flex items-center gap-3 px-6 py-4 text-gray-700 hover:bg-gray-50 font-bold border-b border-gray-50">
+                  <Heart size={18} className="text-rose-500" /> My Wishlist
+                </Link>
+
                 <Link href="/orders" onClick={closeAllMenus} className="flex items-center gap-3 px-6 py-4 text-gray-700 hover:bg-gray-50 font-bold border-b border-gray-50">
                   <Package size={18} className="text-blue-600" /> My Orders
                 </Link>
-
                 <button onClick={handleLogout} className="flex items-center gap-3 px-6 py-4 text-red-600 hover:bg-red-50 font-bold w-full text-left">
                   <LogOut size={18} /> Logout
                 </button>

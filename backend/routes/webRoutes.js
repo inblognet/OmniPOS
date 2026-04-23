@@ -635,4 +635,54 @@ router.put('/customers/:id/notifications/clear', async (req, res) => {
     }
 });
 
+
+// ==========================================
+// WISHLIST ROUTES
+// ==========================================
+
+// GET a customer's wishlist
+router.get('/customers/:id/wishlist', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query(`
+            SELECT p.id, p.name, p.price, p.web_allocated_stock, p.category,
+                   COALESCE((SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = TRUE LIMIT 1),
+                            (SELECT image_url FROM product_images WHERE product_id = p.id LIMIT 1)) as "imageUrl"
+            FROM wishlist w
+            JOIN products p ON w.product_id = p.id
+            WHERE w.customer_id = $1
+            ORDER BY w.created_at DESC
+        `, [req.params.id]);
+        res.json({ success: true, wishlist: rows });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// TOGGLE a product in the wishlist (Add if missing, Remove if exists)
+router.post('/customers/:id/wishlist', async (req, res) => {
+    const { product_id } = req.body;
+    const client = await pool.connect();
+    try {
+        const check = await client.query('SELECT id FROM wishlist WHERE customer_id = $1 AND product_id = $2', [req.params.id, product_id]);
+        let isAdded = false;
+
+        if (check.rows.length > 0) {
+            // It's already in the wishlist, so remove it
+            await client.query('DELETE FROM wishlist WHERE id = $1', [check.rows[0].id]);
+        } else {
+            // Not in wishlist, so add it
+            await client.query('INSERT INTO wishlist (customer_id, product_id) VALUES ($1, $2)', [req.params.id, product_id]);
+            isAdded = true;
+        }
+        res.json({ success: true, isAdded });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;

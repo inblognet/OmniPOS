@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
-import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
+import { useSettingsStore } from "@/store/useSettingsStore";
+import { useToastStore } from "@/store/useToastStore"; // 🔥 Imported global toast store
 import api from "@/lib/api";
 import {
   Package, UploadCloud, MessageCircle, Send, Star,
@@ -39,8 +40,8 @@ export default function CustomerOrdersPage() {
   const router = useRouter();
   const { user } = useUserStore();
 
-  // 🔥 Fetch dynamic currency symbol
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+  const { addToast } = useToastStore(); // 🔥 Initialize toast function
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +71,7 @@ export default function CustomerOrdersPage() {
       }
     } catch (error) {
       console.error("Failed to fetch orders", error);
+      addToast("Failed to fetch your orders.", "error");
     } finally {
       setLoading(false);
     }
@@ -103,11 +105,13 @@ export default function CustomerOrdersPage() {
         headers: { "Content-Type": "multipart/form-data" }
       });
       if (res.data.success) {
-        alert("Slip uploaded successfully! Admin will review it soon.");
+        // 🔥 Replaced alert with success toast
+        addToast("Slip uploaded successfully! Admin will review it soon.", "success");
         fetchOrders(); // Refresh order data
       }
     } catch (error) {
-      alert("Failed to upload slip. Try again.");
+      // 🔥 Replaced alert with error toast
+      addToast("Failed to upload slip. Please try again.", "error");
     } finally {
       setUploadingSlip(null);
     }
@@ -129,7 +133,8 @@ export default function CustomerOrdersPage() {
         setChatMessage("");
       }
     } catch (error) {
-      alert("Failed to send message.");
+      // 🔥 Replaced alert with error toast
+      addToast("Failed to send message.", "error");
     } finally {
       setSendingChat(false);
     }
@@ -149,13 +154,15 @@ export default function CustomerOrdersPage() {
         comment
       });
       if (res.data.success) {
-        alert("Review submitted successfully! Thank you!");
+        // 🔥 Replaced alert with success toast
+        addToast("Review submitted successfully! Thank you!", "success");
         setReviewModal(null);
         setRating(5);
         setComment("");
       }
     } catch (error) {
-      alert("Failed to submit review. You may have already reviewed this.");
+      // 🔥 Replaced alert with error toast
+      addToast("Failed to submit review. You may have already reviewed this.", "error");
     } finally {
       setSubmittingReview(false);
     }
@@ -266,7 +273,6 @@ export default function CustomerOrdersPage() {
                     </div>
 
                     <div className="text-left md:text-right mt-6 md:mt-0 md:self-start">
-                      {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                       <p className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</p>
                       <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
                     </div>
@@ -298,7 +304,6 @@ export default function CustomerOrdersPage() {
                               <div key={idx} className="flex items-center justify-between gap-4">
                                 <div>
                                   <p className="font-bold text-gray-900">{item.name}</p>
-                                  {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                                   <p className="text-sm text-gray-500">Qty: {item.quantity} x {currencySymbol}{parseFloat(item.price).toFixed(2)}</p>
                                 </div>
 

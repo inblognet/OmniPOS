@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Navbar from "@/components/Navbar";
 import GlobalCart from "@/components/GlobalCart";
 import ThemeProvider from "@/components/ThemeProvider"; // 🔥 NEW: Import the engine!
+import ToastContainer from "@/components/ToastContainer"; // 🔥 NEW: Import the Toast Container
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -29,6 +30,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
         {/* The cart now lives here, accessible from anywhere! */}
         <GlobalCart />
+
+        {/* 🔥 The global toast notification container */}
+        <ToastContainer />
       </body>
     </html>
   );

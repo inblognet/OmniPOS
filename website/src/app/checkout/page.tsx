@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
+import { useToastStore } from "@/store/useToastStore"; // 🔥 Imported the global toast store
 import api from "@/lib/api";
 import axios from "axios";
 import {
@@ -15,10 +16,9 @@ export default function CheckoutPage() {
   const router = useRouter();
   const { user } = useUserStore();
 
-  // 🔥 FIX: Imported clearCart to wipe the frontend memory after checkout!
   const { items, clearCart } = useCartStore();
-
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
+  const { addToast } = useToastStore(); // 🔥 Initialize toast function
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -121,14 +121,15 @@ export default function CheckoutPage() {
       });
 
       if (res.data.success) {
-        // 🔥 FIX: Show alert, clear the frontend cart, and smoothly route without a hard refresh!
-        alert("Order placed successfully! Thank you for shopping with us.");
+        // 🔥 Trigger the success toast notification
+        addToast("Order placed successfully! Thank you for shopping with us.", "success");
         clearCart();
         router.push("/orders");
       }
     } catch (error) {
       console.error("Checkout failed:", error);
-      alert("Checkout failed. Please try again.");
+      // 🔥 Trigger the error toast notification
+      addToast("Checkout failed. Please try again.", "error");
       setProcessing(false);
     }
   };
