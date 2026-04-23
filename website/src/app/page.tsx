@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
-import axios from "axios"; // 🔥 Imported axios for strict error typing
+import axios from "axios";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
@@ -85,7 +85,7 @@ export default function Home() {
           }
         }
       } catch (error: unknown) {
-        console.error("Failed to load vouchers", error); // 🔥 Used the error variable
+        console.error("Failed to load vouchers", error);
       }
     };
     fetchVouchers();
@@ -97,7 +97,7 @@ export default function Home() {
         const res = await api.get(`/web/products`);
         setProducts(res.data.products || []);
       } catch (error: unknown) {
-        console.error("Error fetching products:", error); // 🔥 Used the error variable
+        console.error("Error fetching products:", error);
       } finally {
         setLoading(false);
       }
@@ -132,14 +132,14 @@ export default function Home() {
         const cartCount = cartItems.reduce((acc, item) => acc + item.quantity, 0);
 
         if (cartCount > 0) {
-          addToast("Voucher claimed! Redirecting to checkout...", "success");
-          router.push('/checkout');
+          // 🔥 MAGIC REDIRECT: We attach the code to the URL!
+          addToast("Voucher claimed! Applying to checkout...", "success");
+          router.push(`/checkout?voucher=${voucher.code}`);
         } else {
           addToast("Voucher claimed successfully! Add products to your cart to use it.", "success");
         }
       }
     } catch (error: unknown) {
-      // 🔥 Strictly typed the error check
       if (axios.isAxiosError(error)) {
         addToast(error.response?.data?.message || "Failed to claim voucher", "error");
       } else {
@@ -202,7 +202,6 @@ export default function Home() {
     });
 
   const ProductCard = ({ product }: { product: Product }) => {
-    // 🔥 Changed from isWishlisted to isInWishlist to fix spell-checker
     const isInWishlist = wishlistIds.includes(product.id);
 
     return (

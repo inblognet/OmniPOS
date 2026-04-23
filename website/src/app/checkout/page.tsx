@@ -4,13 +4,21 @@ import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useCartStore } from "@/store/useCartStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
-import { useToastStore } from "@/store/useToastStore"; // 🔥 Imported the global toast store
+import { useToastStore } from "@/store/useToastStore";
 import api from "@/lib/api";
 import axios from "axios";
 import {
   MapPin, Phone, Building, Hash, CreditCard,
-  Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X
+  Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X, Gift
 } from "lucide-react";
+
+interface Voucher {
+  id: number;
+  code: string;
+  discount_percentage: number;
+  description: string;
+  claim_status: string;
+}
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -18,7 +26,7 @@ export default function CheckoutPage() {
 
   const { items, clearCart } = useCartStore();
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
-  const { addToast } = useToastStore(); // 🔥 Initialize toast function
+  const { addToast } = useToastStore();
 
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -36,6 +44,8 @@ export default function CheckoutPage() {
   const [voucherMessage, setVoucherMessage] = useState({ text: "", type: "" });
   const [validatingVoucher, setValidatingVoucher] = useState(false);
 
+  const [claimedVouchers, setClaimedVouchers] = useState<Voucher[]>([]);
+
   const subTotal = items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
   const discountAmount = appliedVoucher ? (subTotal * (appliedVoucher.percentage / 100)) : 0;
   const finalTotal = subTotal - discountAmount;
@@ -50,39 +60,41 @@ export default function CheckoutPage() {
       return;
     }
 
-    const fetchProfileData = async () => {
+    const fetchData = async () => {
       try {
-        const res = await api.get(`/web/customers/${user.id}/profile`);
-        if (res.data.success && res.data.profile) {
-          const p = res.data.profile;
-          setFormData({
-            phone: p.phone || "",
-            address: p.address || "",
-            city: p.city || "",
-            postal_code: p.postal_code || ""
-          });
+        const resProfile = await api.get(`/web/customers/${user.id}/profile`);
+        if (resProfile.data.success && resProfile.data.profile) {
+          const p = resProfile.data.profile;
+          setFormData({ phone: p.phone || "", address: p.address || "", city: p.city || "", postal_code: p.postal_code || "" });
+        }
+
+        const resVouchers = await api.get("/web/vouchers/public", { params: { customerId: user.id } });
+        if (resVouchers.data.success && resVouchers.data.vouchers) {
+          const available = resVouchers.data.vouchers.filter((v: Voucher) => v.claim_status === 'CLAIMED');
+          setClaimedVouchers(available);
         }
       } catch (error) {
-        console.error("Failed to load profile for checkout", error);
+        console.error("Failed to load checkout data", error);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProfileData();
+    fetchData();
   }, [user, items.length, router]);
 
-  const handleApplyVoucher = async () => {
-    if (!voucherCode.trim()) return;
+  const handleApplyVoucher = async (codeToApply: string = voucherCode) => {
+    if (!codeToApply.trim()) return;
     setValidatingVoucher(true);
     setVoucherMessage({ text: "", type: "" });
 
     try {
-      const res = await api.post("/web/vouchers/validate", { code: voucherCode });
+      const res = await api.post("/web/vouchers/validate", { code: codeToApply });
       if (res.data.success) {
-        setAppliedVoucher({ code: voucherCode.toUpperCase(), percentage: res.data.discount_percentage });
+        setAppliedVoucher({ code: codeToApply.toUpperCase(), percentage: res.data.discount_percentage });
         setVoucherMessage({ text: `${res.data.description}`, type: "success" });
         setVoucherCode("");
+        addToast(`Voucher ${codeToApply.toUpperCase()} applied!`, "success");
       }
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
@@ -96,9 +108,26 @@ export default function CheckoutPage() {
     }
   };
 
+  // 🔥 AUTO-APPLY MAGIC: This runs right after the function above is defined
+  useEffect(() => {
+    // Check the URL for our ?voucher=CODE parameter
+    const params = new URLSearchParams(window.location.search);
+    const autoVoucher = params.get("voucher");
+
+    if (autoVoucher) {
+      // Apply the voucher instantly!
+      handleApplyVoucher(autoVoucher);
+
+      // Clean up the URL so it doesn't re-apply if the user refreshes the page
+      window.history.replaceState(null, '', '/checkout');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const removeVoucher = () => {
     setAppliedVoucher(null);
     setVoucherMessage({ text: "", type: "" });
+    addToast("Voucher removed", "info");
   };
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
@@ -121,14 +150,12 @@ export default function CheckoutPage() {
       });
 
       if (res.data.success) {
-        // 🔥 Trigger the success toast notification
         addToast("Order placed successfully! Thank you for shopping with us.", "success");
         clearCart();
         router.push("/orders");
       }
     } catch (error) {
-      console.error("Checkout failed:", error);
-      // 🔥 Trigger the error toast notification
+      console.error(error);
       addToast("Checkout failed. Please try again.", "error");
       setProcessing(false);
     }
@@ -155,7 +182,6 @@ export default function CheckoutPage() {
           {/* LEFT COLUMN: Shipping & Payment */}
           <div className="lg:col-span-2 space-y-8">
 
-            {/* Shipping Form */}
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
               <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-2">
                 <Truck className="text-blue-600" /> Delivery Details
@@ -197,7 +223,6 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            {/* Payment Method */}
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
               <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center gap-2">
                 <CreditCard className="text-blue-600" /> Payment Method
@@ -241,6 +266,30 @@ export default function CheckoutPage() {
                 ))}
               </div>
 
+              {/* CLAIMED VOUCHERS LIST */}
+              {!appliedVoucher && claimedVouchers.length > 0 && (
+                <div className="mb-6 space-y-3">
+                  <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <Gift size={14} className="text-rose-500" /> Your Claimed Vouchers
+                  </h4>
+                  {claimedVouchers.map(v => (
+                    <div key={v.id} className="flex items-center justify-between bg-rose-50 border border-rose-100 p-3 rounded-xl hover:border-rose-300 transition-colors">
+                      <div>
+                        <p className="text-sm font-black text-rose-600 tracking-widest">{v.code}</p>
+                        <p className="text-xs font-medium text-rose-500 mt-0.5">{v.discount_percentage}% OFF</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleApplyVoucher(v.code)}
+                        className="bg-rose-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-600 transition-colors shadow-sm"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* PROMO CODE SECTION */}
               <div className="mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-100">
                 {!appliedVoucher ? (
@@ -250,7 +299,7 @@ export default function CheckoutPage() {
                         <Ticket className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                         <input
                           type="text"
-                          placeholder="Promo code"
+                          placeholder="Or enter code manually..."
                           value={voucherCode}
                           onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
                           className="w-full pl-9 pr-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-bold tracking-widest uppercase outline-none focus:border-blue-500"
@@ -258,7 +307,7 @@ export default function CheckoutPage() {
                       </div>
                       <button
                         type="button"
-                        onClick={handleApplyVoucher}
+                        onClick={() => handleApplyVoucher()}
                         disabled={validatingVoucher || !voucherCode}
                         className="bg-gray-900 hover:bg-black text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
                       >
@@ -291,7 +340,6 @@ export default function CheckoutPage() {
                   <span className="font-bold text-gray-900">{currencySymbol}{subTotal.toFixed(2)}</span>
                 </div>
 
-                {/* Show Discount Line if applied */}
                 {appliedVoucher && (
                   <div className="flex justify-between items-center mb-2 text-green-600">
                     <span className="font-bold flex items-center gap-1"><Ticket size={14}/> Discount ({appliedVoucher.percentage}%)</span>

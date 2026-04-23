@@ -196,6 +196,43 @@ router.post('/vouchers/claim', async (req, res) => {
     } finally { client.release(); }
 });
 
+
+// 🔥 NEW: Validate a voucher code during checkout
+router.post('/vouchers/validate', async (req, res) => {
+    const { code, customerId } = req.body;
+    const client = await pool.connect();
+    try {
+        // 1. Check if it exists, is active, AND hasn't expired yet
+        const { rows } = await client.query(`
+            SELECT * FROM vouchers
+            WHERE code = $1
+            AND is_active = TRUE
+            AND (expire_date_time IS NULL OR expire_date_time > NOW())
+        `, [code.toUpperCase().trim()]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Invalid or expired voucher code." });
+        }
+
+        const voucher = rows[0];
+
+        // 2. Check if this specific customer has ALREADY USED it
+        if (customerId) {
+            const checkUse = await client.query('SELECT status FROM customer_vouchers WHERE customer_id = $1 AND voucher_id = $2', [customerId, voucher.id]);
+            if (checkUse.rows.length > 0 && checkUse.rows[0].status === 'USED') {
+                return res.status(400).json({ success: false, message: "You have already used this voucher on a previous order." });
+            }
+        }
+
+        res.json({ success: true, discount_percentage: voucher.discount_percentage, description: voucher.description });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+
 // 3. ADMIN: Get all vouchers
 router.get('/admin/vouchers', async (req, res) => {
     const client = await pool.connect();
