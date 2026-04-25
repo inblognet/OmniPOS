@@ -998,4 +998,32 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
     }
 });
 
+// 🔥 NEW: Toggle a template to be the ACTIVE DEFAULT
+router.put('/admin/invoice-templates/:id/active', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); // Start transaction
+
+        // 1. Find out if it is an INVOICE or RECEIPT
+        const { rows } = await client.query('SELECT type FROM invoice_templates WHERE id = $1', [req.params.id]);
+        if (rows.length === 0) throw new Error("Template not found");
+        const templateType = rows[0].type;
+
+        // 2. Turn off ALL other templates of this exact type
+        await client.query('UPDATE invoice_templates SET is_active = FALSE WHERE type = $1', [templateType]);
+
+        // 3. Turn ON the selected template
+        await client.query('UPDATE invoice_templates SET is_active = TRUE WHERE id = $1', [req.params.id]);
+
+        await client.query('COMMIT'); // Save transaction
+        res.json({ success: true, message: "Default updated" });
+    } catch (error) {
+        await client.query('ROLLBACK'); // Undo if something broke
+        console.error("Failed to set active template:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;

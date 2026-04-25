@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { useToastStore } from "@/store/useToastStore";
-import { FileText, Plus, Receipt, Layout, Trash2, Edit3, Loader2, X } from "lucide-react";
+import { FileText, Plus, Receipt, Layout, Trash2, Edit3, Loader2, X, CheckCircle2 } from "lucide-react";
 
 interface Template {
   id: number;
@@ -53,7 +53,6 @@ export default function InvoiceTemplatesPage() {
       if (res.data.success) {
         addToast("Template created! Launching editor...", "success");
         setShowModal(false);
-        // Automatically redirect to the new Live Editor page
         router.push(`/admin/invoices/${res.data.templateId}`);
       }
     } catch (error) {
@@ -72,6 +71,21 @@ export default function InvoiceTemplatesPage() {
       }
     } catch (error) {
       addToast("Failed to delete template", "error");
+    }
+  };
+
+  // 🔥 NEW: Toggle Active/Default Template Function
+  const handleToggleDefault = async (id: number, currentStatus: boolean) => {
+    if (currentStatus) return; // Already the default, do nothing
+
+    try {
+      const res = await api.put(`/web/admin/invoice-templates/${id}/active`);
+      if (res.data.success) {
+        addToast("Default template updated successfully!", "success");
+        fetchTemplates(); // Refresh the list to show the new active state
+      }
+    } catch (error) {
+      addToast("Failed to update default template", "error");
     }
   };
 
@@ -109,19 +123,40 @@ export default function InvoiceTemplatesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {templates.map((template) => (
-            <div key={template.id} className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex flex-col group hover:shadow-md transition-shadow">
+            <div key={template.id} className={`bg-white rounded-3xl p-6 shadow-sm border transition-all flex flex-col group hover:shadow-md ${template.is_active ? 'border-green-400 ring-2 ring-green-50' : 'border-gray-100'}`}>
 
               <div className="flex items-start justify-between mb-4">
                 <div className={`p-3 rounded-2xl ${template.type === 'INVOICE' ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'}`}>
                   {template.type === 'INVOICE' ? <FileText size={28} /> : <Receipt size={28} />}
                 </div>
-                <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${template.type === 'INVOICE' ? 'bg-indigo-100 text-indigo-700' : 'bg-orange-100 text-orange-700'}`}>
-                  {template.type === 'INVOICE' ? 'A4 Document' : 'Thermal Receipt'}
-                </span>
+                <div className="flex flex-col items-end gap-2">
+                  <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${template.type === 'INVOICE' ? 'bg-indigo-100 text-indigo-700' : 'bg-orange-100 text-orange-700'}`}>
+                    {template.type === 'INVOICE' ? 'A4 Document' : 'Thermal Receipt'}
+                  </span>
+                  {template.is_active && (
+                    <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-green-100 text-green-700 flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Active Default
+                    </span>
+                  )}
+                </div>
               </div>
 
               <h3 className="text-xl font-black text-gray-900 mb-1">{template.name}</h3>
-              <p className="text-xs text-gray-400 font-medium mb-6">Last updated: {new Date(template.updated_at).toLocaleDateString()}</p>
+              <p className="text-xs text-gray-400 font-medium mb-4">Last updated: {new Date(template.updated_at).toLocaleDateString()}</p>
+
+              {/* 🔥 NEW: The Toggle Switch */}
+              <div className="flex items-center justify-between mb-4 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <span className={`text-sm font-bold ${template.is_active ? 'text-green-700' : 'text-gray-500'}`}>
+                  {template.is_active ? 'Currently Active' : 'Set as Default'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleToggleDefault(template.id, template.is_active)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${template.is_active ? 'bg-green-500 cursor-default' : 'bg-gray-300 hover:bg-gray-400'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${template.is_active ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
 
               <div className="mt-auto grid grid-cols-2 gap-3 pt-4 border-t border-gray-50">
                 <Link
