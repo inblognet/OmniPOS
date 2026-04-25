@@ -17,6 +17,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
+      <head>
+        {/* 🔥 Added Google Fonts for Sinhalese support in the Live Invoice Editor */}
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" />
+      </head>
       <body className="min-h-full flex flex-col bg-gray-50 text-gray-900">
 
         {/* 🔥 The Magical Bridge: Injects your database theme globally! */}

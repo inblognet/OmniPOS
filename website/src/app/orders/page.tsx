@@ -7,7 +7,7 @@ import { useToastStore } from "@/store/useToastStore"; // 🔥 Imported global t
 import api from "@/lib/api";
 import {
   Package, UploadCloud, MessageCircle, Send, Star,
-  CheckCircle, Loader2, Info, X, Clock, Box, Truck
+  CheckCircle, Loader2, Info, X, Clock, Box, Truck, FileDown, Ticket, Award
 } from "lucide-react";
 
 interface OrderItem {
@@ -26,6 +26,8 @@ interface Order {
   payment_slip_url: string | null;
   admin_note: string | null;
   created_at: string;
+  discount_code: string | null;     // 🔥 Added for voucher tracking
+  discount_amount: string | number; // 🔥 Added for voucher tracking
   items: OrderItem[];
 }
 
@@ -61,6 +63,9 @@ export default function CustomerOrdersPage() {
   const [comment, setComment] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
 
+  // 🔥 Base URL for the PDF download endpoint
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
   // 1. Fetch Orders
   const fetchOrders = async () => {
     if (!user) return;
@@ -83,6 +88,7 @@ export default function CustomerOrdersPage() {
     } else {
       fetchOrders();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, router]);
 
   // 2. Fetch Chats when an order is expanded
@@ -105,12 +111,10 @@ export default function CustomerOrdersPage() {
         headers: { "Content-Type": "multipart/form-data" }
       });
       if (res.data.success) {
-        // 🔥 Replaced alert with success toast
         addToast("Slip uploaded successfully! Admin will review it soon.", "success");
         fetchOrders(); // Refresh order data
       }
     } catch (error) {
-      // 🔥 Replaced alert with error toast
       addToast("Failed to upload slip. Please try again.", "error");
     } finally {
       setUploadingSlip(null);
@@ -133,7 +137,6 @@ export default function CustomerOrdersPage() {
         setChatMessage("");
       }
     } catch (error) {
-      // 🔥 Replaced alert with error toast
       addToast("Failed to send message.", "error");
     } finally {
       setSendingChat(false);
@@ -154,14 +157,12 @@ export default function CustomerOrdersPage() {
         comment
       });
       if (res.data.success) {
-        // 🔥 Replaced alert with success toast
         addToast("Review submitted successfully! Thank you!", "success");
         setReviewModal(null);
         setRating(5);
         setComment("");
       }
     } catch (error) {
-      // 🔥 Replaced alert with error toast
       addToast("Failed to submit review. You may have already reviewed this.", "error");
     } finally {
       setSubmittingReview(false);
@@ -212,6 +213,7 @@ export default function CustomerOrdersPage() {
           <div className="space-y-6">
             {orders.map((order) => {
               const progress = getProgressLevel(order.order_status);
+              const subtotal = parseFloat(order.total_amount) + parseFloat(order.discount_amount?.toString() || "0");
 
               return (
                 <div key={order.id} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
@@ -272,9 +274,22 @@ export default function CustomerOrdersPage() {
 
                     </div>
 
-                    <div className="text-left md:text-right mt-6 md:mt-0 md:self-start">
-                      <p className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</p>
-                      <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
+                    <div className="text-left md:text-right mt-6 md:mt-0 md:self-start flex flex-col md:items-end gap-3">
+                      <div>
+                        <p className="text-2xl font-black text-gray-900">{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</p>
+                        <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
+                      </div>
+
+                      {/* 🔥 NEW: Download Invoice Button */}
+                      <a
+                        href={`${API_BASE_URL}/web/orders/${order.id}/download-pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors border border-blue-100"
+                        onClick={(e) => e.stopPropagation()} // Prevents the card from expanding when clicking the button
+                      >
+                        <FileDown size={16} /> Download Invoice
+                      </a>
                     </div>
                   </div>
 
@@ -318,6 +333,32 @@ export default function CustomerOrdersPage() {
                                 )}
                               </div>
                             ))}
+                          </div>
+
+                          {/* 🔥 Voucher & Points Summary inside the card */}
+                          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2 text-sm">
+                            <div className="flex justify-between text-gray-500">
+                              <span>Subtotal</span>
+                              <span>{currencySymbol}{subtotal.toFixed(2)}</span>
+                            </div>
+
+                            {order.discount_code && (
+                              <div className="flex justify-between text-rose-600 font-bold">
+                                <span className="flex items-center gap-1"><Ticket size={14}/> Voucher ({order.discount_code})</span>
+                                <span>-{currencySymbol}{parseFloat(order.discount_amount?.toString() || "0").toFixed(2)}</span>
+                              </div>
+                            )}
+
+                            <div className="flex justify-between text-gray-900 font-black text-lg pt-2 border-t border-gray-100 mt-2">
+                              <span>Total Paid</span>
+                              <span>{currencySymbol}{parseFloat(order.total_amount).toFixed(2)}</span>
+                            </div>
+
+                            {/* Reward Points Badge */}
+                            <div className="flex justify-between items-center mt-4 bg-amber-50 border border-amber-100 p-3 rounded-xl">
+                              <span className="text-amber-700 font-bold flex items-center gap-1.5"><Award size={16}/> Points Earned</span>
+                              <span className="text-amber-700 font-black">+{Math.floor(parseFloat(order.total_amount) / 10)}</span>
+                            </div>
                           </div>
                         </div>
 

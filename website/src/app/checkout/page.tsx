@@ -89,7 +89,11 @@ export default function CheckoutPage() {
     setVoucherMessage({ text: "", type: "" });
 
     try {
-      const res = await api.post("/web/vouchers/validate", { code: codeToApply });
+      const res = await api.post("/web/vouchers/validate", {
+        code: codeToApply,
+        customerId: user?.id
+      });
+
       if (res.data.success) {
         setAppliedVoucher({ code: codeToApply.toUpperCase(), percentage: res.data.discount_percentage });
         setVoucherMessage({ text: `${res.data.description}`, type: "success" });
@@ -110,15 +114,11 @@ export default function CheckoutPage() {
 
   // 🔥 AUTO-APPLY MAGIC: This runs right after the function above is defined
   useEffect(() => {
-    // Check the URL for our ?voucher=CODE parameter
     const params = new URLSearchParams(window.location.search);
     const autoVoucher = params.get("voucher");
 
     if (autoVoucher) {
-      // Apply the voucher instantly!
       handleApplyVoucher(autoVoucher);
-
-      // Clean up the URL so it doesn't re-apply if the user refreshes the page
       window.history.replaceState(null, '', '/checkout');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -266,27 +266,38 @@ export default function CheckoutPage() {
                 ))}
               </div>
 
-              {/* CLAIMED VOUCHERS LIST */}
-              {!appliedVoucher && claimedVouchers.length > 0 && (
+              {/* 🔥 UPDATED CLAIMED VOUCHERS LIST */}
+              {claimedVouchers.length > 0 && (
                 <div className="mb-6 space-y-3">
                   <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                     <Gift size={14} className="text-rose-500" /> Your Claimed Vouchers
                   </h4>
-                  {claimedVouchers.map(v => (
-                    <div key={v.id} className="flex items-center justify-between bg-rose-50 border border-rose-100 p-3 rounded-xl hover:border-rose-300 transition-colors">
-                      <div>
-                        <p className="text-sm font-black text-rose-600 tracking-widest">{v.code}</p>
-                        <p className="text-xs font-medium text-rose-500 mt-0.5">{v.discount_percentage}% OFF</p>
+                  {claimedVouchers.map(v => {
+                    const isApplied = appliedVoucher?.code === v.code;
+                    return (
+                      <div key={v.id} className={`flex items-center justify-between border p-3 rounded-xl transition-colors ${isApplied ? 'bg-green-50 border-green-200' : 'bg-rose-50 border-rose-100 hover:border-rose-300'}`}>
+                        <div>
+                          <p className={`text-sm font-black tracking-widest ${isApplied ? 'text-green-700' : 'text-rose-600'}`}>{v.code}</p>
+                          <p className={`text-xs font-medium mt-0.5 ${isApplied ? 'text-green-600' : 'text-rose-500'}`}>{v.discount_percentage}% OFF</p>
+                        </div>
+                        {isApplied ? (
+                          <div className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-green-200 shadow-sm">
+                            <CheckCircle size={14} className="text-green-600"/>
+                            <span className="text-xs font-bold text-green-700">Applied</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleApplyVoucher(v.code)}
+                            disabled={validatingVoucher || !!appliedVoucher}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors shadow-sm ${!!appliedVoucher ? 'bg-rose-200 text-rose-400 cursor-not-allowed' : 'bg-rose-500 text-white hover:bg-rose-600'}`}
+                          >
+                            Apply
+                          </button>
+                        )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => handleApplyVoucher(v.code)}
-                        className="bg-rose-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-600 transition-colors shadow-sm"
-                      >
-                        Apply
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 

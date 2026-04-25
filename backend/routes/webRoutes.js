@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db');
 const { upload } = require('../config/cloudinary');
+const puppeteer = require('puppeteer');
 
 // 1. GET CAROUSEL BANNERS
 router.get('/carousel', async (req, res) => {
@@ -755,6 +756,237 @@ router.post('/customers/:id/wishlist', async (req, res) => {
         res.json({ success: true, isAdded });
     } catch (error) {
         res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+
+// ==========================================
+// INVOICE & RECEIPT TEMPLATE BUILDER ROUTES
+// ==========================================
+
+// 1. Get all saved templates
+router.get('/admin/invoice-templates', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT id, name, type, is_active, updated_at FROM invoice_templates ORDER BY id ASC');
+        res.json({ success: true, templates: rows });
+    } catch (error) {
+        console.error("Failed to fetch templates:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 2. Get a specific template's full design data (for the editor)
+router.get('/admin/invoice-templates/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM invoice_templates WHERE id = $1', [req.params.id]);
+        if (rows.length === 0) return res.status(404).json({ success: false, message: "Template not found" });
+        res.json({ success: true, template: rows[0] });
+    } catch (error) {
+        console.error("Failed to fetch template data:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. Create a new blank template preset
+router.post('/admin/invoice-templates', async (req, res) => {
+    const { name, type } = req.body;
+    const client = await pool.connect();
+
+    // Default dimensions: A4 (794x1123 px) or Thermal (300x800 px)
+    const initialData = type === 'RECEIPT'
+        ? { width: 300, height: 800, components: [] }
+        : { width: 794, height: 1123, components: [] };
+
+    try {
+        const { rows } = await client.query(
+            'INSERT INTO invoice_templates (name, type, design_data) VALUES ($1, $2, $3) RETURNING id',
+            [name, type, initialData]
+        );
+        res.json({ success: true, templateId: rows[0].id, message: "Template created!" });
+    } catch (error) {
+        console.error("Failed to create template:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 4. Save the drag-and-drop design data from the live editor
+router.put('/admin/invoice-templates/:id/design', async (req, res) => {
+    const { design_data } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'UPDATE invoice_templates SET design_data = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [design_data, req.params.id]
+        );
+        res.json({ success: true, message: "Template design saved successfully!" });
+    } catch (error) {
+        console.error("Failed to save template design:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 5. Delete a template
+router.delete('/admin/invoice-templates/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('DELETE FROM invoice_templates WHERE id = $1', [req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error("Failed to delete template:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// 🔥 PDF INVOICE GENERATOR ENGINE
+// ==========================================
+
+router.get('/orders/:id/download-pdf', async (req, res) => {
+    const { id } = req.params;
+    const { templateId } = req.query; // Optional: specify which template to use
+    const client = await pool.connect();
+
+    try {
+        // 1. Fetch the Order Data
+        const orderRes = await client.query(`
+            SELECT o.*, c.name as customer_name, c.email as customer_email,
+                   json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)) as items
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE o.id = $1
+            GROUP BY o.id, c.name, c.email
+        `, [id]);
+
+        if (orderRes.rows.length === 0) return res.status(404).send("Order not found");
+        const order = orderRes.rows[0];
+
+        // 2. Fetch the Template Data
+        let templateQuery = 'SELECT design_data FROM invoice_templates WHERE is_active = TRUE ORDER BY id DESC LIMIT 1';
+        let templateParams = [];
+        if (templateId) {
+            templateQuery = 'SELECT design_data FROM invoice_templates WHERE id = $1';
+            templateParams = [templateId];
+        }
+
+        const templateRes = await client.query(templateQuery, templateParams);
+        if (templateRes.rows.length === 0) return res.status(404).send("No active invoice templates found. Please create one in the admin panel.");
+        const design = templateRes.rows[0].design_data;
+
+        // 3. Variable Mapping Logic
+        const mapVariable = (content) => {
+            if (!content) return "";
+            return content
+                .replace('{{order_id}}', order.id)
+                .replace('{{customer_name}}', order.customer_name || 'Guest')
+                .replace('{{customer_phone}}', order.delivery_phone || 'N/A')
+                .replace('{{order_date}}', new Date(order.created_at).toLocaleDateString())
+                .replace('{{total_amount}}', parseFloat(order.total_amount).toFixed(2))
+                .replace('{{discount_amount}}', parseFloat(order.discount_amount || 0).toFixed(2))
+                .replace('{{final_total}}', (parseFloat(order.total_amount) - parseFloat(order.discount_amount || 0)).toFixed(2));
+        };
+
+        // 4. Generate the HTML from the JSON layout
+        let componentsHtml = design.components.map(comp => {
+            const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
+
+            if (comp.type === 'text') {
+                return `<div style="${style}">${comp.content}</div>`;
+            }
+            if (comp.type === 'variable') {
+                return `<div style="${style}">${mapVariable(comp.content)}</div>`;
+            }
+            if (comp.type === 'image') {
+                return `<img src="${comp.content}" style="${style}; object-fit: contain;" />`;
+            }
+            if (comp.type === 'table') {
+                let tableRows = order.items.map(item => `
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${parseFloat(item.price).toFixed(2)}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${(item.quantity * parseFloat(item.price)).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                <div style="${style}">
+                    <table style="width: 100%; border-collapse: collapse; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px;">
+                        <thead>
+                            <tr style="background-color: #f8f9fa; border-bottom: 2px solid #333;">
+                                <th style="padding: 8px; text-align: left;">Item</th>
+                                <th style="padding: 8px; text-align: center;">Qty</th>
+                                <th style="padding: 8px; text-align: right;">Rate</th>
+                                <th style="padding: 8px; text-align: right;">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>`;
+            }
+            return '';
+        }).join('');
+
+        const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" />
+                <style>
+                    body { margin: 0; padding: 0; box-sizing: border-box; }
+                    .canvas { position: relative; width: ${design.width}px; height: ${design.height}px; background: white; overflow: hidden; }
+                </style>
+            </head>
+            <body>
+                <div class="canvas">
+                    ${componentsHtml}
+                </div>
+            </body>
+            </html>
+        `;
+
+        // 5. Fire up Puppeteer and Print the PDF!
+        const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+        const page = await browser.newPage();
+
+        // Wait for networkidle0 so the Google Fonts have time to fully load!
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+        const pdfBuffer = await page.pdf({
+            width: `${design.width}px`,
+            height: `${design.height}px`,
+            printBackground: true,
+            pageRanges: '1' // Force it to strictly adhere to the canvas size on one page
+        });
+
+        await browser.close();
+
+        // 6. Send the PDF file directly to the browser
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename=Invoice_Order_${order.id}.pdf`,
+            'Content-Length': pdfBuffer.length
+        });
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error("PDF Generation Error:", error);
+        res.status(500).send("Failed to generate PDF");
     } finally {
         client.release();
     }
