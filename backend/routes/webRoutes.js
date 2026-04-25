@@ -850,14 +850,14 @@ router.delete('/admin/invoice-templates/:id', async (req, res) => {
         client.release();
     }
 });
-
 // ==========================================
 // 🔥 PDF INVOICE GENERATOR ENGINE
 // ==========================================
 
 router.get('/orders/:id/download-pdf', async (req, res) => {
     const { id } = req.params;
-    const { templateId } = req.query; // Optional: specify which template to use
+    // 🔥 Make sure we grab both templateId AND type from the URL
+    const { templateId, type } = req.query;
     const client = await pool.connect();
 
     try {
@@ -876,12 +876,17 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
         if (orderRes.rows.length === 0) return res.status(404).send("Order not found");
         const order = orderRes.rows[0];
 
-        // 2. Fetch the Template Data
+        // 2. Fetch the Template Data (SMART ROUTING)
         let templateQuery = 'SELECT design_data FROM invoice_templates WHERE is_active = TRUE ORDER BY id DESC LIMIT 1';
         let templateParams = [];
+
         if (templateId) {
             templateQuery = 'SELECT design_data FROM invoice_templates WHERE id = $1';
             templateParams = [templateId];
+        } else if (type) {
+            // This fixes the Checkout Page buttons!
+            templateQuery = 'SELECT design_data FROM invoice_templates WHERE type = $1 AND is_active = TRUE ORDER BY id DESC LIMIT 1';
+            templateParams = [type.toUpperCase().trim()];
         }
 
         const templateRes = await client.query(templateQuery, templateParams);
@@ -915,12 +920,17 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
                 return `<img src="${comp.content}" style="${style}; object-fit: contain;" />`;
             }
             if (comp.type === 'table') {
+                // 🔥 UPDATED: Dynamically use the column headers from the JSON template!
+                const cols = comp.columns && comp.columns.length > 0 ? comp.columns : ['Item', 'Qty', 'Rate', 'Amount'];
+
+                let tableHeaders = cols.map(col => `<th style="padding: 8px; border-bottom: 2px solid #333; text-align: left;">${col}</th>`).join('');
+
                 let tableRows = order.items.map(item => `
                     <tr>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${item.name}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${parseFloat(item.price).toFixed(2)}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right;">${(item.quantity * parseFloat(item.price)).toFixed(2)}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.name}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.quantity}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${parseFloat(item.price).toFixed(2)}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${(item.quantity * parseFloat(item.price)).toFixed(2)}</td>
                     </tr>
                 `).join('');
 
@@ -928,11 +938,8 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
                 <div style="${style}">
                     <table style="width: 100%; border-collapse: collapse; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px;">
                         <thead>
-                            <tr style="background-color: #f8f9fa; border-bottom: 2px solid #333;">
-                                <th style="padding: 8px; text-align: left;">Item</th>
-                                <th style="padding: 8px; text-align: center;">Qty</th>
-                                <th style="padding: 8px; text-align: right;">Rate</th>
-                                <th style="padding: 8px; text-align: right;">Amount</th>
+                            <tr style="background-color: #f8f9fa;">
+                                ${tableHeaders}
                             </tr>
                         </thead>
                         <tbody>${tableRows}</tbody>
@@ -964,14 +971,13 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
         const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
         const page = await browser.newPage();
 
-        // Wait for networkidle0 so the Google Fonts have time to fully load!
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
         const pdfBuffer = await page.pdf({
             width: `${design.width}px`,
             height: `${design.height}px`,
             printBackground: true,
-            pageRanges: '1' // Force it to strictly adhere to the canvas size on one page
+            pageRanges: '1'
         });
 
         await browser.close();

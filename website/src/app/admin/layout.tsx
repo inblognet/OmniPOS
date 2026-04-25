@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Package, Image as ImageIcon, Store, LayoutDashboard, Boxes, TrendingUp,
-  LogOut, Settings, Tags, Ticket, Menu, ChevronLeft
+  LogOut, Settings, Tags, Ticket, Menu, ChevronLeft, FileText // 🔥 Added FileText icon
 } from "lucide-react";
 import { useUserStore } from "@/store/useUserStore";
 
@@ -35,6 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
+  // 🔥 NEW: Added the Invoices tab to the navigation array
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: TrendingUp },
     { name: "Orders", href: "/admin/orders", icon: Package },
@@ -42,6 +43,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { name: "Categories", href: "/admin/categories", icon: Tags },
     { name: "Vouchers", href: "/admin/vouchers", icon: Ticket },
     { name: "Banners", href: "/admin/banners", icon: ImageIcon },
+    { name: "Invoices", href: "/admin/invoices", icon: FileText },
     { name: "Settings", href: "/admin/settings", icon: Settings },
   ];
 
@@ -91,7 +93,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 key={item.name}
                 href={item.href}
                 title={isCollapsed ? item.name : ""}
-                // 🔥 Shadow removed here: removed 'shadow-md shadow-blue-200' from active state
                 className={`flex items-center gap-3.5 px-3 py-3 rounded-xl font-bold transition-all group overflow-hidden ${
                   isActive
                     ? "bg-blue-600 text-white"
@@ -159,7 +160,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </Link>
 
             {/* Profile Avatar */}
-            {/* 🔥 Shadow removed here: removed 'shadow-md shadow-blue-200' */}
             <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
               {user?.name?.charAt(0) || "A"}
             </div>

@@ -9,7 +9,8 @@ import api from "@/lib/api";
 import axios from "axios";
 import {
   MapPin, Phone, Building, Hash, CreditCard,
-  Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X, Gift
+  Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X, Gift,
+  FileText, Receipt // 🔥 Added for the new download buttons
 } from "lucide-react";
 
 interface Voucher {
@@ -32,6 +33,9 @@ export default function CheckoutPage() {
   const [processing, setProcessing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
 
+  // 🔥 NEW: State to hold the placed Order ID so we can show the success screen
+  const [placedOrderId, setPlacedOrderId] = useState<number | null>(null);
+
   const [formData, setFormData] = useState({
     phone: "",
     address: "",
@@ -50,12 +54,15 @@ export default function CheckoutPage() {
   const discountAmount = appliedVoucher ? (subTotal * (appliedVoucher.percentage / 100)) : 0;
   const finalTotal = subTotal - discountAmount;
 
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+
   useEffect(() => {
     if (!user) {
       router.push("/login");
       return;
     }
-    if (items.length === 0) {
+    // Only redirect if they haven't just placed an order
+    if (items.length === 0 && !placedOrderId) {
       router.push("/");
       return;
     }
@@ -81,7 +88,8 @@ export default function CheckoutPage() {
     };
 
     fetchData();
-  }, [user, items.length, router]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, router]);
 
   const handleApplyVoucher = async (codeToApply: string = voucherCode) => {
     if (!codeToApply.trim()) return;
@@ -112,7 +120,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // 🔥 AUTO-APPLY MAGIC: This runs right after the function above is defined
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const autoVoucher = params.get("voucher");
@@ -152,7 +159,15 @@ export default function CheckoutPage() {
       if (res.data.success) {
         addToast("Order placed successfully! Thank you for shopping with us.", "success");
         clearCart();
-        router.push("/orders");
+
+        // 🔥 Try to grab the new Order ID from the backend response.
+        // If it exists, show the Success Screen! If not, fallback to the orders page.
+        const newOrderId = res.data.orderId || res.data.order_id || res.data.id;
+        if (newOrderId) {
+          setPlacedOrderId(newOrderId);
+        } else {
+          router.push("/orders");
+        }
       }
     } catch (error) {
       console.error(error);
@@ -165,6 +180,51 @@ export default function CheckoutPage() {
     return <div className="min-h-screen flex justify-center pt-20"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
   }
 
+  // 🔥 NEW: THE SUCCESS SCREEN (Shows instead of checkout form if order is placed)
+  if (placedOrderId) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white p-10 rounded-3xl shadow-xl max-w-lg w-full text-center border border-gray-100 animate-in fade-in zoom-in duration-500">
+          <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle className="text-green-500" size={48} />
+          </div>
+          <h1 className="text-3xl font-black text-gray-900 mb-2">Order Confirmed!</h1>
+          <p className="text-gray-500 mb-8 font-medium">Your order <span className="font-bold text-gray-900">#{placedOrderId}</span> has been successfully placed.</p>
+
+          <div className="space-y-4">
+            {/* Note: templateId=3 is the Arkham A4 Template we just added to your DB */}
+            <a
+              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?templateId=3`}
+              target="_blank" rel="noreferrer"
+              className="w-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors border border-indigo-100 shadow-sm"
+            >
+              <FileText size={20} /> Download PDF Invoice
+            </a>
+
+            {/* Note: templateId=4 is the Sahanu Thermal Template we just added to your DB */}
+            <a
+              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?templateId=4`}
+              target="_blank" rel="noreferrer"
+              className="w-full bg-orange-50 text-orange-700 hover:bg-orange-100 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors border border-orange-100 shadow-sm"
+            >
+              <Receipt size={20} /> Download Thermal Receipt
+            </a>
+
+            <div className="pt-4 mt-4 border-t border-gray-100">
+              <button
+                onClick={() => router.push('/orders')}
+                className="w-full bg-gray-900 text-white hover:bg-black py-4 rounded-xl font-bold transition-colors shadow-md"
+              >
+                View Order Status
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- ORIGINAL CHECKOUT FORM ---
   return (
     <div className="min-h-screen bg-gray-50 py-10">
       <div className="max-w-6xl mx-auto px-4">
@@ -266,7 +326,6 @@ export default function CheckoutPage() {
                 ))}
               </div>
 
-              {/* 🔥 UPDATED CLAIMED VOUCHERS LIST */}
               {claimedVouchers.length > 0 && (
                 <div className="mb-6 space-y-3">
                   <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
@@ -301,7 +360,6 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              {/* PROMO CODE SECTION */}
               <div className="mb-6 bg-gray-50 p-4 rounded-2xl border border-gray-100">
                 {!appliedVoucher ? (
                   <>
@@ -344,7 +402,6 @@ export default function CheckoutPage() {
                 )}
               </div>
 
-              {/* Totals */}
               <div className="border-t border-dashed border-gray-200 pt-6 mb-6">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-500 font-medium">Subtotal</span>
