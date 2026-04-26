@@ -998,6 +998,93 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
     }
 });
 
+
+
+// ==========================================
+// 🔥 PDF QUOTATION GENERATOR (Cart -> PDF)
+// ==========================================
+router.post('/checkout/quotation-pdf', async (req, res) => {
+    const { items, finalTotal, customerName, customerPhone, discountAmount } = req.body;
+    const client = await pool.connect();
+
+    try {
+        // 1. Fetch the Active QUOTATION template
+        const templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
+        if (templateRes.rows.length === 0) return res.status(404).json({ success: false, message: "No active quotation template found." });
+        const design = templateRes.rows[0].design_data;
+
+        // 2. Generate a fake "Order ID" for the quote
+        const quoteRef = `QUOTE-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        // 3. Variable Mapping
+        const mapVariable = (content) => {
+            if (!content) return "";
+            return content
+                .replace('{{order_id}}', quoteRef)
+                .replace('{{customer_name}}', customerName || 'Valued Customer')
+                .replace('{{customer_phone}}', customerPhone || 'N/A')
+                .replace('{{order_date}}', new Date().toLocaleDateString())
+                .replace('{{total_amount}}', parseFloat(finalTotal + discountAmount).toFixed(2))
+                .replace('{{discount_amount}}', parseFloat(discountAmount || 0).toFixed(2))
+                .replace('{{final_total}}', parseFloat(finalTotal).toFixed(2));
+        };
+
+        // 4. Build HTML
+        let componentsHtml = design.components.map(comp => {
+            const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
+
+            if (comp.type === 'text') return `<div style="${style}">${comp.content}</div>`;
+            if (comp.type === 'variable') return `<div style="${style}">${mapVariable(comp.content)}</div>`;
+            if (comp.type === 'image') return `<img src="${comp.content}" style="${style}; object-fit: contain;" />`;
+            if (comp.type === 'table') {
+                const cols = comp.columns && comp.columns.length > 0 ? comp.columns : ['Item', 'Qty', 'Rate', 'Amount'];
+                let tableHeaders = cols.map(col => `<th style="padding: 8px; border-bottom: 2px solid #333; text-align: left;">${col}</th>`).join('');
+
+                let tableRows = items.map(item => `
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.name}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.quantity}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${parseFloat(item.price).toFixed(2)}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${(item.quantity * parseFloat(item.price)).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                <div style="${style}">
+                    <table style="width: 100%; border-collapse: collapse; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px;">
+                        <thead><tr style="background-color: #f8f9fa;">${tableHeaders}</tr></thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>`;
+            }
+            return '';
+        }).join('');
+
+        const htmlContent = `<!DOCTYPE html><html><head><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" /><style>body { margin: 0; padding: 0; box-sizing: border-box; } .canvas { position: relative; width: ${design.width}px; height: ${design.height}px; background: white; overflow: hidden; }</style></head><body><div class="canvas">${componentsHtml}</div></body></html>`;
+
+        // 5. Run Puppeteer
+        const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
+        await browser.close();
+
+        // 6. Send raw PDF binary data
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename=${quoteRef}.pdf`,
+            'Content-Length': pdfBuffer.length
+        });
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error("Quotation Generation Error:", error);
+        res.status(500).json({ success: false, message: "Failed to generate quotation" });
+    } finally {
+        client.release();
+    }
+});
+
 // 🔥 NEW: Toggle a template to be the ACTIVE DEFAULT
 router.put('/admin/invoice-templates/:id/active', async (req, res) => {
     const client = await pool.connect();
@@ -1025,5 +1112,102 @@ router.put('/admin/invoice-templates/:id/active', async (req, res) => {
         client.release();
     }
 });
+
+
+// ==========================================
+// 🔥 ADMIN CUSTOM QUOTATION GENERATOR
+// ==========================================
+router.post('/admin/generate-quotation', async (req, res) => {
+    const { items, customerName, customerPhone, discountAmount } = req.body;
+    const client = await pool.connect();
+
+    try {
+        // Calculate the total on the backend to be safe
+        let finalTotal = items.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
+        finalTotal = finalTotal - parseFloat(discountAmount || 0);
+
+        // 1. Fetch the Active ADMIN_QUOTATION template
+        let templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'ADMIN_QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
+
+        // Fallback to standard QUOTATION if admin quotation isn't set
+        if (templateRes.rows.length === 0) {
+            templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
+        }
+        if (templateRes.rows.length === 0) return res.status(404).json({ success: false, message: "No active quotation template found." });
+
+        const design = templateRes.rows[0].design_data;
+
+        // 2. Generate a manual Quote ID
+        const quoteRef = `AQ-${Math.floor(10000 + Math.random() * 90000)}`;
+
+        // 3. Variable Mapping
+        const mapVariable = (content) => {
+            if (!content) return "";
+            return content
+                .replace('{{order_id}}', quoteRef)
+                .replace('{{customer_name}}', customerName || 'Valued Customer')
+                .replace('{{customer_phone}}', customerPhone || 'N/A')
+                .replace('{{order_date}}', new Date().toLocaleDateString())
+                .replace('{{total_amount}}', parseFloat(finalTotal + (discountAmount || 0)).toFixed(2))
+                .replace('{{discount_amount}}', parseFloat(discountAmount || 0).toFixed(2))
+                .replace('{{final_total}}', parseFloat(finalTotal).toFixed(2));
+        };
+
+        // 4. Build HTML
+        let componentsHtml = design.components.map(comp => {
+            const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
+
+            if (comp.type === 'text') return `<div style="${style}">${comp.content}</div>`;
+            if (comp.type === 'variable') return `<div style="${style}">${mapVariable(comp.content)}</div>`;
+            if (comp.type === 'image') return `<img src="${comp.content}" style="${style}; object-fit: contain;" />`;
+            if (comp.type === 'table') {
+                const cols = comp.columns && comp.columns.length > 0 ? comp.columns : ['Item', 'Qty', 'Rate', 'Amount'];
+                let tableHeaders = cols.map(col => `<th style="padding: 8px; border-bottom: 2px solid #333; text-align: left;">${col}</th>`).join('');
+
+                let tableRows = items.map(item => `
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.name}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${item.quantity}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${parseFloat(item.price).toFixed(2)}</td>
+                        <td style="padding: 8px; border-bottom: 1px dashed #ccc;">${(item.quantity * parseFloat(item.price)).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+
+                return `
+                <div style="${style}">
+                    <table style="width: 100%; border-collapse: collapse; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px;">
+                        <thead><tr style="background-color: #f8f9fa;">${tableHeaders}</tr></thead>
+                        <tbody>${tableRows}</tbody>
+                    </table>
+                </div>`;
+            }
+            return '';
+        }).join('');
+
+        const htmlContent = `<!DOCTYPE html><html><head><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" /><style>body { margin: 0; padding: 0; box-sizing: border-box; } .canvas { position: relative; width: ${design.width}px; height: ${design.height}px; background: white; overflow: hidden; }</style></head><body><div class="canvas">${componentsHtml}</div></body></html>`;
+
+        // 5. Run Puppeteer
+        const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
+        await browser.close();
+
+        // 6. Send raw PDF binary data
+        res.set({
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `attachment; filename=${quoteRef}.pdf`,
+            'Content-Length': pdfBuffer.length
+        });
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error("Admin Quotation Error:", error);
+        res.status(500).json({ success: false, message: "Failed to generate quotation" });
+    } finally {
+        client.release();
+    }
+});
+
 
 module.exports = router;

@@ -10,7 +10,7 @@ import axios from "axios";
 import {
   MapPin, Phone, Building, Hash, CreditCard,
   Wallet, Truck, Loader2, CheckCircle, Package, Ticket, X, Gift,
-  FileText, Receipt // 🔥 Added for the new download buttons
+  FileText, Receipt, DownloadCloud // 🔥 Added DownloadCloud
 } from "lucide-react";
 
 interface Voucher {
@@ -33,8 +33,8 @@ export default function CheckoutPage() {
   const [processing, setProcessing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
 
-  // 🔥 NEW: State to hold the placed Order ID so we can show the success screen
   const [placedOrderId, setPlacedOrderId] = useState<number | null>(null);
+  const [downloadingQuote, setDownloadingQuote] = useState(false); // 🔥 Added Quote Download State
 
   const [formData, setFormData] = useState({
     phone: "",
@@ -61,7 +61,6 @@ export default function CheckoutPage() {
       router.push("/login");
       return;
     }
-    // Only redirect if they haven't just placed an order
     if (items.length === 0 && !placedOrderId) {
       router.push("/");
       return;
@@ -137,6 +136,39 @@ export default function CheckoutPage() {
     addToast("Voucher removed", "info");
   };
 
+  // 🔥 NEW: Function to request the backend to generate a Quotation PDF
+  const handleDownloadQuotation = async () => {
+    if (items.length === 0) return;
+    setDownloadingQuote(true);
+    addToast("Generating your quotation...", "info");
+
+    try {
+      const res = await axios.post(`${API_BASE_URL}/web/checkout/quotation-pdf`, {
+        items: items,
+        finalTotal: finalTotal,
+        customerName: user?.name || "Customer",
+        customerPhone: formData.phone || "",
+        discountAmount: discountAmount
+      }, { responseType: 'blob' }); // Crucial for receiving raw PDF data
+
+      // Force the browser to download the file
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Quotation_${Date.now()}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      addToast("Quotation downloaded!", "success");
+    } catch (error) {
+      console.error("Quotation error", error);
+      addToast("Failed to generate quotation.", "error");
+    } finally {
+      setDownloadingQuote(false);
+    }
+  };
+
   const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || items.length === 0) return;
@@ -160,8 +192,6 @@ export default function CheckoutPage() {
         addToast("Order placed successfully! Thank you for shopping with us.", "success");
         clearCart();
 
-        // 🔥 Try to grab the new Order ID from the backend response.
-        // If it exists, show the Success Screen! If not, fallback to the orders page.
         const newOrderId = res.data.orderId || res.data.order_id || res.data.id;
         if (newOrderId) {
           setPlacedOrderId(newOrderId);
@@ -180,7 +210,7 @@ export default function CheckoutPage() {
     return <div className="min-h-screen flex justify-center pt-20"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
   }
 
-  // 🔥 NEW: THE SUCCESS SCREEN (Shows instead of checkout form if order is placed)
+  // 🔥 THE SUCCESS SCREEN
   if (placedOrderId) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -192,18 +222,16 @@ export default function CheckoutPage() {
           <p className="text-gray-500 mb-8 font-medium">Your order <span className="font-bold text-gray-900">#{placedOrderId}</span> has been successfully placed.</p>
 
           <div className="space-y-4">
-            {/* Note: templateId=3 is the Arkham A4 Template we just added to your DB */}
             <a
-              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?templateId=3`}
+              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?type=INVOICE`}
               target="_blank" rel="noreferrer"
               className="w-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors border border-indigo-100 shadow-sm"
             >
               <FileText size={20} /> Download PDF Invoice
             </a>
 
-            {/* Note: templateId=4 is the Sahanu Thermal Template we just added to your DB */}
             <a
-              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?templateId=4`}
+              href={`${API_BASE_URL}/web/orders/${placedOrderId}/download-pdf?type=RECEIPT`}
               target="_blank" rel="noreferrer"
               className="w-full bg-orange-50 text-orange-700 hover:bg-orange-100 py-4 rounded-xl font-bold flex items-center justify-center gap-3 transition-colors border border-orange-100 shadow-sm"
             >
@@ -425,13 +453,27 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={processing}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {processing ? <Loader2 size={24} className="animate-spin" /> : "Confirm & Place Order"}
-              </button>
+              {/* 🔥 NEW: Quotation and Place Order Buttons Side-by-Side */}
+              <div className="flex flex-col gap-3">
+                <button
+                  type="submit"
+                  disabled={processing || downloadingQuote}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {processing ? <Loader2 size={24} className="animate-spin" /> : "Confirm & Place Order"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadQuotation}
+                  disabled={processing || downloadingQuote}
+                  className="w-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 border border-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {downloadingQuote ? <Loader2 size={20} className="animate-spin" /> : <DownloadCloud size={20} />}
+                  Download as Quotation
+                </button>
+              </div>
+
             </div>
           </div>
 
