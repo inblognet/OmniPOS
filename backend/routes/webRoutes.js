@@ -980,6 +980,12 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
             pageRanges: '1'
         });
 
+        // Log the generation
+        await client.query(
+            `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
+            [type.toUpperCase().trim(), order.id, order.customer_name || 'Guest', order.total_amount]
+        );
+
         await browser.close();
 
         // 6. Send the PDF file directly to the browser
@@ -1067,6 +1073,13 @@ router.post('/checkout/quotation-pdf', async (req, res) => {
         const page = await browser.newPage();
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
+
+        // Log the generation
+        await client.query(
+            `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
+            ['QUOTATION', quoteRef, customerName || 'Valued Customer', finalTotal]
+        );
+
         await browser.close();
 
         // 6. Send raw PDF binary data
@@ -1191,6 +1204,12 @@ router.post('/admin/generate-quotation', async (req, res) => {
         const page = await browser.newPage();
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
+
+        // Log the generation
+        await client.query(
+            `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
+            ['ADMIN_QUOTATION', quoteRef, customerName || 'Valued Customer', finalTotal]
+        );
         await browser.close();
 
         // 6. Send raw PDF binary data
@@ -1209,5 +1228,23 @@ router.post('/admin/generate-quotation', async (req, res) => {
     }
 });
 
+
+// Get document generation history
+router.get('/admin/document-records', async (req, res) => {
+    const { type } = req.query;
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query(
+            'SELECT * FROM document_records WHERE document_type = $1 ORDER BY created_at DESC',
+            [type]
+        );
+        res.json({ success: true, records: rows });
+    } catch (error) {
+        console.error("Failed to fetch document records:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
 
 module.exports = router;
