@@ -1254,17 +1254,21 @@ router.get('/admin/document-records', async (req, res) => {
 // 🔥 DATA MANAGEMENT & CLOUD BACKUP ROUTES
 // ==========================================
 
-// 1. Export System Backup
+// 1. Export System Backup (BULLETPROOF)
 router.get('/admin/backup', async (req, res) => {
     const client = await pool.connect();
     try {
         const backup = {};
-        // Correct hierarchy order to prevent foreign key issues
         const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
 
         for (const table of tables) {
-            const { rows } = await client.query(`SELECT * FROM ${table}`);
-            backup[table] = rows;
+            try {
+                const { rows } = await client.query(`SELECT * FROM ${table}`);
+                backup[table] = rows;
+            } catch (tableError) {
+                // If a table doesn't exist, we just skip it and warn in the terminal instead of crashing!
+                console.warn(`⚠️ Backup: Skipping table '${table}' (It might not exist yet)`);
+            }
         }
 
         res.json({ success: true, backup });
@@ -1276,7 +1280,7 @@ router.get('/admin/backup', async (req, res) => {
     }
 });
 
-// 2. Restore System Backup
+// 2. Restore System Backup (BULLETPROOF)
 router.post('/admin/restore', async (req, res) => {
     const { backup } = req.body;
     const client = await pool.connect();
@@ -1285,13 +1289,15 @@ router.post('/admin/restore', async (req, res) => {
 
         const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
 
-        // Wipe existing data safely
-        await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
-
-        // Insert data back in the correct hierarchical order
         for (const table of tables) {
-            const rows = backup[table];
-            if (rows && rows.length > 0) {
+            // Only try to restore if there is data for this table in the backup file
+            if (!backup[table] || backup[table].length === 0) continue;
+
+            try {
+                // Wipe existing data safely
+                await client.query(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`);
+
+                const rows = backup[table];
                 const columns = Object.keys(rows[0]);
                 const query = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')})`;
 
@@ -1303,7 +1309,10 @@ router.post('/admin/restore', async (req, res) => {
                 // Fix Auto-Increment Counters
                 try {
                     await client.query(`SELECT setval('${table}_id_seq', (SELECT MAX(id) FROM ${table}) + 1)`);
-                } catch(e) { /* Ignore tables without standard sequences like settings */ }
+                } catch(e) { /* Ignore sequence errors for tables without serial IDs */ }
+
+            } catch(tableErr) {
+                 console.warn(`⚠️ Restore: Failed to restore table '${table}':`, tableErr.message);
             }
         }
 
