@@ -1,12 +1,13 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import api from "@/lib/api";
+import { useToastStore } from "@/store/useToastStore";
 import {
   Settings, Palette, Save, Database, AlertTriangle,
   Download, Upload, Trash2, Loader2, Store
 } from "lucide-react";
 
-// The exact presets from your POS system!
+// The exact presets from your POS system
 const DEFAULT_THEME = { primaryColor: '#3b82f6', navbarColor: '#ffffff', sidebarColor: '#f3f4f6', backgroundColor: '#f9fafb', cardColor: '#ffffff', textColor: '#1f2937', sidebarTextColor: '#4b5563', labelColor: '#374151', subTextColor: '#6b7280' };
 
 const THEME_PRESETS = [
@@ -26,9 +27,12 @@ const THEME_PRESETS = [
 ];
 
 export default function AdminSettingsPage() {
+  const { addToast } = useToastStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState("System Default");
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState({
     store_name: "", phone_number: "", email_address: "", address: "", tax_rate: "0.10", currency_symbol: "$",
@@ -59,10 +63,10 @@ export default function AdminSettingsPage() {
     try {
       const res = await api.put("/web/admin/settings", formData);
       if (res.data.success) {
-        alert("Store settings securely updated in the database!");
+        addToast("Store settings securely updated!", "success");
       }
     } catch (err) {
-      alert("Failed to save settings.");
+      addToast("Failed to save settings.", "error");
     } finally {
       setSaving(false);
     }
@@ -86,6 +90,78 @@ export default function AdminSettingsPage() {
       theme_sub_text: preset.colors.subTextColor
     }));
   };
+
+  // =====================================
+  // 🔥 DATA MANAGEMENT SYSTEM FUNCTIONS
+  // =====================================
+
+  const handleExportBackup = async () => {
+    try {
+      addToast("Preparing system backup...", "info");
+      const res = await api.get("/web/admin/backup");
+      if (res.data.success) {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data.backup, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", `OmniStore_Backup_${new Date().toISOString().split('T')[0]}.json`);
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        addToast("Backup downloaded successfully!", "success");
+      }
+    } catch (err) {
+      addToast("Failed to generate backup.", "error");
+    }
+  };
+
+  const handleRestoreFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const backupData = JSON.parse(event.target?.result as string);
+
+        if (!confirm("⚠️ CRITICAL WARNING: This will overwrite your ENTIRE database (Products, Orders, Customers, Invoices) with the backup file. This cannot be undone. Proceed?")) return;
+
+        setSaving(true);
+        addToast("Restoring database. Please wait...", "info");
+
+        const res = await api.post("/web/admin/restore", { backup: backupData });
+        if (res.data.success) {
+          alert("System restored successfully! The page will now reload.");
+          window.location.reload();
+        }
+      } catch (err) {
+        alert("Invalid backup file or restore failed.");
+        console.error(err);
+      } finally {
+        setSaving(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDangerAction = async (endpoint: string, title: string) => {
+    if (!confirm(`⚠️ DANGER: Are you absolutely sure you want to ${title}? This CANNOT be undone.`)) return;
+
+    setSaving(true);
+    try {
+      const res = await api.delete(`/web/admin/${endpoint}`);
+      if (res.data.success) {
+        alert(`${title} completed successfully.`);
+        window.location.reload();
+      }
+    } catch (err) {
+      addToast(`Failed to ${title}.`, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // =====================================
 
   const ColorInput = ({ label, field }: { label: string, field: keyof typeof formData }) => (
     <div>
@@ -226,17 +302,21 @@ export default function AdminSettingsPage() {
               <AlertTriangle size={20} className="text-blue-600 shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-bold text-blue-900">About Cloud Storage</p>
-                <p className="text-xs text-blue-700 mt-1">Actions taken here affect <strong className="font-black">ALL DEVICES</strong> instantly. Backup files include Products, Orders, Customers, and configurations.</p>
+                <p className="text-xs text-blue-700 mt-1">Actions taken here affect <strong className="font-black">ALL DEVICES</strong> instantly. Backup files include Products, Orders, Customers, Invoices, and configurations.</p>
               </div>
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 border-b border-gray-100 pb-8">
-              <button onClick={() => alert("Backup routing will be configured soon!")} className="border-2 border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
+              <button onClick={handleExportBackup} disabled={saving} className="border-2 border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group disabled:opacity-50">
                 <div className="bg-gray-50 p-3 rounded-full text-blue-600 group-hover:bg-blue-100 transition-colors"><Download size={24}/></div>
                 <span className="text-gray-900 font-bold mt-2">Export System Backup</span>
                 <span className="text-xs text-gray-500 font-medium">Download .json for restore</span>
               </button>
-              <button onClick={() => alert("Restore routing will be configured soon!")} className="border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
+
+              {/* Hidden file input for restore */}
+              <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleRestoreFileChange} />
+
+              <button onClick={() => fileInputRef.current?.click()} disabled={saving} className="border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group disabled:opacity-50">
                 <div className="bg-gray-50 p-3 rounded-full text-amber-500 group-hover:bg-amber-100 transition-colors"><Upload size={24}/></div>
                 <span className="text-gray-900 font-bold mt-2">Restore System Backup</span>
                 <span className="text-xs text-gray-500 font-medium">Overwrite DB from file</span>
@@ -248,18 +328,18 @@ export default function AdminSettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50/50">
                     <h4 className="text-gray-900 font-black text-sm mb-1 flex items-center gap-2"><Database size={14} className="text-gray-400"/> Clear Sales</h4>
-                    <p className="text-xs text-gray-500 mb-4 font-medium">Wipes all orders and revenue logs.</p>
-                    <button className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm">Clear Orders</button>
+                    <p className="text-xs text-gray-500 mb-4 font-medium">Wipes all orders and document logs.</p>
+                    <button onClick={() => handleDangerAction('clear-sales', 'Clear Orders')} disabled={saving} className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50">Clear Orders</button>
                  </div>
                  <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50/50">
                     <h4 className="text-amber-600 font-black text-sm mb-1 flex items-center gap-2"><Trash2 size={14}/> Clear Inventory</h4>
-                    <p className="text-xs text-gray-500 mb-4 font-medium">Archives all products and stock.</p>
-                    <button className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm">Archive Products</button>
+                    <p className="text-xs text-gray-500 mb-4 font-medium">Archives all products and categories.</p>
+                    <button onClick={() => handleDangerAction('clear-inventory', 'Clear Inventory')} disabled={saving} className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm disabled:opacity-50">Archive Products</button>
                  </div>
                  <div className="border border-red-200 bg-red-50 rounded-2xl p-5 relative overflow-hidden">
                     <h4 className="text-red-700 font-black text-sm mb-1 flex items-center gap-2">Factory Reset</h4>
                     <p className="text-xs text-red-600/80 mb-4 font-medium">Nukes entire database.</p>
-                    <button className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-md shadow-red-200 active:scale-95">Reset Everything</button>
+                    <button onClick={() => handleDangerAction('factory-reset', 'Factory Reset')} disabled={saving} className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-md shadow-red-200 active:scale-95 disabled:opacity-50">Reset Everything</button>
                  </div>
               </div>
            </div>
