@@ -1247,4 +1247,123 @@ router.get('/admin/document-records', async (req, res) => {
     }
 });
 
+
+
+
+// ==========================================
+// 🔥 DATA MANAGEMENT & CLOUD BACKUP ROUTES
+// ==========================================
+
+// 1. Export System Backup
+router.get('/admin/backup', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const backup = {};
+        // Correct hierarchy order to prevent foreign key issues
+        const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
+
+        for (const table of tables) {
+            const { rows } = await client.query(`SELECT * FROM ${table}`);
+            backup[table] = rows;
+        }
+
+        res.json({ success: true, backup });
+    } catch (error) {
+        console.error("Backup Error:", error);
+        res.status(500).json({ success: false, message: "Backup failed" });
+    } finally {
+        client.release();
+    }
+});
+
+// 2. Restore System Backup
+router.post('/admin/restore', async (req, res) => {
+    const { backup } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
+
+        // Wipe existing data safely
+        await client.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
+
+        // Insert data back in the correct hierarchical order
+        for (const table of tables) {
+            const rows = backup[table];
+            if (rows && rows.length > 0) {
+                const columns = Object.keys(rows[0]);
+                const query = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')})`;
+
+                for (const row of rows) {
+                    const values = columns.map(col => row[col]);
+                    await client.query(query, values);
+                }
+
+                // Fix Auto-Increment Counters
+                try {
+                    await client.query(`SELECT setval('${table}_id_seq', (SELECT MAX(id) FROM ${table}) + 1)`);
+                } catch(e) { /* Ignore tables without standard sequences like settings */ }
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: "System restored successfully!" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Restore Error:", error);
+        res.status(500).json({ success: false, message: "Restore failed" });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. Clear Sales Data
+router.delete('/admin/clear-sales', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('TRUNCATE TABLE order_items, orders, document_records RESTART IDENTITY CASCADE');
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Sales cleared successfully" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 4. Clear Inventory Data
+router.delete('/admin/clear-inventory', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('TRUNCATE TABLE products, categories RESTART IDENTITY CASCADE');
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Inventory cleared successfully" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 5. Full Factory Reset
+router.delete('/admin/factory-reset', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Wipes everything EXCEPT admin login users and store config settings
+        await client.query('TRUNCATE TABLE customers, categories, products, vouchers, invoice_templates, orders, order_items, document_records RESTART IDENTITY CASCADE');
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Factory reset complete!" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
 module.exports = router;

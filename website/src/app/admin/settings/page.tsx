@@ -87,25 +87,24 @@ export default function AdminSettingsPage() {
     }));
   };
 
-  // Helper component for the Color Pickers to match your screenshot
   const ColorInput = ({ label, field }: { label: string, field: keyof typeof formData }) => (
     <div>
-      <label className="block text-xs font-bold text-slate-400 mb-1.5 flex items-center gap-2">
-        <div className="w-3 h-3 rounded-sm border border-slate-600" style={{ backgroundColor: formData[field] }}></div>
+      <label className="block text-xs font-bold text-gray-500 mb-1.5 flex items-center gap-2">
+        <div className="w-3 h-3 rounded-sm border border-gray-300 shadow-sm" style={{ backgroundColor: formData[field] }}></div>
         {label}
       </label>
-      <div className="flex items-center gap-0 bg-slate-900 border border-slate-700 rounded-lg overflow-hidden focus-within:border-blue-500 transition-colors">
+      <div className="flex items-center gap-0 bg-gray-50 border border-gray-200 rounded-xl overflow-hidden focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200 transition-all">
         <input
           type="color"
           value={formData[field]}
           onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-          className="w-12 h-10 cursor-pointer bg-slate-900 border-none outline-none"
+          className="w-12 h-12 cursor-pointer bg-gray-50 border-none outline-none"
         />
         <input
           type="text"
           value={formData[field].toUpperCase()}
           onChange={(e) => setFormData({ ...formData, [field]: e.target.value })}
-          className="flex-1 bg-transparent text-slate-300 text-sm px-3 py-2 outline-none font-mono uppercase"
+          className="flex-1 bg-transparent text-gray-900 text-sm px-3 py-2 outline-none font-mono uppercase font-bold"
         />
       </div>
     </div>
@@ -124,41 +123,40 @@ export default function AdminSettingsPage() {
         <p className="text-gray-500 mt-1 font-medium">Manage your store details, theme presets, and system data.</p>
       </div>
 
-      {/* REPLICATED SETTINGS CARD (Dark Navy Theme) */}
-      <div className="bg-[#0f172a] rounded-2xl shadow-xl overflow-hidden border border-slate-800 text-slate-200">
+      <div className="bg-white rounded-3xl shadow-sm overflow-hidden border border-gray-100 text-gray-900">
 
         {/* 1. Store Config Section */}
-        <div className="p-8 border-b border-slate-800">
-          <h2 className="text-lg font-black text-white mb-6 flex items-center gap-2">
-            <Store size={18} className="text-blue-400"/> General Details
+        <div className="p-8 border-b border-gray-100">
+          <h2 className="text-lg font-black text-gray-900 mb-6 flex items-center gap-2">
+            <Store size={18} className="text-blue-600"/> General Details
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Store Name</label>
-              <input type="text" value={formData.store_name} onChange={e => setFormData({...formData, store_name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500" />
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Store Name</label>
+              <input type="text" value={formData.store_name} onChange={e => setFormData({...formData, store_name: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Phone Number</label>
-              <input type="text" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500" />
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Phone Number</label>
+              <input type="text" value={formData.phone_number} onChange={e => setFormData({...formData, phone_number: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Email Address</label>
-              <input type="email" value={formData.email_address} onChange={e => setFormData({...formData, email_address: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500" />
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Email Address</label>
+              <input type="email" value={formData.email_address} onChange={e => setFormData({...formData, email_address: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Store Address</label>
-              <input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500" />
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Store Address</label>
+              <input type="text" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Tax Rate (Decimal)</label>
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Tax Rate (Decimal)</label>
               <div className="flex items-center gap-3">
-                <input type="number" step="0.01" value={formData.tax_rate} onChange={e => setFormData({...formData, tax_rate: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500" />
-                <span className="text-sm font-bold text-slate-500">= {(parseFloat(formData.tax_rate) * 100).toFixed(1)}%</span>
+                <input type="number" step="0.01" value={formData.tax_rate} onChange={e => setFormData({...formData, tax_rate: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200" />
+                <span className="text-sm font-bold text-gray-500 bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">= {(parseFloat(formData.tax_rate) * 100).toFixed(1)}%</span>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-400 mb-1.5">Currency Symbol</label>
-              <select value={formData.currency_symbol} onChange={e => setFormData({...formData, currency_symbol: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500">
+              <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Currency Symbol</label>
+              <select value={formData.currency_symbol} onChange={e => setFormData({...formData, currency_symbol: e.target.value})} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200">
                 <option value="$">Dollar ($)</option>
                 <option value="€">Euro (€)</option>
                 <option value="£">Pound (£)</option>
@@ -169,19 +167,19 @@ export default function AdminSettingsPage() {
         </div>
 
         {/* 2. Appearance & Theme Section */}
-        <div className="p-8 bg-[#1e293b]/50 border-b border-slate-800">
+        <div className="p-8 bg-gray-50/50 border-b border-gray-100">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-black text-white flex items-center gap-2">
-              <Palette size={18} className="text-purple-400"/> Appearance & Theme
+            <h2 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <Palette size={18} className="text-purple-500"/> Appearance & Theme
             </h2>
           </div>
 
           <div className="mb-8">
-             <label className="block text-xs font-bold text-slate-400 mb-2">Theme Presets</label>
+             <label className="block text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">Theme Presets</label>
              <select
                 value={selectedPreset}
                 onChange={(e) => applyPreset(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm font-bold text-white outline-none focus:border-purple-500 transition-colors"
+                className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-200 transition-colors shadow-sm"
               >
                 {THEME_PRESETS.map(preset => (
                   <option key={preset.name} value={preset.name}>{preset.name}</option>
@@ -203,65 +201,65 @@ export default function AdminSettingsPage() {
         </div>
 
         {/* Save Button Bar */}
-        <div className="p-6 bg-slate-900 flex justify-end">
+        <div className="p-6 bg-gray-50 flex justify-end">
           <button
             onClick={handleSave}
             disabled={saving}
-            className="bg-green-600 hover:bg-green-500 text-white px-6 py-2.5 rounded-lg font-bold flex items-center gap-2 transition-colors disabled:opacity-50"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all shadow-md shadow-blue-200 active:scale-95 disabled:opacity-50"
           >
-            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+            {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
             Save All Changes
           </button>
         </div>
 
       </div>
 
-      {/* 3. Data Management Section (Visual Placeholder to match screenshot) */}
+      {/* 3. Data Management Section */}
       <div className="mt-10">
         <h3 className="text-xl font-black text-gray-900 mb-4 flex items-center gap-2">
-          Data Management <span className="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Cloud Critical</span>
+          Data Management <span className="bg-red-50 text-red-600 border border-red-200 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Cloud Critical</span>
         </h3>
 
-        <div className="bg-[#0f172a] rounded-2xl p-6 shadow-xl border border-slate-800">
+        <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
 
-           <div className="bg-blue-900/20 border border-blue-800/50 rounded-xl p-4 flex items-start gap-3 mb-8">
-              <AlertTriangle size={20} className="text-blue-400 shrink-0 mt-0.5" />
+           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3 mb-8">
+              <AlertTriangle size={20} className="text-blue-600 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-bold text-blue-400">About Cloud Storage</p>
-                <p className="text-xs text-blue-300 mt-1">Actions taken here affect <strong className="text-white">ALL DEVICES</strong> instantly. Backup files include Products, Orders, Customers, and configurations.</p>
+                <p className="text-sm font-bold text-blue-900">About Cloud Storage</p>
+                <p className="text-xs text-blue-700 mt-1">Actions taken here affect <strong className="font-black">ALL DEVICES</strong> instantly. Backup files include Products, Orders, Customers, and configurations.</p>
               </div>
            </div>
 
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 border-b border-slate-800 pb-8">
-              <button onClick={() => alert("Backup routing will be configured soon!")} className="border border-dashed border-slate-600 hover:border-slate-400 hover:bg-slate-800 rounded-xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
-                <div className="bg-slate-800 p-3 rounded-full text-blue-400 group-hover:bg-blue-900/50"><Download size={24}/></div>
-                <span className="text-white font-bold mt-2">Export System Backup</span>
-                <span className="text-xs text-slate-400">Download .json for restore</span>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 border-b border-gray-100 pb-8">
+              <button onClick={() => alert("Backup routing will be configured soon!")} className="border-2 border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
+                <div className="bg-gray-50 p-3 rounded-full text-blue-600 group-hover:bg-blue-100 transition-colors"><Download size={24}/></div>
+                <span className="text-gray-900 font-bold mt-2">Export System Backup</span>
+                <span className="text-xs text-gray-500 font-medium">Download .json for restore</span>
               </button>
-              <button onClick={() => alert("Restore routing will be configured soon!")} className="border border-dashed border-slate-600 hover:border-slate-400 hover:bg-slate-800 rounded-xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
-                <div className="bg-slate-800 p-3 rounded-full text-amber-400 group-hover:bg-amber-900/50"><Upload size={24}/></div>
-                <span className="text-white font-bold mt-2">Restore System Backup</span>
-                <span className="text-xs text-slate-400">Overwrite DB from file</span>
+              <button onClick={() => alert("Restore routing will be configured soon!")} className="border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50 rounded-2xl p-6 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer group">
+                <div className="bg-gray-50 p-3 rounded-full text-amber-500 group-hover:bg-amber-100 transition-colors"><Upload size={24}/></div>
+                <span className="text-gray-900 font-bold mt-2">Restore System Backup</span>
+                <span className="text-xs text-gray-500 font-medium">Overwrite DB from file</span>
               </button>
            </div>
 
            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Database size={14}/> Danger Zone</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Database size={14}/> Danger Zone</p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 <div className="border border-slate-700 rounded-xl p-5">
-                    <h4 className="text-white font-bold text-sm mb-1 flex items-center gap-2"><Database size={14}/> Clear Sales</h4>
-                    <p className="text-xs text-slate-400 mb-4">Wipes all orders and revenue logs.</p>
-                    <button className="w-full py-2 border border-slate-600 hover:bg-slate-800 text-slate-300 text-xs font-bold rounded-lg transition-colors cursor-pointer">Clear Orders</button>
+                 <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50/50">
+                    <h4 className="text-gray-900 font-black text-sm mb-1 flex items-center gap-2"><Database size={14} className="text-gray-400"/> Clear Sales</h4>
+                    <p className="text-xs text-gray-500 mb-4 font-medium">Wipes all orders and revenue logs.</p>
+                    <button className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm">Clear Orders</button>
                  </div>
-                 <div className="border border-slate-700 rounded-xl p-5">
-                    <h4 className="text-amber-400 font-bold text-sm mb-1 flex items-center gap-2"><Trash2 size={14}/> Clear Inventory</h4>
-                    <p className="text-xs text-slate-400 mb-4">Archives all products and stock.</p>
-                    <button className="w-full py-2 border border-slate-600 hover:bg-slate-800 text-slate-300 text-xs font-bold rounded-lg transition-colors cursor-pointer">Archive Products</button>
+                 <div className="border border-gray-200 rounded-2xl p-5 bg-gray-50/50">
+                    <h4 className="text-amber-600 font-black text-sm mb-1 flex items-center gap-2"><Trash2 size={14}/> Clear Inventory</h4>
+                    <p className="text-xs text-gray-500 mb-4 font-medium">Archives all products and stock.</p>
+                    <button className="w-full py-2 bg-white border border-gray-200 hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-bold rounded-lg transition-colors shadow-sm">Archive Products</button>
                  </div>
-                 <div className="border border-red-900/50 bg-red-950/20 rounded-xl p-5 relative overflow-hidden">
-                    <h4 className="text-red-400 font-bold text-sm mb-1 flex items-center gap-2">Factory Reset</h4>
-                    <p className="text-xs text-red-400/70 mb-4">Nukes entire database.</p>
-                    <button className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shadow-lg shadow-red-900/20 relative z-10">Reset Everything</button>
+                 <div className="border border-red-200 bg-red-50 rounded-2xl p-5 relative overflow-hidden">
+                    <h4 className="text-red-700 font-black text-sm mb-1 flex items-center gap-2">Factory Reset</h4>
+                    <p className="text-xs text-red-600/80 mb-4 font-medium">Nukes entire database.</p>
+                    <button className="w-full py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-md shadow-red-200 active:scale-95">Reset Everything</button>
                  </div>
               </div>
            </div>
