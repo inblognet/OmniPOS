@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Package, Image as ImageIcon, Store, LayoutDashboard, Boxes, TrendingUp,
-  LogOut, Settings, Tags, Ticket, Menu, ChevronLeft, FileText, Calculator // 🔥 Added Calculator icon
+  LogOut, Settings, Tags, Ticket, Menu, ChevronLeft, FileText, Calculator, Undo2 // 🔥 Added Undo2 icon
 } from "lucide-react";
 import { useUserStore } from "@/store/useUserStore";
 
@@ -35,11 +35,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push("/login");
   };
 
-  // 🔥 NEW: Added Quotations to the navigation array
+  // 🔥 NEW: Added Refunds to the navigation array
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: TrendingUp },
     { name: "Orders", href: "/admin/orders", icon: Package },
-    { name: "Quotations", href: "/admin/quotations", icon: Calculator }, // 🔥 NEW LINK
+    { name: "Refunds", href: "/admin/refunds", icon: Undo2 }, // 🔥 NEW LINK
+    { name: "Quotations", href: "/admin/quotations", icon: Calculator },
     { name: "Inventory", href: "/admin/inventory", icon: Boxes },
     { name: "Categories", href: "/admin/categories", icon: Tags },
     { name: "Vouchers", href: "/admin/vouchers", icon: Ticket },

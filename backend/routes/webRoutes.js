@@ -1247,7 +1247,165 @@ router.get('/admin/document-records', async (req, res) => {
     }
 });
 
+// ==========================================
+// 🔥 REFUND LIFECYCLE ENGINE
+// ==========================================
 
+// 1. Get Refund Policy Configuration (from dedicated web_refund table)
+router.get('/settings/refund-policy', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query('SELECT * FROM web_refund WHERE id = 1');
+        res.json({ success: true, policy: rows[0] || {} });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 2. Admin: Update Refund Configuration
+router.put('/admin/refund-config', async (req, res) => {
+    const { refund_policy, refund_duration_days, refund_processing_days } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            `UPDATE web_refund
+             SET refund_policy = $1, refund_duration_days = $2, refund_processing_days = $3, updated_at = CURRENT_TIMESTAMP
+             WHERE id = 1`,
+            [refund_policy, refund_duration_days, refund_processing_days]
+        );
+        res.json({ success: true, message: "Refund configuration updated successfully" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 3. Customer: Request a Refund
+router.post('/orders/:id/refund', async (req, res) => {
+    const { customerId, reason, bankDetails, refundAmount } = req.body;
+    const orderId = req.params.id;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Create the refund request
+        await client.query(
+            `INSERT INTO refund_requests (order_id, customer_id, reason, bank_details, refund_amount)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [orderId, customerId, reason, bankDetails, refundAmount]
+        );
+
+        // Update the order status to reflect an active refund request
+        await client.query(`UPDATE orders SET status = 'REFUND_REQUESTED' WHERE id = $1`, [orderId]);
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Refund requested successfully" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error(error);
+        res.status(500).json({ success: false, message: "Failed to request refund" });
+    } finally {
+        client.release();
+    }
+});
+
+// 4. Customer: Confirm Receipt & Feedback
+router.put('/orders/:id/refund/confirm', async (req, res) => {
+    const { status, feedback } = req.body; // status: 'COMPLETED' (received) or 'NOT_RECEIVED'
+    const orderId = req.params.id;
+    const client = await pool.connect();
+    try {
+        await client.query(
+            `UPDATE refund_requests
+             SET status = $1, customer_feedback = $2, updated_at = CURRENT_TIMESTAMP
+             WHERE order_id = $3`,
+            [status, feedback, orderId]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 5. Admin: Get Refund Dashboard Analytics & Requests
+router.get('/admin/refunds', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        // Get all refund requests with joined customer and order details
+        const requests = await client.query(`
+            SELECT r.*, c.name as customer_name, c.email as customer_email,
+                   (SELECT json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price))
+                    FROM order_items oi JOIN products p ON oi.product_id = p.id WHERE oi.order_id = r.order_id) as products
+            FROM refund_requests r
+            JOIN customers c ON r.customer_id = c.id
+            ORDER BY r.created_at DESC
+        `);
+
+        // Calculate Analytics
+        const stats = await client.query(`
+            SELECT
+                COALESCE(SUM(refund_amount), 0) as total_refunded_amount,
+                COUNT(id) as total_refunded_orders,
+                SUM(CASE WHEN restocked = TRUE THEN 1 ELSE 0 END) as restocked_count
+            FROM refund_requests
+            WHERE status IN ('APPROVED', 'PROCESSED', 'COMPLETED')
+        `);
+
+        res.json({
+            success: true,
+            requests: requests.rows,
+            stats: stats.rows[0]
+        });
+    } catch (error) {
+        console.error("Fetch Refunds Error:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
+// 6. Admin: Update Refund Status (Approve/Reject/Upload Slip)
+router.put('/admin/refunds/:id', async (req, res) => {
+    const { status, adminSlipUrl, restockItems } = req.body;
+    const refundId = req.params.id;
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Update Refund Status
+        await client.query(
+            `UPDATE refund_requests
+             SET status = $1, admin_slip_url = COALESCE($2, admin_slip_url), restocked = COALESCE($3, restocked), updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4 RETURNING order_id`,
+            [status, adminSlipUrl, restockItems, refundId]
+        );
+
+        // If restocked is true, we need to put items back in inventory
+        if (restockItems) {
+            const refund = await client.query('SELECT order_id FROM refund_requests WHERE id = $1', [refundId]);
+            const items = await client.query('SELECT product_id, quantity FROM order_items WHERE order_id = $1', [refund.rows[0].order_id]);
+
+            for (const item of items.rows) {
+                await client.query('UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2', [item.quantity, item.product_id]);
+            }
+        }
+
+        await client.query('COMMIT');
+        res.json({ success: true });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error(error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
 
 
 // ==========================================

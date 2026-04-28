@@ -3,11 +3,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserStore } from "@/store/useUserStore";
 import { useSettingsStore } from "@/store/useSettingsStore";
-import { useToastStore } from "@/store/useToastStore"; // 🔥 Imported global toast store
+import { useToastStore } from "@/store/useToastStore";
 import api from "@/lib/api";
 import {
   Package, UploadCloud, MessageCircle, Send, Star,
-  CheckCircle, Loader2, Info, X, Clock, Box, Truck, FileDown, Ticket, Award
+  CheckCircle, Loader2, Info, X, Clock, Box, Truck, FileDown, Ticket, Award,
+  Undo2, AlertCircle, XCircle // 🔥 Added new icons for the refund system
 } from "lucide-react";
 
 interface OrderItem {
@@ -26,8 +27,8 @@ interface Order {
   payment_slip_url: string | null;
   admin_note: string | null;
   created_at: string;
-  discount_code: string | null;     // 🔥 Added for voucher tracking
-  discount_amount: string | number; // 🔥 Added for voucher tracking
+  discount_code: string | null;
+  discount_amount: string | number;
   items: OrderItem[];
 }
 
@@ -43,10 +44,13 @@ export default function CustomerOrdersPage() {
   const { user } = useUserStore();
 
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
-  const { addToast } = useToastStore(); // 🔥 Initialize toast function
+  const { addToast } = useToastStore();
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 🔥 Refund Policy State
+  const [policy, setPolicy] = useState({ refund_policy: "", refund_duration_days: 7, refund_processing_days: 3 });
 
   // UI States
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
@@ -61,21 +65,36 @@ export default function CustomerOrdersPage() {
   const [reviewModal, setReviewModal] = useState<{ productId: number; orderId: number; productName: string } | null>(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
-  const [submittingReview, setSubmittingReview] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // 🔥 Base URL for the PDF download endpoint
+  // 🔥 Refund Flow States
+  const [requestingOrderId, setRequestingOrderId] = useState<number | null>(null);
+  const [refundReason, setRefundReason] = useState("");
+  const [bankDetails, setBankDetails] = useState("");
+
+  // 🔥 Feedback Flow States
+  const [confirmingOrder, setConfirmingOrder] = useState<Order | null>(null);
+  const [feedback, setFeedback] = useState("");
+
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
-  // 1. Fetch Orders
-  const fetchOrders = async () => {
+  // 1. Fetch Orders & Policy
+  const fetchOrdersAndPolicy = async () => {
     if (!user) return;
     try {
-      const res = await api.get(`/web/customer/${user.id}/orders`);
-      if (res.data.success) {
-        setOrders(res.data.orders || []);
+      const [ordersRes, policyRes] = await Promise.all([
+        api.get(`/web/customer/${user.id}/orders`),
+        api.get(`/web/settings/refund-policy`).catch(() => ({ data: { success: false } })) // Catch gracefully if endpoint fails
+      ]);
+
+      if (ordersRes.data.success) {
+        setOrders(ordersRes.data.orders || []);
+      }
+      if (policyRes.data && policyRes.data.success) {
+        setPolicy(policyRes.data.policy);
       }
     } catch (error) {
-      console.error("Failed to fetch orders", error);
+      console.error("Failed to fetch data", error);
       addToast("Failed to fetch your orders.", "error");
     } finally {
       setLoading(false);
@@ -86,7 +105,7 @@ export default function CustomerOrdersPage() {
     if (!user) {
       router.push("/login");
     } else {
-      fetchOrders();
+      fetchOrdersAndPolicy();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, router]);
@@ -112,7 +131,7 @@ export default function CustomerOrdersPage() {
       });
       if (res.data.success) {
         addToast("Slip uploaded successfully! Admin will review it soon.", "success");
-        fetchOrders(); // Refresh order data
+        fetchOrdersAndPolicy();
       }
     } catch (error) {
       addToast("Failed to upload slip. Please try again.", "error");
@@ -147,7 +166,7 @@ export default function CustomerOrdersPage() {
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reviewModal || !user) return;
-    setSubmittingReview(true);
+    setSubmitting(true);
 
     try {
       const res = await api.post(`/web/products/${reviewModal.productId}/reviews`, {
@@ -165,23 +184,77 @@ export default function CustomerOrdersPage() {
     } catch (error) {
       addToast("Failed to submit review. You may have already reviewed this.", "error");
     } finally {
-      setSubmittingReview(false);
+      setSubmitting(false);
+    }
+  };
+
+  // 🔥 6. Submit Refund Request
+  const submitRefundRequest = async (order: Order | undefined) => {
+    if (!order) return;
+    if (!refundReason || !bankDetails) return addToast("Please fill all fields", "error");
+    setSubmitting(true);
+
+    try {
+      const res = await api.post(`/web/orders/${order.id}/refund`, {
+        customerId: user?.id,
+        reason: refundReason,
+        bankDetails: bankDetails,
+        refundAmount: order.total_amount
+      });
+      if (res.data.success) {
+        addToast("Refund requested successfully", "success");
+        setRequestingOrderId(null);
+        setRefundReason("");
+        setBankDetails("");
+        fetchOrdersAndPolicy(); // Refresh status
+      }
+    } catch (error) {
+      addToast("Failed to submit request", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 🔥 7. Confirm Refund Receipt
+  const submitConfirmReceipt = async (status: 'COMPLETED' | 'NOT_RECEIVED') => {
+    if (!confirmingOrder) return;
+    setSubmitting(true);
+
+    try {
+      const res = await api.put(`/web/orders/${confirmingOrder.id}/refund/confirm`, {
+        status: status,
+        feedback: feedback
+      });
+      if (res.data.success) {
+        addToast(status === 'COMPLETED' ? "Thank you for confirming!" : "We will investigate this immediately.", "info");
+        setConfirmingOrder(null);
+        setFeedback("");
+        fetchOrdersAndPolicy(); // Refresh status
+      }
+    } catch (error) {
+      addToast("Failed to submit", "error");
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const getStatusColor = (status: string) => {
     switch(status.toUpperCase()) {
-      case 'DELIVERED': return 'bg-green-100 text-green-700 border-green-200';
+      case 'DELIVERED':
+      case 'COMPLETED': return 'bg-green-100 text-green-700 border-green-200';
       case 'ONGOING': return 'bg-blue-100 text-blue-700 border-blue-200';
-      case 'CANCELLED': return 'bg-red-100 text-red-700 border-red-200';
+      case 'CANCELLED':
+      case 'NOT_RECEIVED':
+      case 'REJECTED': return 'bg-red-100 text-red-700 border-red-200';
+      case 'REFUND_REQUESTED': return 'bg-rose-100 text-rose-700 border-rose-200';
+      case 'PROCESSED': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
       default: return 'bg-amber-100 text-amber-700 border-amber-200';
     }
   };
 
-  // Progress Bar Helper
   const getProgressLevel = (status: string) => {
     const s = status.toUpperCase();
-    if (s === 'DELIVERED') return 3;
+    if (s === 'DELIVERED' || s === 'REFUND_REQUESTED' || s === 'PROCESSED' || s === 'COMPLETED') return 3;
     if (s === 'ONGOING') return 2;
     if (s === 'PENDING') return 1;
     return 0; // Cancelled
@@ -227,7 +300,7 @@ export default function CustomerOrdersPage() {
                       <div className="flex items-center gap-3 mb-2">
                         <span className="text-lg font-black text-gray-900">Order #{order.id}</span>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold border ${getStatusColor(order.order_status)}`}>
-                          {order.order_status}
+                          {order.order_status.replace('_', ' ')}
                         </span>
                       </div>
                       <p className="text-sm text-gray-500 font-medium">
@@ -245,7 +318,7 @@ export default function CustomerOrdersPage() {
                           {/* Step 1: Pending */}
                           <div className="relative z-10 flex flex-col items-center justify-center bg-white">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center border-4 transition-colors ${progress >= 1 ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-gray-200 bg-white text-gray-300'}`}>
-                              <Clock size={16} className={progress >= 1 ? 'animate-pulse' : ''}/>
+                              <Clock size={16} className={progress === 1 ? 'animate-pulse' : ''}/>
                             </div>
                             <span className={`text-[10px] font-bold mt-2 uppercase tracking-wider absolute -bottom-5 ${progress >= 1 ? 'text-gray-900' : 'text-gray-400'}`}>Pending</span>
                           </div>
@@ -280,13 +353,12 @@ export default function CustomerOrdersPage() {
                         <p className="text-sm font-bold text-gray-500 uppercase tracking-wider">{order.payment_method} - {order.payment_status}</p>
                       </div>
 
-                      {/* 🔥 NEW: Download Invoice Button */}
                       <a
-                        href={`${API_BASE_URL}/web/orders/${order.id}/download-pdf`}
+                        href={`${API_BASE_URL}/web/orders/${order.id}/download-pdf?type=INVOICE`}
                         target="_blank"
                         rel="noreferrer"
                         className="bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 px-4 py-2 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors border border-blue-100"
-                        onClick={(e) => e.stopPropagation()} // Prevents the card from expanding when clicking the button
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <FileDown size={16} /> Download Invoice
                       </a>
@@ -297,7 +369,7 @@ export default function CustomerOrdersPage() {
                   {expandedOrderId === order.id && (
                     <div className="border-t border-gray-100 p-6 bg-gray-50 grid grid-cols-1 md:grid-cols-2 gap-8 mt-4">
 
-                      {/* Left Column: Items & Slip */}
+                      {/* Left Column: Items, Slip & Refunds */}
                       <div className="space-y-6">
 
                         {/* Admin Note Alert */}
@@ -323,7 +395,7 @@ export default function CustomerOrdersPage() {
                                 </div>
 
                                 {/* Leave Review Button (Only if Delivered!) */}
-                                {order.order_status === 'DELIVERED' && (
+                                {(order.order_status === 'DELIVERED' || order.order_status === 'COMPLETED') && (
                                   <button
                                     onClick={() => setReviewModal({ productId: item.product_id, orderId: order.id, productName: item.name })}
                                     className="text-xs font-bold bg-amber-50 text-amber-600 hover:bg-amber-100 px-3 py-2 rounded-lg flex items-center gap-1 transition-colors"
@@ -335,7 +407,7 @@ export default function CustomerOrdersPage() {
                             ))}
                           </div>
 
-                          {/* 🔥 Voucher & Points Summary inside the card */}
+                          {/* Voucher & Points Summary inside the card */}
                           <div className="mt-4 pt-4 border-t border-gray-100 space-y-2 text-sm">
                             <div className="flex justify-between text-gray-500">
                               <span>Subtotal</span>
@@ -363,7 +435,7 @@ export default function CustomerOrdersPage() {
                         </div>
 
                         {/* Payment Slip Upload (Only for Bank/COD if not paid) */}
-                        {order.payment_status !== 'PAID' && (
+                        {order.payment_status !== 'PAID' && order.order_status !== 'CANCELLED' && (
                           <div className="bg-white p-4 rounded-2xl border border-gray-100">
                             <h4 className="font-bold text-gray-900 mb-2">Payment Verification</h4>
                             {order.payment_slip_url ? (
@@ -395,10 +467,51 @@ export default function CustomerOrdersPage() {
                             )}
                           </div>
                         )}
+
+                        {/* 🔥 REFUND SECTION */}
+                        {['DELIVERED', 'REFUND_REQUESTED', 'PROCESSED', 'COMPLETED'].includes(order.order_status.toUpperCase()) && (
+                          <div className="bg-white p-4 rounded-2xl border border-gray-100">
+                            <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><Undo2 size={18}/> Order Refund</h4>
+
+                            {order.order_status === 'DELIVERED' && (
+                              <div className="flex flex-col gap-3">
+                                <p className="text-sm text-gray-500">Not satisfied? You can request a refund within {policy.refund_duration_days} days of delivery.</p>
+                                <button onClick={() => setRequestingOrderId(order.id)} className="text-rose-600 bg-rose-50 hover:bg-rose-100 font-bold px-4 py-2.5 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors border border-rose-100 self-start">
+                                  Request Refund
+                                </button>
+                              </div>
+                            )}
+
+                            {order.order_status === 'REFUND_REQUESTED' && (
+                              <p className="text-sm font-bold text-amber-600 bg-amber-50 p-3 rounded-xl border border-amber-200 flex items-center gap-2">
+                                <Clock size={18}/> Request under review by admin team.
+                              </p>
+                            )}
+
+                            {order.order_status === 'PROCESSED' && (
+                              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl flex flex-col gap-3">
+                                <p className="text-sm font-bold text-indigo-800 flex items-start gap-2">
+                                  <AlertCircle size={18} className="shrink-0 mt-0.5"/>
+                                  Admin has processed your refund and sent the bank slip. Please check your account.
+                                </p>
+                                <button onClick={() => setConfirmingOrder(order)} className="bg-indigo-600 hover:bg-indigo-700 transition-colors text-white font-bold px-4 py-2 rounded-lg text-sm self-start">
+                                  Review & Confirm Receipt
+                                </button>
+                              </div>
+                            )}
+
+                            {order.order_status === 'COMPLETED' && (
+                              <p className="text-sm font-bold text-green-600 bg-green-50 p-3 rounded-xl border border-green-200 flex items-center gap-2">
+                                <CheckCircle size={18}/> Refund Completed Successfully.
+                              </p>
+                            )}
+                          </div>
+                        )}
+
                       </div>
 
                       {/* Right Column: Chat System */}
-                      <div className="bg-white rounded-2xl border border-gray-100 flex flex-col h-[400px] overflow-hidden">
+                      <div className="bg-white rounded-2xl border border-gray-100 flex flex-col h-[500px] overflow-hidden">
                         <div className="bg-gray-900 p-4 text-white flex items-center gap-2">
                           <MessageCircle size={18} />
                           <h4 className="font-bold">Order Support Chat</h4>
@@ -497,12 +610,64 @@ export default function CustomerOrdersPage() {
 
               <button
                 type="submit"
-                disabled={submittingReview}
+                disabled={submitting}
                 className="w-full bg-amber-400 hover:bg-amber-500 text-amber-950 font-black py-4 rounded-xl shadow-lg shadow-amber-200 transition-all active:scale-95 flex justify-center items-center gap-2"
               >
-                {submittingReview ? <Loader2 className="animate-spin" /> : "Submit Review"}
+                {submitting ? <Loader2 className="animate-spin" /> : "Submit Review"}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 🔥 REQUEST REFUND MODAL */}
+      {requestingOrderId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-8 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button onClick={() => setRequestingOrderId(null)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900"><XCircle size={24} /></button>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Request Refund</h2>
+
+            <div className="bg-rose-50 border border-rose-100 p-4 rounded-xl mb-6 text-sm text-rose-800 font-medium">
+              <strong className="font-black">Policy:</strong> {policy.refund_policy} <br/>
+              Processing usually takes {policy.refund_processing_days} business days.
+            </div>
+
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Reason for Refund</label>
+                <textarea rows={3} value={refundReason} onChange={(e) => setRefundReason(e.target.value)} placeholder="Please explain why you need a refund..." className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-rose-500"></textarea>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Bank Details for Transfer</label>
+                <textarea rows={2} value={bankDetails} onChange={(e) => setBankDetails(e.target.value)} placeholder="Bank Name, Account Name, Account Number, Branch" className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-rose-500"></textarea>
+              </div>
+            </div>
+
+            <button onClick={() => submitRefundRequest(orders.find(o => o.id === requestingOrderId))} disabled={submitting} className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black py-4 rounded-xl flex items-center justify-center transition-all disabled:opacity-50">
+              {submitting ? <Loader2 className="animate-spin" size={20}/> : "Submit Request"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🔥 CONFIRM RECEIPT MODAL */}
+      {confirmingOrder && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-8 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+            <button onClick={() => setConfirmingOrder(null)} className="absolute top-6 right-6 text-gray-400 hover:text-gray-900"><XCircle size={24} /></button>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Confirm Refund</h2>
+            <p className="text-gray-500 mb-6 text-sm">Please confirm if the funds have reached your account.</p>
+
+            <textarea rows={2} value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="Leave a feedback message for the admin (Optional)..." className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-indigo-500 mb-6"></textarea>
+
+            <div className="flex gap-3">
+              <button onClick={() => submitConfirmReceipt('COMPLETED')} disabled={submitting} className="flex-1 bg-green-600 hover:bg-green-700 text-white font-black py-3 rounded-xl flex items-center justify-center gap-2">
+                <CheckCircle size={18}/> Received
+              </button>
+              <button onClick={() => submitConfirmReceipt('NOT_RECEIVED')} disabled={submitting} className="flex-1 bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-black py-3 rounded-xl transition-colors">
+                Not Received
+              </button>
+            </div>
           </div>
         </div>
       )}
