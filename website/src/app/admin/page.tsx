@@ -25,21 +25,33 @@ export default function AdminDashboard() {
   const [productCount, setProductCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // 🔥 New Dashboard Stats State
+  const [stats, setStats] = useState({
+    grossRevenue: 0,
+    netRevenue: 0,
+    totalRefunded: 0,
+    totalOrders: 0
+  });
+
   const [timeRange, setTimeRange] = useState<7 | 30>(7);
 
-  // 🔥 Fetch the dynamic currency symbol from our new global store
+  // Fetch the dynamic currency symbol from our new global store
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [ordersRes, productsRes] = await Promise.all([
+        const [ordersRes, productsRes, statsRes] = await Promise.all([
           api.get("/web/admin/orders"),
-          api.get("/web/admin/products")
+          api.get("/web/admin/products"),
+          api.get("/web/admin/dashboard-stats").catch(() => ({ data: { success: false } })) // Safe catch
         ]);
 
         if (ordersRes.data.success) setOrders(ordersRes.data.orders || []);
         if (productsRes.data.success) setProductCount(productsRes.data.products?.length || 0);
+        if (statsRes.data && statsRes.data.success) {
+          setStats(statsRes.data.stats);
+        }
       } catch (err) {
         console.error("Failed to load dashboard data", err);
       } finally {
@@ -50,7 +62,7 @@ export default function AdminDashboard() {
     fetchDashboardData();
   }, []);
 
-const safeParse = (val: string | number | null | undefined) => {
+  const safeParse = (val: string | number | null | undefined) => {
     if (!val) return 0;
     const parsed = parseFloat(val.toString().replace(/[^0-9.-]+/g,""));
     return isNaN(parsed) ? 0 : parsed;
@@ -58,11 +70,11 @@ const safeParse = (val: string | number | null | undefined) => {
 
   // --- Calculations ---
   const validOrders = orders.filter(o => o.payment_status !== 'CANCELLED');
-  const totalRevenue = validOrders.reduce((sum, order) => sum + safeParse(order.total_amount), 0);
   const pendingOrders = orders.filter(o => o.payment_status === 'PENDING').length;
   const recentOrders = orders.slice(0, 5);
 
   // --- High-Resolution Smooth Chart Data Generation ---
+  // Note: We use validOrders to show the daily gross trends!
   const pastDays = Array.from({length: timeRange}, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (timeRange - 1 - i));
@@ -143,12 +155,18 @@ const safeParse = (val: string | number | null | undefined) => {
         <>
           {/* --- STAT CARDS --- */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+
+            {/* 🔥 UPDATED REVENUE CARD */}
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Revenue</h3>
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Net Revenue</h3>
                 <div className="bg-green-50 p-2 rounded-xl text-green-600"><DollarSign size={18} /></div>
               </div>
-              <p className="text-3xl font-black text-gray-900">{currencySymbol}{totalRevenue.toFixed(2)}</p>
+              <p className="text-3xl font-black text-gray-900">{currencySymbol}{(stats.netRevenue || 0).toFixed(2)}</p>
+              <div className="flex gap-3 mt-3 border-t border-gray-50 pt-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Gross: {currencySymbol}{(stats.grossRevenue || 0).toFixed(2)}</p>
+                <p className="text-[10px] font-bold text-rose-400 uppercase tracking-wider">Refunds: -{currencySymbol}{(stats.totalRefunded || 0).toFixed(2)}</p>
+              </div>
             </div>
 
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
@@ -156,7 +174,7 @@ const safeParse = (val: string | number | null | undefined) => {
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Orders</h3>
                 <div className="bg-blue-50 p-2 rounded-xl text-blue-600"><ShoppingBag size={18} /></div>
               </div>
-              <p className="text-3xl font-black text-gray-900">{orders.length}</p>
+              <p className="text-3xl font-black text-gray-900">{stats.totalOrders || orders.length}</p>
             </div>
 
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-center">
@@ -180,7 +198,7 @@ const safeParse = (val: string | number | null | undefined) => {
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-sm font-bold text-gray-500 flex items-center gap-2">
-                <BarChart3 size={18} className="text-gray-400" /> Revenue Analytics
+                <BarChart3 size={18} className="text-gray-400" /> Gross Revenue Analytics
               </h3>
 
               <div className="flex items-center gap-1 p-1 bg-gray-50 rounded-lg border border-gray-100">

@@ -1533,4 +1533,56 @@ router.delete('/admin/factory-reset', async (req, res) => {
         client.release();
     }
 });
+
+
+
+// ==========================================
+// 🔥 MAIN DASHBOARD ANALYTICS (GROSS VS NET)
+// ==========================================
+router.get('/admin/dashboard-stats', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        // 1. Get GROSS Revenue (All paid orders, ignoring cancelled ones)
+        const grossRes = await client.query(`
+            SELECT COALESCE(SUM(total_amount), 0) as gross_revenue
+            FROM orders
+            WHERE payment_status = 'PAID' AND order_status != 'CANCELLED'
+        `);
+        const grossRevenue = parseFloat(grossRes.rows[0].gross_revenue);
+
+        // 2. Get TOTAL REFUNDED (Only count money that has actually been approved/processed)
+        const refundRes = await client.query(`
+            SELECT COALESCE(SUM(refund_amount), 0) as total_refunded
+            FROM refund_requests
+            WHERE status IN ('APPROVED', 'PROCESSED', 'COMPLETED')
+        `);
+        const totalRefunded = parseFloat(refundRes.rows[0].total_refunded);
+
+        // 3. Calculate NET REVENUE (The actual money you keep!)
+        const netRevenue = grossRevenue - totalRefunded;
+
+        // 4. Get other overview stats for the dashboard
+        const ordersRes = await client.query(`SELECT COUNT(*) as total_orders FROM orders`);
+        const customersRes = await client.query(`SELECT COUNT(*) as total_customers FROM customers`);
+        const productsRes = await client.query(`SELECT COUNT(*) as total_products FROM products`);
+
+        res.json({
+            success: true,
+            stats: {
+                grossRevenue: grossRevenue,
+                totalRefunded: totalRefunded,
+                netRevenue: netRevenue,
+                totalOrders: parseInt(ordersRes.rows[0].total_orders),
+                totalCustomers: parseInt(customersRes.rows[0].total_customers),
+                totalProducts: parseInt(productsRes.rows[0].total_products)
+            }
+        });
+    } catch (error) {
+        console.error("Dashboard Stats Error:", error);
+        res.status(500).json({ success: false, message: "Failed to fetch dashboard stats" });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
