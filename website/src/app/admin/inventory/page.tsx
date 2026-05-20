@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { useSettingsStore } from "@/store/useSettingsStore"; // 🔥 Imported the global store
+import { useSettingsStore } from "@/store/useSettingsStore";
 import { Boxes, Plus, Trash2, Save, Edit2, UploadCloud, X, Eye, EyeOff, AlignLeft, Layers } from "lucide-react";
 
 interface Product {
@@ -19,6 +19,8 @@ interface Product {
 interface EditFormState {
   id: number;
   name: string;
+  sku: string;         // 🔥 FIX: Added
+  category: string;    // 🔥 FIX: Added
   price: string | number;
   stock: number;
   description: string;
@@ -27,16 +29,12 @@ interface EditFormState {
 }
 
 export default function AdminInventory() {
-  // 🔥 Fetch the dynamic currency symbol
   const currencySymbol = useSettingsStore((state) => state.currencySymbol);
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // View Mode State (Default is 'grouped' to hide duplicates)
   const [viewMode, setViewMode] = useState<"grouped" | "all">("grouped");
-
   const [editForm, setEditForm] = useState<EditFormState | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -70,9 +68,8 @@ export default function AdminInventory() {
     if (imageFile) formData.append("image", imageFile);
 
     try {
-      const res = await api.post("/web/admin/products", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
+      // 🔥 FIX: Removed manual "Content-Type" header so Axios can append the boundary
+      const res = await api.post("/web/admin/products", formData);
       if (res.data.success) {
         setNewProduct({ name: "", sku: "", price: "", stock: "", category: "", description: "" });
         setImageFile(null);
@@ -91,6 +88,8 @@ export default function AdminInventory() {
 
     const formData = new FormData();
     formData.append("name", editForm.name);
+    formData.append("sku", editForm.sku);             // 🔥 FIX: Added to payload
+    formData.append("category", editForm.category);   // 🔥 FIX: Added to payload
     formData.append("price", editForm.price.toString());
     formData.append("web_allocated_stock", editForm.stock.toString());
     formData.append("description", editForm.description);
@@ -114,6 +113,8 @@ export default function AdminInventory() {
   const toggleVisibility = async (product: Product) => {
     const formData = new FormData();
     formData.append("name", product.name);
+    formData.append("sku", product.sku);              // Added for safety
+    formData.append("category", product.category);    // Added for safety
     formData.append("price", product.price.toString());
     formData.append("web_allocated_stock", product.web_allocated_stock.toString());
     formData.append("description", product.description || "");
@@ -141,7 +142,6 @@ export default function AdminInventory() {
     return product.images?.find((img) => img.is_primary)?.url || product.images?.[0]?.url || "https://placehold.co/100x100?text=No+Img";
   };
 
-  // Filter logic for deduplicating products by name
   const displayedProducts = viewMode === "grouped"
     ? products.filter((product, index, self) =>
         index === self.findIndex((p) => p.name === product.name)
@@ -185,7 +185,6 @@ export default function AdminInventory() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    {/* 🔥 Swapped hardcoded $ for currencySymbol */}
                     <label className="block text-sm font-bold text-gray-700 mb-1">Price ({currencySymbol})</label>
                     <input required type="number" step="0.01" className="w-full bg-gray-50 px-4 py-3 rounded-xl focus:ring-2 outline-none" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
                   </div>
@@ -223,8 +222,6 @@ export default function AdminInventory() {
 
           {/* Product Catalog Table */}
           <div className="xl:col-span-2">
-
-            {/* View Mode Toggle */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-4 gap-4">
               <div className="bg-gray-200/60 p-1 rounded-xl inline-flex border border-gray-200">
                 <button
@@ -273,7 +270,6 @@ export default function AdminInventory() {
                         <tr key={product.id} className={`hover:bg-gray-50 transition-colors ${!product.is_active && !isEditing ? 'opacity-60 grayscale-[0.5]' : ''}`}>
 
                           <td className="p-4 flex items-start gap-4">
-                            {/* Image */}
                             {isEditing ? (
                               <div className="relative group w-14 h-14 flex-shrink-0 cursor-pointer">
                                 <label className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
@@ -288,7 +284,6 @@ export default function AdminInventory() {
                               <img src={imgUrl} alt="" className="w-14 h-14 rounded-lg flex-shrink-0 object-cover bg-gray-100" />
                             )}
 
-                            {/* Name & Description */}
                             <div className="flex-1 w-full max-w-[200px]">
                               {isEditing ? (
                                 <div className="space-y-2">
@@ -307,21 +302,29 @@ export default function AdminInventory() {
                             </div>
                           </td>
 
+                          {/* 🔥 FIX: Added inputs for Category and SKU during Edit Mode */}
                           <td className="p-4 align-top">
-                            <div className="text-sm font-bold text-gray-700">{product.category || 'Uncategorized'}</div>
-                            <div className="text-xs text-gray-400 uppercase">{product.sku}</div>
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <input type="text" className="w-full border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500 text-sm font-bold" value={editForm.category} onChange={e => setEditForm({...editForm, category: e.target.value})} placeholder="Category" />
+                                <input type="text" className="w-full border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500 text-xs uppercase" value={editForm.sku} onChange={e => setEditForm({...editForm, sku: e.target.value})} placeholder="SKU" />
+                              </div>
+                            ) : (
+                              <>
+                                <div className="text-sm font-bold text-gray-700">{product.category || 'Uncategorized'}</div>
+                                <div className="text-xs text-gray-400 uppercase">{product.sku}</div>
+                              </>
+                            )}
                           </td>
 
                           <td className="p-4 align-top">
                             {isEditing ? (
                               <div className="space-y-2">
-                                {/* 🔥 Swapped hardcoded $ for currencySymbol in edit mode */}
                                 <div className="flex items-center gap-1"><span className="text-gray-400 text-xs font-bold">{currencySymbol}</span><input type="number" step="0.01" className="w-16 border-2 rounded-lg px-1 py-1 outline-none focus:border-blue-500 text-sm font-bold" value={editForm.price} onChange={e => setEditForm({...editForm, price: e.target.value})} /></div>
                                 <div className="flex items-center gap-1"><span className="text-gray-400 text-xs font-bold">Qty</span><input type="number" className="w-16 border-2 rounded-lg px-1 py-1 outline-none focus:border-blue-500 text-sm" value={editForm.stock} onChange={e => setEditForm({...editForm, stock: parseInt(e.target.value) || 0})} /></div>
                               </div>
                             ) : (
                               <div>
-                                {/* 🔥 Swapped hardcoded $ for currencySymbol in display mode */}
                                 <div className="font-black text-gray-900">{currencySymbol}{parseFloat(product.price.toString()).toFixed(2)}</div>
                                 <div className={`text-xs font-bold mt-1 ${product.web_allocated_stock > 0 ? 'text-green-600' : 'text-red-600'}`}>
                                   {product.web_allocated_stock} in stock
@@ -346,8 +349,9 @@ export default function AdminInventory() {
                                   {product.is_active ? <Eye size={18} /> : <EyeOff size={18} />}
                                 </button>
 
+                                {/* 🔥 FIX: Now includes SKU and Category when Edit mode is activated */}
                                 <button
-                                  onClick={() => setEditForm({ id: product.id, name: product.name, price: product.price, stock: product.web_allocated_stock, description: product.description || "", is_active: product.is_active, file: null })}
+                                  onClick={() => setEditForm({ id: product.id, name: product.name, sku: product.sku, category: product.category, price: product.price, stock: product.web_allocated_stock, description: product.description || "", is_active: product.is_active, file: null })}
                                   className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-block cursor-pointer"
                                 ><Edit2 size={18} /></button>
 
