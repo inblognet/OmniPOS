@@ -19,8 +19,8 @@ interface Product {
 interface EditFormState {
   id: number;
   name: string;
-  sku: string;         // 🔥 FIX: Added
-  category: string;    // 🔥 FIX: Added
+  sku: string;         // 🔥 ADDED for update
+  category: string;    // 🔥 ADDED for update
   price: string | number;
   stock: number;
   description: string;
@@ -68,7 +68,7 @@ export default function AdminInventory() {
     if (imageFile) formData.append("image", imageFile);
 
     try {
-      // 🔥 FIX: Removed manual "Content-Type" header so Axios can append the boundary
+      // 🔥 FIX: Removed manual "Content-Type" header
       const res = await api.post("/web/admin/products", formData);
       if (res.data.success) {
         setNewProduct({ name: "", sku: "", price: "", stock: "", category: "", description: "" });
@@ -88,8 +88,8 @@ export default function AdminInventory() {
 
     const formData = new FormData();
     formData.append("name", editForm.name);
-    formData.append("sku", editForm.sku);             // 🔥 FIX: Added to payload
-    formData.append("category", editForm.category);   // 🔥 FIX: Added to payload
+    formData.append("sku", editForm.sku);             // 🔥 FIX: Appended to payload
+    formData.append("category", editForm.category);   // 🔥 FIX: Appended to payload
     formData.append("price", editForm.price.toString());
     formData.append("web_allocated_stock", editForm.stock.toString());
     formData.append("description", editForm.description);
@@ -162,7 +162,6 @@ export default function AdminInventory() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
 
-          {/* Add Product Form */}
           <div className="xl:col-span-1">
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 sticky top-10">
               <h2 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
@@ -220,7 +219,6 @@ export default function AdminInventory() {
             </div>
           </div>
 
-          {/* Product Catalog Table */}
           <div className="xl:col-span-2">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end mb-4 gap-4">
               <div className="bg-gray-200/60 p-1 rounded-xl inline-flex border border-gray-200">
@@ -302,10 +300,10 @@ export default function AdminInventory() {
                             </div>
                           </td>
 
-                          {/* 🔥 FIX: Added inputs for Category and SKU during Edit Mode */}
                           <td className="p-4 align-top">
                             {isEditing ? (
                               <div className="space-y-2">
+                                {/* 🔥 FIX: Inputs added to edit mode for category and SKU */}
                                 <input type="text" className="w-full border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500 text-sm font-bold" value={editForm.category} onChange={e => setEditForm({...editForm, category: e.target.value})} placeholder="Category" />
                                 <input type="text" className="w-full border-2 rounded-lg px-2 py-1 outline-none focus:border-blue-500 text-xs uppercase" value={editForm.sku} onChange={e => setEditForm({...editForm, sku: e.target.value})} placeholder="SKU" />
                               </div>
@@ -349,7 +347,7 @@ export default function AdminInventory() {
                                   {product.is_active ? <Eye size={18} /> : <EyeOff size={18} />}
                                 </button>
 
-                                {/* 🔥 FIX: Now includes SKU and Category when Edit mode is activated */}
+                                {/* 🔥 FIX: Added sku and category values when triggering Edit Mode */}
                                 <button
                                   onClick={() => setEditForm({ id: product.id, name: product.name, sku: product.sku, category: product.category, price: product.price, stock: product.web_allocated_stock, description: product.description || "", is_active: product.is_active, file: null })}
                                   className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-block cursor-pointer"

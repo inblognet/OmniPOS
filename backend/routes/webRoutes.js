@@ -324,7 +324,6 @@ router.get('/admin/banners', async (req, res) => {
     try { res.json({ success: true, banners: (await client.query('SELECT * FROM carousel_banners ORDER BY id DESC')).rows }); }
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
-
 router.post('/admin/banners', async (req, res) => {
     const { image_url, title, subtitle, link_url } = req.body;
     const client = await pool.connect();
@@ -333,13 +332,11 @@ router.post('/admin/banners', async (req, res) => {
         res.json({ success: true, banner: rows[0] });
     } catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
-
 router.put('/admin/banners/:id/toggle', async (req, res) => {
     const client = await pool.connect();
     try { await client.query('UPDATE carousel_banners SET is_active = NOT is_active WHERE id = $1', [req.params.id]); res.json({ success: true }); }
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
-
 router.delete('/admin/banners/:id', async (req, res) => {
     const client = await pool.connect();
     try { await client.query('DELETE FROM carousel_banners WHERE id = $1', [req.params.id]); res.json({ success: true }); }
@@ -366,55 +363,41 @@ router.get('/admin/products', async (req, res) => {
     }
 });
 
-// 🔥 NEW FIXED POST ROUTE
+// 🔥 FIX: Properly extracts secure_url from Cloudinary
 router.post('/admin/products', upload.single('image'), async (req, res) => {
     const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
-
     try {
         await client.query('BEGIN');
-
         const productResult = await client.query(
-            `INSERT INTO products (name, sku, price, web_allocated_stock, category, description, is_active)
-             VALUES ($1, $2, $3, $4, $5, $6, TRUE) RETURNING id`,
+            `INSERT INTO products (name, sku, price, web_allocated_stock, category, description, is_active) VALUES ($1, $2, $3, $4, $5, $6, TRUE) RETURNING id`,
             [name, sku, price, web_allocated_stock, category, description || '']
         );
 
         if (req.file) {
             const imageUrl = req.file.secure_url || req.file.path || req.file.url;
             if (imageUrl) {
-                await client.query(
-                    `INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)`,
-                    [productResult.rows[0].id, imageUrl]
-                );
+                await client.query(`INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)`, [productResult.rows[0].id, imageUrl]);
             }
         }
-
         await client.query('COMMIT');
         res.json({ success: true, message: "Product added successfully!" });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Add Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to add product" });
-    } finally {
-        client.release();
-    }
+    } finally { client.release(); }
 });
 
-// 🔥 NEW FIXED PUT ROUTE
+// 🔥 FIX: Added missing sku & category to UPDATE query, and extracts secure_url
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { name, sku, category, web_allocated_stock, price, description, is_active } = req.body;
-
     const client = await pool.connect();
-
     try {
         await client.query('BEGIN');
-
         await client.query(
-            `UPDATE products
-             SET name = $1, sku = $2, category = $3, web_allocated_stock = $4, price = $5, description = $6, is_active = $7
-             WHERE id = $8`,
+            'UPDATE products SET name = $1, sku = $2, category = $3, web_allocated_stock = $4, price = $5, description = $6, is_active = $7 WHERE id = $8',
             [name, sku, category, web_allocated_stock, price, description || '', is_active === 'true', id]
         );
 
@@ -422,22 +405,16 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
             const imageUrl = req.file.secure_url || req.file.path || req.file.url;
             if (imageUrl) {
                 await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
-                await client.query(
-                    'INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)',
-                    [id, imageUrl]
-                );
+                await client.query('INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)', [id, imageUrl]);
             }
         }
-
         await client.query('COMMIT');
         res.json({ success: true, message: "Product updated successfully" });
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Update Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to update product" });
-    } finally {
-        client.release();
-    }
+    } finally { client.release(); }
 });
 
 router.delete('/admin/products/:id', async (req, res) => {
@@ -458,12 +435,14 @@ router.post('/admin/categories/upload', upload.single('image'), async (req, res)
     const { category } = req.body;
     const client = await pool.connect();
     try {
-        if (!req.file || !req.file.path) return res.status(400).json({ success: false });
+        if (!req.file || (!req.file.path && !req.file.secure_url)) return res.status(400).json({ success: false });
+        const imageUrl = req.file.secure_url || req.file.path;
+
         await client.query('BEGIN');
         await client.query('DELETE FROM category_images WHERE category = $1', [category]);
-        await client.query('INSERT INTO category_images (category, image_url) VALUES ($1, $2)', [category, req.file.path]);
+        await client.query('INSERT INTO category_images (category, image_url) VALUES ($1, $2)', [category, imageUrl]);
         await client.query('COMMIT');
-        res.json({ success: true, image_url: req.file.path });
+        res.json({ success: true, image_url: imageUrl });
     } catch (error) {
         await client.query('ROLLBACK');
         res.status(500).json({ success: false });
@@ -510,9 +489,10 @@ router.post('/orders/:id/slip', upload.single('slip'), async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
-        if (!req.file || !req.file.path) return res.status(400).json({ success: false, message: "No slip uploaded." });
-        await client.query('UPDATE orders SET payment_slip_url = $1 WHERE id = $2', [req.file.path, id]);
-        res.json({ success: true, slip_url: req.file.path, message: "Slip uploaded!" });
+        if (!req.file || (!req.file.path && !req.file.secure_url)) return res.status(400).json({ success: false, message: "No slip uploaded." });
+        const imageUrl = req.file.secure_url || req.file.path;
+        await client.query('UPDATE orders SET payment_slip_url = $1 WHERE id = $2', [imageUrl, id]);
+        res.json({ success: true, slip_url: imageUrl, message: "Slip uploaded!" });
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
