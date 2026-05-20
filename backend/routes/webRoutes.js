@@ -74,7 +74,7 @@ router.get('/products', async (req, res) => {
     }
 });
 
-// 4. POST CHECKOUT (🔥 UPDATED to generate notifications AND mark vouchers as used!)
+// 4. POST CHECKOUT
 router.post('/checkout', async (req, res) => {
     const { items, totalAmount, paymentMethod, customerId, delivery_phone, delivery_address, delivery_city, delivery_postal_code, discount_code, discount_amount } = req.body;
     const client = await pool.connect();
@@ -106,19 +106,15 @@ router.post('/checkout', async (req, res) => {
             if (pointsEarned > 0) {
                 await client.query(`UPDATE customers SET points = COALESCE(points, 0) + $1 WHERE id = $2`, [pointsEarned, customerId]);
 
-                // 🔥 NOTIFICATION: POINTS EARNED
                 await client.query(`
                     INSERT INTO notifications (customer_id, category, type, title, message, action_url)
                     VALUES ($1, 'PERSONAL', 'POINTS', 'Points Earned!', 'You earned ' || $2 || ' points from your recent purchase.', '/profile')
                 `, [customerId, pointsEarned]);
             }
 
-            // Wipe the cloud cart clean since they bought the items!
             await client.query(`DELETE FROM cart_items WHERE customer_id = $1`, [customerId]);
 
-            // 🔥 NEW: Mark the voucher as USED if one was applied
             if (discount_code) {
-                // Find the voucher ID from the code
                 const vRes = await client.query('SELECT id FROM vouchers WHERE code = $1', [discount_code]);
                 if (vRes.rows.length > 0) {
                     await client.query(
@@ -128,7 +124,6 @@ router.post('/checkout', async (req, res) => {
                 }
             }
 
-            // 🔥 NOTIFICATION: ORDER PLACED
             await client.query(`
                 INSERT INTO notifications (customer_id, category, type, title, message, action_url)
                 VALUES ($1, 'PERSONAL', 'ORDER', 'Order Placed Successfully!', 'Your order #' || $2 || ' is now pending.', '/orders')
@@ -149,7 +144,6 @@ router.post('/checkout', async (req, res) => {
 // VOUCHER SYSTEM ROUTES
 // ==========================================
 
-// 1. PUBLIC: Get all active, public vouchers (and check if the user claimed them)
 router.get('/vouchers/public', async (req, res) => {
     const { customerId } = req.query;
     const client = await pool.connect();
@@ -163,17 +157,16 @@ router.get('/vouchers/public', async (req, res) => {
         `;
         const { rows: vouchers } = await client.query(query);
 
-        // If user is logged in, attach their claim status
         if (customerId) {
             const { rows: claims } = await client.query('SELECT voucher_id, status FROM customer_vouchers WHERE customer_id = $1', [customerId]);
             const claimMap = claims.reduce((acc, curr) => {
-                acc[curr.voucher_id] = curr.status; // 'CLAIMED' or 'USED'
+                acc[curr.voucher_id] = curr.status;
                 return acc;
             }, {});
 
             const mappedVouchers = vouchers.map(v => ({
                 ...v,
-                claim_status: claimMap[v.id] || null // null means not claimed yet
+                claim_status: claimMap[v.id] || null
             }));
             return res.json({ success: true, vouchers: mappedVouchers });
         }
@@ -182,7 +175,6 @@ router.get('/vouchers/public', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 2. CUSTOMER: Claim a voucher
 router.post('/vouchers/claim', async (req, res) => {
     const { customerId, voucherId } = req.body;
     const client = await pool.connect();
@@ -197,13 +189,10 @@ router.post('/vouchers/claim', async (req, res) => {
     } finally { client.release(); }
 });
 
-
-// 🔥 NEW: Validate a voucher code during checkout
 router.post('/vouchers/validate', async (req, res) => {
     const { code, customerId } = req.body;
     const client = await pool.connect();
     try {
-        // 1. Check if it exists, is active, AND hasn't expired yet
         const { rows } = await client.query(`
             SELECT * FROM vouchers
             WHERE code = $1
@@ -217,7 +206,6 @@ router.post('/vouchers/validate', async (req, res) => {
 
         const voucher = rows[0];
 
-        // 2. Check if this specific customer has ALREADY USED it
         if (customerId) {
             const checkUse = await client.query('SELECT status FROM customer_vouchers WHERE customer_id = $1 AND voucher_id = $2', [customerId, voucher.id]);
             if (checkUse.rows.length > 0 && checkUse.rows[0].status === 'USED') {
@@ -233,8 +221,6 @@ router.post('/vouchers/validate', async (req, res) => {
     }
 });
 
-
-// 3. ADMIN: Get all vouchers
 router.get('/admin/vouchers', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -243,7 +229,6 @@ router.get('/admin/vouchers', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 4. ADMIN: Create a voucher (with image upload)
 router.post('/admin/vouchers', upload.single('image'), async (req, res) => {
     const { code, discount_percentage, description, expire_date_time, is_public } = req.body;
     const imageUrl = req.file ? req.file.path : null;
@@ -257,7 +242,6 @@ router.post('/admin/vouchers', upload.single('image'), async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: "Code might already exist." }); } finally { client.release(); }
 });
 
-// 5. ADMIN: Toggle Active Status
 router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -266,7 +250,6 @@ router.put('/admin/vouchers/:id/toggle', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
-// 6. ADMIN: Delete Voucher
 router.delete('/admin/vouchers/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -324,6 +307,7 @@ router.get('/admin/banners', async (req, res) => {
     try { res.json({ success: true, banners: (await client.query('SELECT * FROM carousel_banners ORDER BY id DESC')).rows }); }
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
+
 router.post('/admin/banners', async (req, res) => {
     const { image_url, title, subtitle, link_url } = req.body;
     const client = await pool.connect();
@@ -332,91 +316,265 @@ router.post('/admin/banners', async (req, res) => {
         res.json({ success: true, banner: rows[0] });
     } catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
+
 router.put('/admin/banners/:id/toggle', async (req, res) => {
     const client = await pool.connect();
     try { await client.query('UPDATE carousel_banners SET is_active = NOT is_active WHERE id = $1', [req.params.id]); res.json({ success: true }); }
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
+
 router.delete('/admin/banners/:id', async (req, res) => {
     const client = await pool.connect();
     try { await client.query('DELETE FROM carousel_banners WHERE id = $1', [req.params.id]); res.json({ success: true }); }
     catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
 });
 
+// ==========================================
+// ADMIN PRODUCT ROUTES - FIXED
+// ==========================================
+
+// GET all products
 router.get('/admin/products', async (req, res) => {
     const client = await pool.connect();
     try {
         const query = `
             SELECT
-                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description, p.is_active,
-                COALESCE(json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)) FILTER (WHERE pi.id IS NOT NULL), '[]') as images
+                p.id, p.name, p.sku, p.price,
+                p.web_allocated_stock,
+                p.category, COALESCE(p.description, '') as description,
+                p.is_active,
+                COALESCE(
+                    json_agg(
+                        json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)
+                    ) FILTER (WHERE pi.id IS NOT NULL), '[]'
+                ) as images
             FROM products p
             LEFT JOIN product_images pi ON p.id = pi.product_id
-            GROUP BY p.id ORDER BY p.id DESC;
+            GROUP BY p.id
+            ORDER BY p.id DESC
         `;
         const { rows } = await client.query(query);
         res.json({ success: true, products: rows });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to load inventory" });
+        console.error("Failed to load inventory:", error);
+        res.status(500).json({ success: false, message: error.message });
     } finally {
         client.release();
     }
 });
 
-router.post('/admin/products', upload.single('image'), async (req, res) => {
-    const { name, sku, price, web_allocated_stock, category, description } = req.body;
+// GET single product by ID
+router.get('/admin/products/:id', async (req, res) => {
+    const { id } = req.params;
     const client = await pool.connect();
+
     try {
-        await client.query('BEGIN');
-        const productResult = await client.query(
-            `INSERT INTO products (name, sku, price, web_allocated_stock, category, description, is_active) VALUES ($1, $2, $3, $4, $5, $6, TRUE) RETURNING id`,
-            [name, sku, price, web_allocated_stock, category, description || '']
-        );
-        if (req.file && req.file.path) {
-            await client.query(`INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)`, [productResult.rows[0].id, req.file.path]);
+        const query = `
+            SELECT
+                p.id, p.name, p.sku, p.price,
+                p.web_allocated_stock, p.category,
+                COALESCE(p.description, '') as description,
+                p.is_active,
+                COALESCE(
+                    json_agg(
+                        json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)
+                    ) FILTER (WHERE pi.id IS NOT NULL), '[]'
+                ) as images
+            FROM products p
+            LEFT JOIN product_images pi ON p.id = pi.product_id
+            WHERE p.id = $1
+            GROUP BY p.id
+        `;
+        const { rows } = await client.query(query, [id]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Product not found" });
         }
-        await client.query('COMMIT');
-        res.json({ success: true, message: "Product added successfully!" });
+
+        res.json({ success: true, product: rows[0] });
     } catch (error) {
-        await client.query('ROLLBACK');
-        res.status(500).json({ success: false, message: "Failed to add product" });
-    } finally { client.release(); }
+        console.error("Failed to fetch product:", error);
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        client.release();
+    }
 });
 
+// CREATE product
+router.post('/admin/products', upload.single('image'), async (req, res) => {
+    console.log("=== CREATE PRODUCT ===");
+    console.log("Body:", req.body);
+    console.log("File:", req.file ? req.file.path : "No file");
+
+    const { name, sku, price, web_allocated_stock, category, description } = req.body;
+    const client = await pool.connect();
+
+    try {
+        if (!name || !price) {
+            return res.status(400).json({
+                success: false,
+                message: "Product name and price are required"
+            });
+        }
+
+        await client.query('BEGIN');
+
+        const productResult = await client.query(
+            `INSERT INTO products (
+                name, sku, price, web_allocated_stock, category, description,
+                is_active, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, true, NOW(), NOW())
+            RETURNING id`,
+            [
+                name,
+                sku || null,
+                parseFloat(price),
+                parseInt(web_allocated_stock) || 0,
+                category || 'Uncategorized',
+                description || 'No description available yet.'
+            ]
+        );
+
+        const productId = productResult.rows[0].id;
+        console.log(`✅ Product created with ID: ${productId}`);
+
+        if (req.file && req.file.path) {
+            console.log(`📸 Adding image: ${req.file.path}`);
+            await client.query(
+                `INSERT INTO product_images (product_id, image_url, is_primary, created_at)
+                 VALUES ($1, $2, true, NOW())`,
+                [productId, req.file.path]
+            );
+        }
+
+        await client.query('COMMIT');
+
+        res.json({
+            success: true,
+            message: "Product added successfully!",
+            productId: productId
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("❌ Database error:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message || "Failed to add product to database"
+        });
+    } finally {
+        client.release();
+    }
+});
+
+// UPDATE product
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
+    console.log("=== UPDATE PRODUCT ===");
+    console.log("ID:", req.params.id);
+    console.log("Body:", req.body);
+    console.log("File:", req.file ? req.file.path : "No file");
+
     const { id } = req.params;
     const { name, web_allocated_stock, price, description, is_active } = req.body;
     const client = await pool.connect();
+
     try {
-        await client.query('BEGIN');
-        await client.query(
-            'UPDATE products SET name = $1, web_allocated_stock = $2, price = $3, description = $4, is_active = $5 WHERE id = $6',
-            [name, web_allocated_stock, price, description || '', is_active === 'true', id]
-        );
-        if (req.file && req.file.path) {
-            await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
-            await client.query('INSERT INTO product_images (product_id, image_url, is_primary) VALUES ($1, $2, TRUE)', [id, req.file.path]);
+        const checkProduct = await client.query('SELECT id FROM products WHERE id = $1', [id]);
+        if (checkProduct.rows.length === 0) {
+            return res.status(404).json({ success: false, message: "Product not found" });
         }
+
+        await client.query('BEGIN');
+
+        await client.query(
+            `UPDATE products
+             SET name = $1,
+                 web_allocated_stock = $2,
+                 price = $3,
+                 description = $4,
+                 is_active = $5,
+                 updated_at = NOW()
+             WHERE id = $6`,
+            [
+                name,
+                parseInt(web_allocated_stock) || 0,
+                parseFloat(price),
+                description || 'No description available yet.',
+                is_active === 'true' || is_active === true,
+                id
+            ]
+        );
+
+        if (req.file && req.file.path) {
+            console.log(`📸 Updating image for product ${id}`);
+            await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+            await client.query(
+                `INSERT INTO product_images (product_id, image_url, is_primary, created_at)
+                 VALUES ($1, $2, true, NOW())`,
+                [id, req.file.path]
+            );
+        }
+
         await client.query('COMMIT');
-        res.json({ success: true, message: "Product updated successfully" });
+
+        res.json({
+            success: true,
+            message: "Product updated successfully"
+        });
+
     } catch (error) {
         await client.query('ROLLBACK');
-        res.status(500).json({ success: false, message: "Failed to update product" });
-    } finally { client.release(); }
+        console.error("❌ Update error:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message || "Failed to update product"
+        });
+    } finally {
+        client.release();
+    }
 });
 
+// DELETE product
 router.delete('/admin/products/:id', async (req, res) => {
+    const { id } = req.params;
     const client = await pool.connect();
+
     try {
         await client.query('BEGIN');
-        await client.query('DELETE FROM product_images WHERE product_id = $1', [req.params.id]);
-        await client.query('DELETE FROM products WHERE id = $1', [req.params.id]);
+
+        const orderCheck = await client.query(
+            'SELECT id FROM order_items WHERE product_id = $1 LIMIT 1',
+            [id]
+        );
+
+        if (orderCheck.rows.length > 0) {
+            await client.query(
+                'UPDATE products SET is_active = false, updated_at = NOW() WHERE id = $1',
+                [id]
+            );
+            await client.query('COMMIT');
+            return res.json({
+                success: true,
+                message: "Product archived (has order history)"
+            });
+        }
+
+        await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+        await client.query('DELETE FROM products WHERE id = $1', [id]);
+
         await client.query('COMMIT');
-        res.json({ success: true, message: "Product deleted" });
+        res.json({ success: true, message: "Product deleted permanently" });
+
     } catch (error) {
         await client.query('ROLLBACK');
-        res.status(500).json({ success: false });
-    } finally { client.release(); }
+        console.error("Delete error:", error);
+        res.status(500).json({
+            success: false,
+            message: error.message || "Failed to delete product"
+        });
+    } finally {
+        client.release();
+    }
 });
 
 router.post('/admin/categories/upload', upload.single('image'), async (req, res) => {
@@ -677,12 +835,10 @@ router.put('/admin/settings', async (req, res) => {
 // NOTIFICATION SYSTEM ROUTES
 // ==========================================
 
-// GET ALL NOTIFICATIONS FOR A CUSTOMER
 router.get('/customers/:id/notifications', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
-        // Fetch personal notifications AND store/public broadcasts (where customer_id IS NULL)
         const query = `
             SELECT * FROM notifications
             WHERE customer_id = $1 OR customer_id IS NULL
@@ -698,7 +854,6 @@ router.get('/customers/:id/notifications', async (req, res) => {
     }
 });
 
-// MARK PERSONAL NOTIFICATIONS AS READ (Clear All)
 router.put('/customers/:id/notifications/clear', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
@@ -716,7 +871,6 @@ router.put('/customers/:id/notifications/clear', async (req, res) => {
 // WISHLIST ROUTES
 // ==========================================
 
-// GET a customer's wishlist
 router.get('/customers/:id/wishlist', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -737,7 +891,6 @@ router.get('/customers/:id/wishlist', async (req, res) => {
     }
 });
 
-// TOGGLE a product in the wishlist (Add if missing, Remove if exists)
 router.post('/customers/:id/wishlist', async (req, res) => {
     const { product_id } = req.body;
     const client = await pool.connect();
@@ -746,10 +899,8 @@ router.post('/customers/:id/wishlist', async (req, res) => {
         let isAdded = false;
 
         if (check.rows.length > 0) {
-            // It's already in the wishlist, so remove it
             await client.query('DELETE FROM wishlist WHERE id = $1', [check.rows[0].id]);
         } else {
-            // Not in wishlist, so add it
             await client.query('INSERT INTO wishlist (customer_id, product_id) VALUES ($1, $2)', [req.params.id, product_id]);
             isAdded = true;
         }
@@ -761,12 +912,10 @@ router.post('/customers/:id/wishlist', async (req, res) => {
     }
 });
 
-
 // ==========================================
 // INVOICE & RECEIPT TEMPLATE BUILDER ROUTES
 // ==========================================
 
-// 1. Get all saved templates
 router.get('/admin/invoice-templates', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -780,7 +929,6 @@ router.get('/admin/invoice-templates', async (req, res) => {
     }
 });
 
-// 2. Get a specific template's full design data (for the editor)
 router.get('/admin/invoice-templates/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -795,12 +943,10 @@ router.get('/admin/invoice-templates/:id', async (req, res) => {
     }
 });
 
-// 3. Create a new blank template preset
 router.post('/admin/invoice-templates', async (req, res) => {
     const { name, type } = req.body;
     const client = await pool.connect();
 
-    // Default dimensions: A4 (794x1123 px) or Thermal (300x800 px)
     const initialData = type === 'RECEIPT'
         ? { width: 300, height: 800, components: [] }
         : { width: 794, height: 1123, components: [] };
@@ -819,7 +965,6 @@ router.post('/admin/invoice-templates', async (req, res) => {
     }
 });
 
-// 4. Save the drag-and-drop design data from the live editor
 router.put('/admin/invoice-templates/:id/design', async (req, res) => {
     const { design_data } = req.body;
     const client = await pool.connect();
@@ -837,7 +982,6 @@ router.put('/admin/invoice-templates/:id/design', async (req, res) => {
     }
 });
 
-// 5. Delete a template
 router.delete('/admin/invoice-templates/:id', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -850,18 +994,40 @@ router.delete('/admin/invoice-templates/:id', async (req, res) => {
         client.release();
     }
 });
+
+router.put('/admin/invoice-templates/:id/active', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { rows } = await client.query('SELECT type FROM invoice_templates WHERE id = $1', [req.params.id]);
+        if (rows.length === 0) throw new Error("Template not found");
+        const templateType = rows[0].type;
+
+        await client.query('UPDATE invoice_templates SET is_active = FALSE WHERE type = $1', [templateType]);
+        await client.query('UPDATE invoice_templates SET is_active = TRUE WHERE id = $1', [req.params.id]);
+
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Default updated" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Failed to set active template:", error);
+        res.status(500).json({ success: false });
+    } finally {
+        client.release();
+    }
+});
+
 // ==========================================
-// 🔥 PDF INVOICE GENERATOR ENGINE
+// PDF GENERATOR ROUTES
 // ==========================================
 
 router.get('/orders/:id/download-pdf', async (req, res) => {
     const { id } = req.params;
-    // 🔥 Make sure we grab both templateId AND type from the URL
     const { templateId, type } = req.query;
     const client = await pool.connect();
 
     try {
-        // 1. Fetch the Order Data
         const orderRes = await client.query(`
             SELECT o.*, c.name as customer_name, c.email as customer_email,
                    json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)) as items
@@ -876,7 +1042,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
         if (orderRes.rows.length === 0) return res.status(404).send("Order not found");
         const order = orderRes.rows[0];
 
-        // 2. Fetch the Template Data (SMART ROUTING)
         let templateQuery = 'SELECT design_data FROM invoice_templates WHERE is_active = TRUE ORDER BY id DESC LIMIT 1';
         let templateParams = [];
 
@@ -884,7 +1049,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
             templateQuery = 'SELECT design_data FROM invoice_templates WHERE id = $1';
             templateParams = [templateId];
         } else if (type) {
-            // This fixes the Checkout Page buttons!
             templateQuery = 'SELECT design_data FROM invoice_templates WHERE type = $1 AND is_active = TRUE ORDER BY id DESC LIMIT 1';
             templateParams = [type.toUpperCase().trim()];
         }
@@ -893,7 +1057,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
         if (templateRes.rows.length === 0) return res.status(404).send("No active invoice templates found. Please create one in the admin panel.");
         const design = templateRes.rows[0].design_data;
 
-        // 3. Variable Mapping Logic
         const mapVariable = (content) => {
             if (!content) return "";
             return content
@@ -906,7 +1069,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
                 .replace('{{final_total}}', (parseFloat(order.total_amount) - parseFloat(order.discount_amount || 0)).toFixed(2));
         };
 
-        // 4. Generate the HTML from the JSON layout
         let componentsHtml = design.components.map(comp => {
             const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
 
@@ -920,7 +1082,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
                 return `<img src="${comp.content}" style="${style}; object-fit: contain;" />`;
             }
             if (comp.type === 'table') {
-                // 🔥 UPDATED: Dynamically use the column headers from the JSON template!
                 const cols = comp.columns && comp.columns.length > 0 ? comp.columns : ['Item', 'Qty', 'Rate', 'Amount'];
 
                 let tableHeaders = cols.map(col => `<th style="padding: 8px; border-bottom: 2px solid #333; text-align: left;">${col}</th>`).join('');
@@ -967,7 +1128,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
             </html>
         `;
 
-        // 5. Fire up Puppeteer and Print the PDF!
         const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
         const page = await browser.newPage();
 
@@ -980,7 +1140,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
             pageRanges: '1'
         });
 
-        // Log the generation
         await client.query(
             `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
             [type.toUpperCase().trim(), order.id, order.customer_name || 'Guest', order.total_amount]
@@ -988,7 +1147,6 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
 
         await browser.close();
 
-        // 6. Send the PDF file directly to the browser
         res.set({
             'Content-Type': 'application/pdf',
             'Content-Disposition': `attachment; filename=Invoice_Order_${order.id}.pdf`,
@@ -1004,25 +1162,17 @@ router.get('/orders/:id/download-pdf', async (req, res) => {
     }
 });
 
-
-
-// ==========================================
-// 🔥 PDF QUOTATION GENERATOR (Cart -> PDF)
-// ==========================================
 router.post('/checkout/quotation-pdf', async (req, res) => {
     const { items, finalTotal, customerName, customerPhone, discountAmount } = req.body;
     const client = await pool.connect();
 
     try {
-        // 1. Fetch the Active QUOTATION template
         const templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
         if (templateRes.rows.length === 0) return res.status(404).json({ success: false, message: "No active quotation template found." });
         const design = templateRes.rows[0].design_data;
 
-        // 2. Generate a fake "Order ID" for the quote
         const quoteRef = `QUOTE-${Math.floor(1000 + Math.random() * 9000)}`;
 
-        // 3. Variable Mapping
         const mapVariable = (content) => {
             if (!content) return "";
             return content
@@ -1035,7 +1185,6 @@ router.post('/checkout/quotation-pdf', async (req, res) => {
                 .replace('{{final_total}}', parseFloat(finalTotal).toFixed(2));
         };
 
-        // 4. Build HTML
         let componentsHtml = design.components.map(comp => {
             const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
 
@@ -1068,13 +1217,11 @@ router.post('/checkout/quotation-pdf', async (req, res) => {
 
         const htmlContent = `<!DOCTYPE html><html><head><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" /><style>body { margin: 0; padding: 0; box-sizing: border-box; } .canvas { position: relative; width: ${design.width}px; height: ${design.height}px; background: white; overflow: hidden; }</style></head><body><div class="canvas">${componentsHtml}</div></body></html>`;
 
-        // 5. Run Puppeteer
         const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
         const page = await browser.newPage();
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
 
-        // Log the generation
         await client.query(
             `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
             ['QUOTATION', quoteRef, customerName || 'Valued Customer', finalTotal]
@@ -1082,7 +1229,6 @@ router.post('/checkout/quotation-pdf', async (req, res) => {
 
         await browser.close();
 
-        // 6. Send raw PDF binary data
         res.set({
             'Content-Type': 'application/pdf',
             'Content-Disposition': `attachment; filename=${quoteRef}.pdf`,
@@ -1098,62 +1244,24 @@ router.post('/checkout/quotation-pdf', async (req, res) => {
     }
 });
 
-// 🔥 NEW: Toggle a template to be the ACTIVE DEFAULT
-router.put('/admin/invoice-templates/:id/active', async (req, res) => {
-    const client = await pool.connect();
-    try {
-        await client.query('BEGIN'); // Start transaction
-
-        // 1. Find out if it is an INVOICE or RECEIPT
-        const { rows } = await client.query('SELECT type FROM invoice_templates WHERE id = $1', [req.params.id]);
-        if (rows.length === 0) throw new Error("Template not found");
-        const templateType = rows[0].type;
-
-        // 2. Turn off ALL other templates of this exact type
-        await client.query('UPDATE invoice_templates SET is_active = FALSE WHERE type = $1', [templateType]);
-
-        // 3. Turn ON the selected template
-        await client.query('UPDATE invoice_templates SET is_active = TRUE WHERE id = $1', [req.params.id]);
-
-        await client.query('COMMIT'); // Save transaction
-        res.json({ success: true, message: "Default updated" });
-    } catch (error) {
-        await client.query('ROLLBACK'); // Undo if something broke
-        console.error("Failed to set active template:", error);
-        res.status(500).json({ success: false });
-    } finally {
-        client.release();
-    }
-});
-
-
-// ==========================================
-// 🔥 ADMIN CUSTOM QUOTATION GENERATOR
-// ==========================================
 router.post('/admin/generate-quotation', async (req, res) => {
     const { items, customerName, customerPhone, discountAmount } = req.body;
     const client = await pool.connect();
 
     try {
-        // Calculate the total on the backend to be safe
         let finalTotal = items.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0);
         finalTotal = finalTotal - parseFloat(discountAmount || 0);
 
-        // 1. Fetch the Active ADMIN_QUOTATION template
         let templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'ADMIN_QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
 
-        // Fallback to standard QUOTATION if admin quotation isn't set
         if (templateRes.rows.length === 0) {
             templateRes = await client.query("SELECT design_data FROM invoice_templates WHERE type = 'QUOTATION' AND is_active = TRUE ORDER BY id DESC LIMIT 1");
         }
         if (templateRes.rows.length === 0) return res.status(404).json({ success: false, message: "No active quotation template found." });
 
         const design = templateRes.rows[0].design_data;
-
-        // 2. Generate a manual Quote ID
         const quoteRef = `AQ-${Math.floor(10000 + Math.random() * 90000)}`;
 
-        // 3. Variable Mapping
         const mapVariable = (content) => {
             if (!content) return "";
             return content
@@ -1166,7 +1274,6 @@ router.post('/admin/generate-quotation', async (req, res) => {
                 .replace('{{final_total}}', parseFloat(finalTotal).toFixed(2));
         };
 
-        // 4. Build HTML
         let componentsHtml = design.components.map(comp => {
             const style = `position: absolute; left: ${comp.x}px; top: ${comp.y}px; width: ${comp.width === 'auto' ? 'auto' : comp.width + 'px'}; height: ${comp.height === 'auto' ? 'auto' : comp.height + 'px'}; font-family: ${comp.style.fontFamily}; font-size: ${comp.style.fontSize}px; color: ${comp.style.color}; font-weight: ${comp.style.fontWeight}; font-style: ${comp.style.fontStyle}; text-decoration: ${comp.style.textDecoration}; text-align: ${comp.style.textAlign};`;
 
@@ -1199,20 +1306,17 @@ router.post('/admin/generate-quotation', async (req, res) => {
 
         const htmlContent = `<!DOCTYPE html><html><head><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;700&family=Abhaya+Libre:wght@400;700&display=swap" rel="stylesheet" /><style>body { margin: 0; padding: 0; box-sizing: border-box; } .canvas { position: relative; width: ${design.width}px; height: ${design.height}px; background: white; overflow: hidden; }</style></head><body><div class="canvas">${componentsHtml}</div></body></html>`;
 
-        // 5. Run Puppeteer
         const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
         const page = await browser.newPage();
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         const pdfBuffer = await page.pdf({ width: `${design.width}px`, height: `${design.height}px`, printBackground: true, pageRanges: '1' });
 
-        // Log the generation
         await client.query(
             `INSERT INTO document_records (document_type, reference_no, customer_name, total_amount) VALUES ($1, $2, $3, $4)`,
             ['ADMIN_QUOTATION', quoteRef, customerName || 'Valued Customer', finalTotal]
         );
         await browser.close();
 
-        // 6. Send raw PDF binary data
         res.set({
             'Content-Type': 'application/pdf',
             'Content-Disposition': `attachment; filename=${quoteRef}.pdf`,
@@ -1228,8 +1332,6 @@ router.post('/admin/generate-quotation', async (req, res) => {
     }
 });
 
-
-// Get document generation history
 router.get('/admin/document-records', async (req, res) => {
     const { type } = req.query;
     const client = await pool.connect();
@@ -1248,10 +1350,9 @@ router.get('/admin/document-records', async (req, res) => {
 });
 
 // ==========================================
-// 🔥 REFUND LIFECYCLE ENGINE
+// REFUND LIFECYCLE ENGINE
 // ==========================================
 
-// 1. Get Refund Policy Configuration (from dedicated web_refund table)
 router.get('/settings/refund-policy', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1264,7 +1365,6 @@ router.get('/settings/refund-policy', async (req, res) => {
     }
 });
 
-// 2. Admin: Update Refund Configuration
 router.put('/admin/refund-config', async (req, res) => {
     const { refund_policy, refund_duration_days, refund_processing_days } = req.body;
     const client = await pool.connect();
@@ -1284,7 +1384,6 @@ router.put('/admin/refund-config', async (req, res) => {
     }
 });
 
-// 3. Customer: Request a Refund
 router.post('/orders/:id/refund', async (req, res) => {
     const { customerId, reason, bankDetails, refundAmount } = req.body;
     const orderId = req.params.id;
@@ -1292,14 +1391,12 @@ router.post('/orders/:id/refund', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Create the refund request
         await client.query(
             `INSERT INTO refund_requests (order_id, customer_id, reason, bank_details, refund_amount)
              VALUES ($1, $2, $3, $4, $5)`,
             [orderId, customerId, reason, bankDetails, refundAmount]
         );
 
-        // Update the order status to reflect an active refund request
         await client.query(`UPDATE orders SET status = 'REFUND_REQUESTED' WHERE id = $1`, [orderId]);
 
         await client.query('COMMIT');
@@ -1313,9 +1410,8 @@ router.post('/orders/:id/refund', async (req, res) => {
     }
 });
 
-// 4. Customer: Confirm Receipt & Feedback
 router.put('/orders/:id/refund/confirm', async (req, res) => {
-    const { status, feedback } = req.body; // status: 'COMPLETED' (received) or 'NOT_RECEIVED'
+    const { status, feedback } = req.body;
     const orderId = req.params.id;
     const client = await pool.connect();
     try {
@@ -1333,11 +1429,9 @@ router.put('/orders/:id/refund/confirm', async (req, res) => {
     }
 });
 
-// 5. Admin: Get Refund Dashboard Analytics & Requests
 router.get('/admin/refunds', async (req, res) => {
     const client = await pool.connect();
     try {
-        // Get all refund requests with joined customer and order details
         const requests = await client.query(`
             SELECT r.*, c.name as customer_name, c.email as customer_email,
                    (SELECT json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price))
@@ -1347,7 +1441,6 @@ router.get('/admin/refunds', async (req, res) => {
             ORDER BY r.created_at DESC
         `);
 
-        // Calculate Analytics
         const stats = await client.query(`
             SELECT
                 COALESCE(SUM(refund_amount), 0) as total_refunded_amount,
@@ -1370,7 +1463,6 @@ router.get('/admin/refunds', async (req, res) => {
     }
 });
 
-// 6. Admin: Update Refund Status (Approve/Reject/Upload Slip)
 router.put('/admin/refunds/:id', async (req, res) => {
     const { status, adminSlipUrl, restockItems } = req.body;
     const refundId = req.params.id;
@@ -1378,7 +1470,6 @@ router.put('/admin/refunds/:id', async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Update Refund Status
         await client.query(
             `UPDATE refund_requests
              SET status = $1, admin_slip_url = COALESCE($2, admin_slip_url), restocked = COALESCE($3, restocked), updated_at = CURRENT_TIMESTAMP
@@ -1386,13 +1477,12 @@ router.put('/admin/refunds/:id', async (req, res) => {
             [status, adminSlipUrl, restockItems, refundId]
         );
 
-        // If restocked is true, we need to put items back in inventory
         if (restockItems) {
             const refund = await client.query('SELECT order_id FROM refund_requests WHERE id = $1', [refundId]);
             const items = await client.query('SELECT product_id, quantity FROM order_items WHERE order_id = $1', [refund.rows[0].order_id]);
 
             for (const item of items.rows) {
-                await client.query('UPDATE products SET stock_quantity = stock_quantity + $1 WHERE id = $2', [item.quantity, item.product_id]);
+                await client.query('UPDATE products SET stock = stock + $1 WHERE id = $2', [item.quantity, item.product_id]);
             }
         }
 
@@ -1407,24 +1497,21 @@ router.put('/admin/refunds/:id', async (req, res) => {
     }
 });
 
-
 // ==========================================
-// 🔥 DATA MANAGEMENT & CLOUD BACKUP ROUTES
+// DATA MANAGEMENT & CLOUD BACKUP ROUTES
 // ==========================================
 
-// 1. Export System Backup (BULLETPROOF)
 router.get('/admin/backup', async (req, res) => {
     const client = await pool.connect();
     try {
         const backup = {};
-        const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
+        const tables = ['web_settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
 
         for (const table of tables) {
             try {
                 const { rows } = await client.query(`SELECT * FROM ${table}`);
                 backup[table] = rows;
             } catch (tableError) {
-                // If a table doesn't exist, we just skip it and warn in the terminal instead of crashing!
                 console.warn(`⚠️ Backup: Skipping table '${table}' (It might not exist yet)`);
             }
         }
@@ -1438,21 +1525,18 @@ router.get('/admin/backup', async (req, res) => {
     }
 });
 
-// 2. Restore System Backup (BULLETPROOF)
 router.post('/admin/restore', async (req, res) => {
     const { backup } = req.body;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        const tables = ['settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
+        const tables = ['web_settings', 'customers', 'categories', 'products', 'vouchers', 'invoice_templates', 'orders', 'order_items', 'document_records'];
 
         for (const table of tables) {
-            // Only try to restore if there is data for this table in the backup file
             if (!backup[table] || backup[table].length === 0) continue;
 
             try {
-                // Wipe existing data safely
                 await client.query(`TRUNCATE TABLE ${table} RESTART IDENTITY CASCADE`);
 
                 const rows = backup[table];
@@ -1464,13 +1548,11 @@ router.post('/admin/restore', async (req, res) => {
                     await client.query(query, values);
                 }
 
-                // Fix Auto-Increment Counters
                 try {
                     await client.query(`SELECT setval('${table}_id_seq', (SELECT MAX(id) FROM ${table}) + 1)`);
-                } catch(e) { /* Ignore sequence errors for tables without serial IDs */ }
-
+                } catch(e) { }
             } catch(tableErr) {
-                 console.warn(`⚠️ Restore: Failed to restore table '${table}':`, tableErr.message);
+                console.warn(`⚠️ Restore: Failed to restore table '${table}':`, tableErr.message);
             }
         }
 
@@ -1485,7 +1567,6 @@ router.post('/admin/restore', async (req, res) => {
     }
 });
 
-// 3. Clear Sales Data
 router.delete('/admin/clear-sales', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1501,7 +1582,6 @@ router.delete('/admin/clear-sales', async (req, res) => {
     }
 });
 
-// 4. Clear Inventory Data
 router.delete('/admin/clear-inventory', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -1517,12 +1597,10 @@ router.delete('/admin/clear-inventory', async (req, res) => {
     }
 });
 
-// 5. Full Factory Reset
 router.delete('/admin/factory-reset', async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        // Wipes everything EXCEPT admin login users and store config settings
         await client.query('TRUNCATE TABLE customers, categories, products, vouchers, invoice_templates, orders, order_items, document_records RESTART IDENTITY CASCADE');
         await client.query('COMMIT');
         res.json({ success: true, message: "Factory reset complete!" });
@@ -1534,15 +1612,9 @@ router.delete('/admin/factory-reset', async (req, res) => {
     }
 });
 
-
-
-// ==========================================
-// 🔥 MAIN DASHBOARD ANALYTICS (GROSS VS NET)
-// ==========================================
 router.get('/admin/dashboard-stats', async (req, res) => {
     const client = await pool.connect();
     try {
-        // 1. Get GROSS Revenue (All paid orders, ignoring cancelled ones)
         const grossRes = await client.query(`
             SELECT COALESCE(SUM(total_amount), 0) as gross_revenue
             FROM orders
@@ -1550,7 +1622,6 @@ router.get('/admin/dashboard-stats', async (req, res) => {
         `);
         const grossRevenue = parseFloat(grossRes.rows[0].gross_revenue);
 
-        // 2. Get TOTAL REFUNDED (Only count money that has actually been approved/processed)
         const refundRes = await client.query(`
             SELECT COALESCE(SUM(refund_amount), 0) as total_refunded
             FROM refund_requests
@@ -1558,10 +1629,8 @@ router.get('/admin/dashboard-stats', async (req, res) => {
         `);
         const totalRefunded = parseFloat(refundRes.rows[0].total_refunded);
 
-        // 3. Calculate NET REVENUE (The actual money you keep!)
         const netRevenue = grossRevenue - totalRefunded;
 
-        // 4. Get other overview stats for the dashboard
         const ordersRes = await client.query(`SELECT COUNT(*) as total_orders FROM orders`);
         const customersRes = await client.query(`SELECT COUNT(*) as total_customers FROM customers`);
         const productsRes = await client.query(`SELECT COUNT(*) as total_products FROM products`);
