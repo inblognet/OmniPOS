@@ -276,8 +276,97 @@ router.delete('/admin/vouchers/:id', async (req, res) => {
 });
 
 // ==========================================
-// ADD PRODUCT ROUTE (Fixed Image URL parsing)
+// ADMIN ROUTES
 // ==========================================
+
+router.get('/admin/orders', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const query = `
+            SELECT
+                o.id, o.total_amount, o.payment_method, o.payment_status, o.order_status,
+                o.payment_slip_url, o.admin_note, o.created_at, o.discount_code, o.discount_amount,
+                o.delivery_phone, o.delivery_address, o.delivery_city, o.delivery_postal_code,
+                c.name as customer_name, c.email as customer_email,
+                json_agg(json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.price)) as items
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            GROUP BY o.id, c.name, c.email
+            ORDER BY o.created_at DESC;
+        `;
+        const { rows } = await client.query(query);
+        res.json({ success: true, orders: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Failed to load orders" });
+    } finally {
+        client.release();
+    }
+});
+
+router.put('/admin/orders/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    const client = await pool.connect();
+    try {
+        await client.query('UPDATE orders SET payment_status = $1 WHERE id = $2', [status, id]);
+        res.json({ success: true, message: `Order #${id} marked as ${status}` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Failed to update status" });
+    } finally {
+        client.release();
+    }
+});
+
+router.get('/admin/banners', async (req, res) => {
+    const client = await pool.connect();
+    try { res.json({ success: true, banners: (await client.query('SELECT * FROM carousel_banners ORDER BY id DESC')).rows }); }
+    catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+router.post('/admin/banners', async (req, res) => {
+    const { image_url, title, subtitle, link_url } = req.body;
+    const client = await pool.connect();
+    try {
+        const { rows } = await client.query(`INSERT INTO carousel_banners (image_url, title, subtitle, link_url, is_active) VALUES ($1, $2, $3, $4, TRUE) RETURNING *`, [image_url, title, subtitle, link_url || null]);
+        res.json({ success: true, banner: rows[0] });
+    } catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+router.put('/admin/banners/:id/toggle', async (req, res) => {
+    const client = await pool.connect();
+    try { await client.query('UPDATE carousel_banners SET is_active = NOT is_active WHERE id = $1', [req.params.id]); res.json({ success: true }); }
+    catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+router.delete('/admin/banners/:id', async (req, res) => {
+    const client = await pool.connect();
+    try { await client.query('DELETE FROM carousel_banners WHERE id = $1', [req.params.id]); res.json({ success: true }); }
+    catch (e) { res.status(500).json({ success: false }); } finally { client.release(); }
+});
+
+router.get('/admin/products', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const query = `
+            SELECT
+                p.id, p.name, p.sku, p.price, p.web_allocated_stock, p.category, p.description, p.is_active,
+                COALESCE(json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary)) FILTER (WHERE pi.id IS NOT NULL), '[]') as images
+            FROM products p
+            LEFT JOIN product_images pi ON p.id = pi.product_id
+            GROUP BY p.id ORDER BY p.id DESC;
+        `;
+        const { rows } = await client.query(query);
+        res.json({ success: true, products: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: "Failed to load inventory" });
+    } finally {
+        client.release();
+    }
+});
+
+// 🔥 NEW FIXED POST ROUTE
 router.post('/admin/products', upload.single('image'), async (req, res) => {
     const { name, sku, price, web_allocated_stock, category, description } = req.body;
     const client = await pool.connect();
@@ -291,7 +380,6 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
             [name, sku, price, web_allocated_stock, category, description || '']
         );
 
-        // 🔥 FIX: Safely check for secure_url, path, or url
         if (req.file) {
             const imageUrl = req.file.secure_url || req.file.path || req.file.url;
             if (imageUrl) {
@@ -306,20 +394,16 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
         res.json({ success: true, message: "Product added successfully!" });
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error("Add Product Error:", error); // Helpful for terminal debugging
+        console.error("Add Product Error:", error);
         res.status(500).json({ success: false, message: "Failed to add product" });
     } finally {
         client.release();
     }
 });
 
-
-// ==========================================
-// UPDATE PRODUCT ROUTE (Fixed missing fields)
-// ==========================================
+// 🔥 NEW FIXED PUT ROUTE
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     const { id } = req.params;
-    // 🔥 FIX: Added sku and category to destruction
     const { name, sku, category, web_allocated_stock, price, description, is_active } = req.body;
 
     const client = await pool.connect();
@@ -327,7 +411,6 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // 🔥 FIX: Added sku = $2 and category = $3 to the UPDATE statement
         await client.query(
             `UPDATE products
              SET name = $1, sku = $2, category = $3, web_allocated_stock = $4, price = $5, description = $6, is_active = $7
@@ -335,7 +418,6 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
             [name, sku, category, web_allocated_stock, price, description || '', is_active === 'true', id]
         );
 
-        // 🔥 FIX: Safely check for secure_url, path, or url
         if (req.file) {
             const imageUrl = req.file.secure_url || req.file.path || req.file.url;
             if (imageUrl) {
@@ -357,6 +439,38 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
         client.release();
     }
 });
+
+router.delete('/admin/products/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query('DELETE FROM product_images WHERE product_id = $1', [req.params.id]);
+        await client.query('DELETE FROM products WHERE id = $1', [req.params.id]);
+        await client.query('COMMIT');
+        res.json({ success: true, message: "Product deleted" });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false });
+    } finally { client.release(); }
+});
+
+router.post('/admin/categories/upload', upload.single('image'), async (req, res) => {
+    const { category } = req.body;
+    const client = await pool.connect();
+    try {
+        if (!req.file || !req.file.path) return res.status(400).json({ success: false });
+        await client.query('BEGIN');
+        await client.query('DELETE FROM category_images WHERE category = $1', [category]);
+        await client.query('INSERT INTO category_images (category, image_url) VALUES ($1, $2)', [category, req.file.path]);
+        await client.query('COMMIT');
+        res.json({ success: true, image_url: req.file.path });
+    } catch (error) {
+        await client.query('ROLLBACK');
+        res.status(500).json({ success: false });
+    } finally { client.release(); }
+});
+
+// ==========================================
 // PUBLIC & CUSTOMER ROUTES
 // ==========================================
 
