@@ -467,18 +467,20 @@ router.post('/admin/products', upload.single('image'), async (req, res) => {
     }
 });
 
-// UPDATE product
+
+// UPDATE product - FIXED for image upload in edit mode
 router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
     console.log("=== UPDATE PRODUCT ===");
-    console.log("ID:", req.params.id);
+    console.log("Product ID:", req.params.id);
     console.log("Body:", req.body);
-    console.log("File:", req.file ? req.file.path : "No file");
+    console.log("File received:", req.file ? req.file.path : "No new image uploaded");
 
     const { id } = req.params;
     const { name, web_allocated_stock, price, description, is_active } = req.body;
     const client = await pool.connect();
 
     try {
+        // Check if product exists
         const checkProduct = await client.query('SELECT id FROM products WHERE id = $1', [id]);
         if (checkProduct.rows.length === 0) {
             return res.status(404).json({ success: false, message: "Product not found" });
@@ -486,6 +488,7 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
 
         await client.query('BEGIN');
 
+        // Update product details
         await client.query(
             `UPDATE products
              SET name = $1,
@@ -505,21 +508,41 @@ router.put('/admin/products/:id', upload.single('image'), async (req, res) => {
             ]
         );
 
+        // Handle image update - if a new image is uploaded
         if (req.file && req.file.path) {
-            console.log(`📸 Updating image for product ${id}`);
-            await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+            console.log(`📸 New image uploaded for product ${id}: ${req.file.path}`);
+
+            // Delete old images
+            const deletedImages = await client.query(
+                'DELETE FROM product_images WHERE product_id = $1 RETURNING id',
+                [id]
+            );
+            console.log(`🗑️ Deleted ${deletedImages.rowCount} old images`);
+
+            // Insert new image
             await client.query(
                 `INSERT INTO product_images (product_id, image_url, is_primary, created_at)
                  VALUES ($1, $2, true, NOW())`,
                 [id, req.file.path]
             );
+            console.log(`✅ New image inserted for product ${id}`);
+        } else {
+            console.log(`📌 No new image uploaded for product ${id}, keeping existing images`);
         }
 
         await client.query('COMMIT');
 
+        // Fetch the updated product to return
+        const updatedProduct = await client.query(
+            `SELECT id, name, price, web_allocated_stock, description, is_active
+             FROM products WHERE id = $1`,
+            [id]
+        );
+
         res.json({
             success: true,
-            message: "Product updated successfully"
+            message: "Product updated successfully",
+            product: updatedProduct.rows[0]
         });
 
     } catch (error) {

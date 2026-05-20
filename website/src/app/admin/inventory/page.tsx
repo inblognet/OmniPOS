@@ -148,7 +148,7 @@ export default function AdminInventory() {
     }
   };
 
-  const handleUpdateProduct = async () => {
+const handleUpdateProduct = async () => {
     if (!editForm) return;
     setIsUpdating(true);
     setUpdateError(null);
@@ -160,26 +160,34 @@ export default function AdminInventory() {
     formData.append("description", editForm.description || "");
     formData.append("is_active", String(editForm.is_active));
 
-    if (editForm.file) formData.append("image", editForm.file);
+    // ✅ IMPORTANT: Only append image if a new file was selected
+    if (editForm.file) {
+        formData.append("image", editForm.file);
+        console.log("📸 New image selected for update:", editForm.file.name);
+    } else {
+        console.log("📌 No new image selected, keeping existing");
+    }
 
     try {
-      const res = await api.put(`/web/admin/products/${editForm.id}`, formData);
-      if (res.data.success) {
-        setSubmitSuccess("Product updated successfully!");
-        setEditForm(null);
-        fetchProducts();
-        setTimeout(() => setSubmitSuccess(null), 3000);
-      } else {
-        setUpdateError(res.data.message || "Failed to update product");
-      }
+        const res = await api.put(`/web/admin/products/${editForm.id}`, formData, {
+            headers: { "Content-Type": "multipart/form-data" }
+        });
+        if (res.data.success) {
+            setSubmitSuccess("Product updated successfully!");
+            setEditForm(null);
+            fetchProducts();
+            setTimeout(() => setSubmitSuccess(null), 3000);
+        } else {
+            setUpdateError(res.data.message || "Failed to update product");
+        }
     } catch (err: unknown) {
-      const error = err as ApiError;
-      console.error("Update error:", error);
-      setUpdateError(error.response?.data?.message || error.message || "Failed to update product");
+        const error = err as ApiError;
+        console.error("Update error:", error);
+        setUpdateError(error.response?.data?.message || error.message || "Failed to update product");
     } finally {
-      setIsUpdating(false);
+        setIsUpdating(false);
     }
-  };
+};
 
   const toggleVisibility = async (product: Product) => {
     const formData = new FormData();
