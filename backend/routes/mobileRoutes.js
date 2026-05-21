@@ -66,4 +66,32 @@ router.get('/test', (req, res) => {
     res.json({ success: true, message: 'Mobile API is working!' });
 });
 
+
+// Customer dashboard endpoint
+router.get('/customer/dashboard', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    console.log('Dashboard request received');
+    
+    // For now, return mock data
+    const mockStats = {
+        total_spent: 1250.00,
+        total_orders: 8,
+        loyalty_points: 450,
+        loyalty_joined: true
+    };
+    
+    const mockOrders = [
+        { id: 1001, total_amount: 89.99, status: 'DELIVERED', created_at: new Date().toISOString() },
+        { id: 1002, total_amount: 145.50, status: 'PROCESSING', created_at: new Date().toISOString() },
+        { id: 1003, total_amount: 234.00, status: 'PENDING', created_at: new Date().toISOString() }
+    ];
+    
+    res.json({
+        success: true,
+        stats: mockStats,
+        recent_orders: mockOrders
+    });
+});
+
 module.exports = router;
+

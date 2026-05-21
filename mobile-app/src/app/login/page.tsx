@@ -1,11 +1,11 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, LogIn, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { useUserStore } from '@/store/useUserStore';
-import { saveMobileToken, getDeviceId } from '@/lib/auth';
+import toast from 'react-hot-toast';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -23,23 +23,22 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    // Get device info
-    const deviceInfo = {
-      device_id: getDeviceId(),
-      device_name: navigator.userAgent,
-      device_model: /Mobile|iP(hone|ad|od)|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop',
-      os_version: navigator.platform,
-    };
-
     try {
+      console.log('Attempting login for:', formData.email);
+      
       const res = await api.post('/mobile/auth/login', {
-        ...formData,
-        ...deviceInfo,
+        email: formData.email,
+        password: formData.password,
       });
 
+      console.log('Login response:', res.data);
+
       if (res.data.success) {
-        saveMobileToken(res.data.token);
+        // Save token and user
+        localStorage.setItem('mobile_token', res.data.token);
         setUser(res.data.user);
+        
+        toast.success('Login successful!');
         
         // Redirect based on user type
         if (res.data.user.user_type === 'customer') {
@@ -47,9 +46,12 @@ export default function LoginPage() {
         } else {
           router.push('/staff/dashboard');
         }
+      } else {
+        setError(res.data.message || 'Login failed');
       }
-    } catch (error: any) {
-      setError(error.response?.data?.message || 'Login failed. Please check your credentials.');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.response?.data?.message || 'Login failed. Please check your credentials.');
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +130,7 @@ export default function LoginPage() {
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all pr-12"
-                  placeholder="••••••••"
+                  placeholder="????????"
                 />
                 <button
                   type="button"

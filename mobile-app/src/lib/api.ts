@@ -1,6 +1,6 @@
-﻿import axios from 'axios';
+import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://omnipos-backend.onrender.com/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -17,14 +17,6 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
-    // Add device info for mobile
-    config.headers['X-Device-Type'] = 'mobile';
-    const deviceId = localStorage.getItem('device_id');
-    if (deviceId) {
-      config.headers['X-Device-Id'] = deviceId;
-    }
-    
     return config;
   },
   (error) => {
@@ -36,11 +28,11 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    console.error('API Error:', error.response?.data || error.message);
     if (error.response?.status === 401) {
-      // Token expired, redirect to login
+      localStorage.removeItem('mobile_token');
+      localStorage.removeItem('mobile_user');
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('mobile_token');
-        localStorage.removeItem('mobile_user');
         window.location.href = '/login';
       }
     }
