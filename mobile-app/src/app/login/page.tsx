@@ -1,4 +1,4 @@
-'use client';
+﻿"use client";
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -23,9 +23,9 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
+    console.log('Login attempt with:', { email: formData.email, userType });
+
     try {
-      console.log('Attempting login for:', formData.email);
-      
       const res = await api.post('/mobile/auth/login', {
         email: formData.email,
         password: formData.password,
@@ -34,17 +34,19 @@ export default function LoginPage() {
       console.log('Login response:', res.data);
 
       if (res.data.success) {
-        // Save token and user
+        // Store token and user
         localStorage.setItem('mobile_token', res.data.token);
         setUser(res.data.user);
         
-        toast.success('Login successful!');
+        toast.success(`Welcome ${res.data.user.name}!`);
         
         // Redirect based on user type
-        if (res.data.user.user_type === 'customer') {
-          router.push('/dashboard');
-        } else {
+        if (res.data.user.user_type === 'staff') {
+          console.log('Redirecting to staff dashboard');
           router.push('/staff/dashboard');
+        } else {
+          console.log('Redirecting to customer dashboard');
+          router.push('/dashboard');
         }
       } else {
         setError(res.data.message || 'Login failed');
@@ -73,6 +75,7 @@ export default function LoginPage() {
         <div className="bg-white/10 backdrop-blur-md rounded-2xl p-1 mb-6">
           <div className="flex gap-1">
             <button
+              type="button"
               onClick={() => setUserType('customer')}
               className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
                 userType === 'customer'
@@ -83,6 +86,7 @@ export default function LoginPage() {
               Customer
             </button>
             <button
+              type="button"
               onClick={() => setUserType('staff')}
               className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
                 userType === 'staff'
@@ -130,7 +134,7 @@ export default function LoginPage() {
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all pr-12"
-                  placeholder="????????"
+                  placeholder="••••••••"
                 />
                 <button
                   type="button"

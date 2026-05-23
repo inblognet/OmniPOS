@@ -2,20 +2,22 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Filter, ShoppingCart, Heart, Star } from 'lucide-react';
+import { Search, ShoppingCart, Heart, Filter, X } from 'lucide-react';
 import api from '@/lib/api';
 import { useCartStore } from '@/store/useCartStore';
 import { useWishlistStore } from '@/store/useWishlistStore';
 import { useUserStore } from '@/store/useUserStore';
+import MobileLayout from '@/components/layout/MobileLayout';
 import toast from 'react-hot-toast';
 
 interface Product {
   id: number;
   name: string;
   price: number;
-  category: string;
-  images: { url: string; is_primary: boolean }[];
   web_allocated_stock: number;
+  category: string;
+  description: string;
+  images: { url: string; is_primary: boolean }[];
 }
 
 export default function ProductsPage() {
@@ -37,24 +39,25 @@ export default function ProductsPage() {
 
   const fetchProducts = async () => {
     try {
-      const res = await api.get('/web/products');
+      const res = await api.get('/mobile/products');
       if (res.data.success) {
         setProducts(res.data.products);
         setFilteredProducts(res.data.products);
         
         // Extract unique categories
-        const uniqueCategories = [...new Set(res.data.products.map((p: Product) => p.category))];
+        const uniqueCategories = [...new Set(res.data.products.map((p: Product) => p.category).filter(Boolean))];
         setCategories(uniqueCategories);
       }
     } catch (error) {
       console.error('Failed to fetch products:', error);
+      toast.error('Failed to load products');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    let filtered = products;
+    let filtered = [...products];
     
     if (searchQuery) {
       filtered = filtered.filter(p => 
@@ -103,134 +106,144 @@ export default function ProductsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
+      <MobileLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </MobileLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="bg-white sticky top-0 z-10 px-4 py-3 border-b border-gray-100">
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Search products..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="p-2 bg-gray-50 rounded-xl border border-gray-200"
-          >
-            <Filter size={20} />
-          </button>
-        </div>
-        
-        {/* Filters */}
-        {showFilters && categories.length > 0 && (
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+    <MobileLayout>
+      <div className="pb-20">
+        {/* Header */}
+        <div className="bg-white sticky top-0 z-10 px-4 py-3 border-b border-gray-100">
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                type="text"
+                placeholder="Search products..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
             <button
-              onClick={() => setSelectedCategory('')}
-              className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap ${
-                selectedCategory === '' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-gray-100 text-gray-700'
-              }`}
+              onClick={() => setShowFilters(!showFilters)}
+              className="p-2 bg-gray-50 rounded-xl border border-gray-200"
             >
-              All
+              <Filter size={20} />
             </button>
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap ${
-                  selectedCategory === cat 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-100 text-gray-700'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
           </div>
-        )}
-      </div>
-
-      {/* Products Grid */}
-      <div className="px-4 py-4">
-        {filteredProducts.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No products found</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-4">
-            {filteredProducts.map((product) => {
-              const isInWishlist = wishlist.some(w => w.id === product.id);
-              const imageUrl = getImageUrl(product);
-              
-              return (
-                <div
-                  key={product.id}
-                  className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100"
+          
+          {/* Filters */}
+          {showFilters && categories.length > 0 && (
+            <div className="mt-3">
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                <button
+                  onClick={() => setSelectedCategory('')}
+                  className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap ${
+                    selectedCategory === '' 
+                      ? 'bg-blue-600 text-white' 
+                      : 'bg-gray-100 text-gray-700'
+                  }`}
                 >
-                  <div 
-                    className="relative aspect-square bg-gray-50 cursor-pointer"
-                    onClick={() => router.push(`/product/${product.id}`)}
+                  All
+                </button>
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`px-3 py-1.5 rounded-full text-sm whitespace-nowrap ${
+                      selectedCategory === cat 
+                        ? 'bg-blue-600 text-white' 
+                        : 'bg-gray-100 text-gray-700'
+                    }`}
                   >
-                    <img 
-                      src={imageUrl} 
-                      alt={product.name}
-                      className="w-full h-full object-cover"
-                    />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleWishlist(product.id);
-                      }}
-                      className="absolute top-2 right-2 p-2 bg-white/90 rounded-full shadow-sm"
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Products Grid */}
+        <div className="px-4 py-4">
+          {filteredProducts.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500">No products found</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {filteredProducts.map((product) => {
+                const isInWishlist = wishlist.some(w => w.id === product.id);
+                const imageUrl = getImageUrl(product);
+                const isOutOfStock = product.web_allocated_stock <= 0;
+                
+                return (
+                  <div
+                    key={product.id}
+                    className="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100"
+                  >
+                    <div 
+                      className="relative aspect-square bg-gray-50 cursor-pointer"
+                      onClick={() => router.push(`/product/${product.id}`)}
                     >
-                      <Heart 
-                        size={18} 
-                        className={isInWishlist ? 'fill-red-500 text-red-500' : 'text-gray-400'}
+                      <img 
+                        src={imageUrl} 
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'https://placehold.co/400x400?text=No+Image';
+                        }}
                       />
-                    </button>
-                    {product.web_allocated_stock <= 0 && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <span className="bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold">Out of Stock</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  <div className="p-3">
-                    <p className="text-xs text-gray-500 mb-1">{product.category}</p>
-                    <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2">
-                      {product.name}
-                    </h3>
-                    <div className="flex justify-between items-center">
-                      <p className="text-lg font-bold text-blue-600">
-                        ${product.price.toFixed(2)}
-                      </p>
                       <button
-                        onClick={() => handleAddToCart(product)}
-                        disabled={product.web_allocated_stock <= 0}
-                        className="p-2 bg-blue-600 text-white rounded-xl disabled:opacity-50 disabled:bg-gray-400"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWishlist(product.id);
+                        }}
+                        className="absolute top-2 right-2 p-2 bg-white/90 rounded-full shadow-sm"
                       >
-                        <ShoppingCart size={18} />
+                        <Heart 
+                          size={18} 
+                          className={isInWishlist ? 'fill-red-500 text-red-500' : 'text-gray-400'}
+                        />
                       </button>
+                      {isOutOfStock && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <span className="bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold">Out of Stock</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="p-3">
+                      <p className="text-xs text-gray-500 mb-1">{product.category || 'General'}</p>
+                      <h3 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2">
+                        {product.name}
+                      </h3>
+                      <div className="flex justify-between items-center">
+                        <p className="text-lg font-bold text-blue-600">
+                          ${product.price.toFixed(2)}
+                        </p>
+                        <button
+                          onClick={() => handleAddToCart(product)}
+                          disabled={isOutOfStock}
+                          className="p-2 bg-blue-600 text-white rounded-xl disabled:opacity-50 disabled:bg-gray-400"
+                        >
+                          <ShoppingCart size={18} />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </MobileLayout>
   );
 }
