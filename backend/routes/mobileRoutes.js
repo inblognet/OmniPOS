@@ -268,4 +268,74 @@ router.get('/test', (req, res) => {
     res.json({ success: true, message: 'Mobile API is working!' });
 });
 
+
+// ==========================================
+// REFUNDS ENDPOINTS
+// ==========================================
+
+// Get all refund requests
+router.get('/staff/refunds', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false, message: 'Unauthorized' });
+    
+    const client = await pool.connect();
+    try {
+        // Check if refund_requests table exists
+        const tableCheck = await client.query(`
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'refund_requests'
+            )
+        `);
+        
+        if (!tableCheck.rows[0].exists) {
+            return res.json({ success: true, refunds: [], message: 'No refunds table yet' });
+        }
+        
+        const result = await client.query(`
+            SELECT 
+                r.*,
+                c.name as customer_name,
+                c.email as customer_email
+            FROM refund_requests r
+            LEFT JOIN customers c ON r.customer_id = c.id
+            ORDER BY r.created_at DESC
+        `);
+        
+        res.json({
+            success: true,
+            refunds: result.rows.map(r => ({
+                ...r,
+                refund_amount: parseFloat(r.refund_amount)
+            }))
+        });
+    } catch (err) {
+        console.error('Refunds error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update refund status
+router.put('/staff/refunds/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    const client = await pool.connect();
+    try {
+        await client.query(
+            'UPDATE refund_requests SET status = $1, updated_at = NOW() WHERE id = $2',
+            [status, id]
+        );
+        res.json({ success: true, message: 'Refund status updated' });
+    } catch (err) {
+        console.error('Update refund error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
+

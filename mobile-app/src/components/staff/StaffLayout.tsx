@@ -7,6 +7,7 @@ import {
   Package, 
   Users, 
   Receipt, 
+  Box,
   LogOut,
   Menu,
   X
@@ -29,6 +30,7 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
   const navItems = [
     { path: '/staff/dashboard', icon: LayoutDashboard, label: 'Home' },
     { path: '/staff/orders', icon: Package, label: 'Orders' },
+    { path: '/staff/products', icon: Box, label: 'Products' },
     { path: '/staff/customers', icon: Users, label: 'Customers' },
     { path: '/staff/refunds', icon: Receipt, label: 'Refunds' },
   ];
@@ -117,15 +119,15 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
         </>
       )}
 
-      {/* Main Content - Scrollable area */}
+      {/* Main Content */}
       <main className="flex-1 overflow-y-auto pb-20">
         <div className="p-4">
           {children}
         </div>
       </main>
 
-      {/* Bottom Navigation - Fixed at bottom */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-4 py-2 z-20 safe-bottom shadow-lg">
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-2 py-2 z-20 safe-bottom shadow-lg">
         <div className="flex justify-around items-center">
           {navItems.map((item) => {
             const active = isActive(item.path);
@@ -134,14 +136,14 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
               <button
                 key={item.path}
                 onClick={() => router.push(item.path)}
-                className={`flex flex-col items-center py-2 px-4 rounded-xl transition-all active:scale-95 ${
+                className={`flex flex-col items-center py-1 px-2 rounded-xl transition-all active:scale-95 ${
                   active 
-                    ? 'text-blue-600 bg-blue-50' 
+                    ? 'text-blue-600' 
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <Icon size={22} className={active ? 'text-blue-600' : ''} />
-                <span className={`text-xs mt-1 font-medium ${active ? 'text-blue-600' : ''}`}>
+                <Icon size={20} className={active ? 'text-blue-600' : ''} />
+                <span className={`text-[10px] mt-0.5 font-medium ${active ? 'text-blue-600' : ''}`}>
                   {item.label}
                 </span>
               </button>
