@@ -337,5 +337,288 @@ router.put('/staff/refunds/:id/status', async (req, res) => {
     }
 });
 
+
+// ==========================================
+// INVOICE ENDPOINTS
+// ==========================================
+
+// Get all invoices
+router.get('/staff/invoices', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false });
+    
+    const client = await pool.connect();
+    try {
+        const result = await client.query(`
+            SELECT i.*, o.customer_id, c.name as customer_name
+            FROM invoices i
+            LEFT JOIN orders o ON i.order_id = o.id
+            LEFT JOIN customers c ON o.customer_id = c.id
+            ORDER BY i.created_at DESC
+        `);
+        
+        res.json({ success: true, invoices: result.rows });
+    } catch (err) {
+        console.error('Invoices error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Generate invoice
+router.post('/staff/invoices/generate', async (req, res) => {
+    const { order_id } = req.body;
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false });
+    
+    const client = await pool.connect();
+    try {
+        // Get order details
+        const order = await client.query(`
+            SELECT o.*, c.name as customer_name, c.email as customer_email
+            FROM orders o
+            LEFT JOIN customers c ON o.customer_id = c.id
+            WHERE o.id = $1
+        `, [order_id]);
+        
+        if (order.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+        
+        // Generate invoice number
+        const invoiceNumber = `INV-${Date.now()}-${order_id}`;
+        
+        // Create invoice record
+        const result = await client.query(`
+            INSERT INTO invoices (invoice_number, order_id, total_amount, status)
+            VALUES ($1, $2, $3, 'PENDING')
+            RETURNING *
+        `, [invoiceNumber, order_id, order.rows[0].total_amount]);
+        
+        res.json({ success: true, invoice: result.rows[0] });
+    } catch (err) {
+        console.error('Generate invoice error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// ANALYTICS ENDPOINTS
+// ==========================================
+
+router.get('/staff/analytics', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false });
+    
+    const { days = 30 } = req.query;
+    const client = await pool.connect();
+    
+    try {
+        // Daily sales for the period
+        const dailySales = await client.query(`
+            SELECT 
+                DATE(created_at) as date,
+                COALESCE(SUM(total_amount), 0) as amount,
+                COUNT(*) as orders
+            FROM orders
+            WHERE created_at >= NOW() - INTERVAL '${days} days'
+            GROUP BY DATE(created_at)
+            ORDER BY date ASC
+        `);
+        
+        // Top products
+        const topProducts = await client.query(`
+            SELECT 
+                p.name,
+                SUM(oi.quantity) as quantity
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.created_at >= NOW() - INTERVAL '${days} days'
+            GROUP BY p.name
+            ORDER BY quantity DESC
+            LIMIT 10
+        `);
+        
+        // Category sales
+        const categorySales = await client.query(`
+            SELECT 
+                p.category as name,
+                COUNT(*) as value
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            JOIN orders o ON oi.order_id = o.id
+            WHERE o.created_at >= NOW() - INTERVAL '${days} days'
+            GROUP BY p.category
+        `);
+        
+        // Stats
+        const stats = await client.query(`
+            SELECT 
+                COALESCE(SUM(total_amount), 0) as total_revenue,
+                COUNT(*) as total_orders,
+                COALESCE(AVG(total_amount), 0) as avg_order_value,
+                (SELECT COUNT(*) FROM customers) as total_customers
+            FROM orders
+            WHERE created_at >= NOW() - INTERVAL '${days} days'
+        `);
+        
+        res.json({
+            success: true,
+            daily_sales: dailySales.rows,
+            top_products: topProducts.rows,
+            category_sales: categorySales.rows,
+            stats: stats.rows[0]
+        });
+    } catch (err) {
+        console.error('Analytics error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// PRODUCT MANAGEMENT ENDPOINTS
+// ==========================================
+
+// Get all products for staff
+router.get('/staff/products', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false });
+    
+    const client = await pool.connect();
+    try {
+        const result = await client.query(`
+            SELECT 
+                p.*,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('url', pi.image_url))
+                     FROM product_images pi 
+                     WHERE pi.product_id = p.id),
+                    '[]'::json
+                ) as images
+            FROM products p
+            ORDER BY p.id DESC
+        `);
+        
+        res.json({
+            success: true,
+            products: result.rows.map(p => ({
+                ...p,
+                price: parseFloat(p.price),
+                stock: parseInt(p.stock),
+                web_allocated_stock: parseInt(p.web_allocated_stock)
+            }))
+        });
+    } catch (err) {
+        console.error('Products error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Create product
+router.post('/staff/products', upload.single('image'), async (req, res) => {
+    const { name, sku, price, stock, category, description } = req.body;
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ success: false });
+    
+    const client = await pool.connect();
+    try {
+        const result = await client.query(`
+            INSERT INTO products (name, sku, price, stock, category, description, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, true)
+            RETURNING id
+        `, [name, sku, parseFloat(price), parseInt(stock), category, description]);
+        
+        const productId = result.rows[0].id;
+        
+        if (req.file && req.file.path) {
+            await client.query(`
+                INSERT INTO product_images (product_id, image_url, is_primary)
+                VALUES ($1, $2, true)
+            `, [productId, req.file.path]);
+        }
+        
+        res.json({ success: true, productId });
+    } catch (err) {
+        console.error('Create product error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Update product
+router.put('/staff/products/:id', upload.single('image'), async (req, res) => {
+    const { id } = req.params;
+    const { name, price, stock, category, description, is_active } = req.body;
+    
+    const client = await pool.connect();
+    try {
+        await client.query(`
+            UPDATE products 
+            SET name = $1, price = $2, stock = $3, category = $4, description = $5, is_active = $6,
+                updated_at = NOW()
+            WHERE id = $7
+        `, [name, parseFloat(price), parseInt(stock), category, description, is_active === 'true', id]);
+        
+        if (req.file && req.file.path) {
+            await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+            await client.query(`
+                INSERT INTO product_images (product_id, image_url, is_primary)
+                VALUES ($1, $2, true)
+            `, [id, req.file.path]);
+        }
+        
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Update product error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Toggle product status
+router.put('/staff/products/:id/toggle', async (req, res) => {
+    const { id } = req.params;
+    const { is_active } = req.body;
+    
+    const client = await pool.connect();
+    try {
+        await client.query('UPDATE products SET is_active = $1 WHERE id = $2', [is_active, id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Toggle product error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// Delete product
+router.delete('/staff/products/:id', async (req, res) => {
+    const { id } = req.params;
+    
+    const client = await pool.connect();
+    try {
+        await client.query('DELETE FROM product_images WHERE product_id = $1', [id]);
+        await client.query('DELETE FROM products WHERE id = $1', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Delete product error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
 module.exports = router;
+
 
