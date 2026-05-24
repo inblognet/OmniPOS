@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   ShoppingBag, Package, Users, DollarSign, 
-  Clock, CheckCircle, AlertCircle, Receipt
+  Clock, AlertCircle, Receipt, RefreshCw
 } from 'lucide-react';
 import { useUserStore } from '@/store/useUserStore';
 import StaffMobileLayout from '@/components/staff/StaffLayout';
@@ -34,34 +34,46 @@ export default function StaffDashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     try {
-      const [statsRes, ordersRes] = await Promise.all([
-        api.get('/mobile/staff/dashboard'),
-        api.get('/mobile/staff/recent-orders')
-      ]);
+      setLoading(true);
+      setError(null);
       
-      if (statsRes.data.success) setStats(statsRes.data.stats);
-      if (ordersRes.data.success) setRecentOrders(ordersRes.data.orders);
-    } catch (error) {
-      console.error('Failed to fetch dashboard:', error);
-      toast.error('Failed to load dashboard');
+      // Fetch dashboard stats
+      const statsRes = await api.get('/mobile/staff/dashboard');
+      if (statsRes.data.success) {
+        setStats(statsRes.data.stats);
+      } else {
+        setError(statsRes.data.message || 'Failed to load stats');
+      }
+      
+      // Fetch recent orders
+      const ordersRes = await api.get('/mobile/staff/recent-orders');
+      if (ordersRes.data.success) {
+        setRecentOrders(ordersRes.data.orders);
+      }
+    } catch (err: any) {
+      console.error('Dashboard error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to load dashboard');
+      toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       'PENDING': 'bg-yellow-100 text-yellow-700',
       'ONGOING': 'bg-blue-100 text-blue-700',
       'DELIVERED': 'bg-green-100 text-green-700',
-      'CANCELLED': 'bg-red-100 text-red-700'
+      'CANCELLED': 'bg-red-100 text-red-700',
+      'COMPLETED': 'bg-green-100 text-green-700'
     };
     return colors[status] || 'bg-gray-100 text-gray-700';
   };
@@ -80,10 +92,25 @@ export default function StaffDashboard() {
     <StaffMobileLayout>
       {/* Welcome Card */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 mb-6 text-white">
-        <p className="text-blue-100 text-sm">Welcome back,</p>
-        <h2 className="text-xl font-bold">{user?.name}</h2>
-        <p className="text-blue-100 text-xs mt-1 capitalize">{user?.role} • {new Date().toLocaleDateString()}</p>
+        <div className="flex justify-between items-start">
+          <div>
+            <p className="text-blue-100 text-sm">Welcome back,</p>
+            <h2 className="text-xl font-bold">{user?.name || 'Staff'}</h2>
+            <p className="text-blue-100 text-xs mt-1 capitalize">{user?.role || 'Staff'} • {new Date().toLocaleDateString()}</p>
+          </div>
+          <button onClick={fetchDashboardData} className="p-2 bg-white/20 rounded-lg">
+            <RefreshCw size={16} className="text-white" />
+          </button>
+        </div>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 mb-6">
+          <p className="text-red-600 text-sm">{error}</p>
+          <button onClick={fetchDashboardData} className="text-red-600 text-xs mt-2 underline">Try Again</button>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 mb-6">
@@ -164,7 +191,7 @@ export default function StaffDashboard() {
         <div className="space-y-3">
           {recentOrders.length === 0 ? (
             <div className="bg-white rounded-2xl p-8 text-center text-gray-400">
-              No recent orders
+              No recent orders found
             </div>
           ) : (
             recentOrders.map((order) => (
