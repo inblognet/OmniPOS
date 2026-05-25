@@ -1,6 +1,14 @@
 ﻿import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { MobileUser, saveMobileUser, getMobileUser, clearMobileAuth } from '@/lib/auth';
+
+export interface MobileUser {
+  id: number;
+  name: string;
+  email: string;
+  user_type: 'customer' | 'staff';
+  points?: number;
+  role?: string;
+}
 
 interface UserState {
   user: MobileUser | null;
@@ -9,6 +17,19 @@ interface UserState {
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
 }
+
+const saveMobileUser = (user: MobileUser) => {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('mobile_user', JSON.stringify(user));
+  }
+};
+
+const clearMobileAuth = () => {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('mobile_token');
+    localStorage.removeItem('mobile_user');
+  }
+};
 
 export const useUserStore = create<UserState>()(
   persist(
