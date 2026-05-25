@@ -2,8 +2,21 @@
 
 import React, { useState } from 'react';
 import { Download, Trash2, Check, CheckCheck, File, Image as ImageIcon, Mic, Link as LinkIcon } from 'lucide-react';
-import { ChatMessage } from '@/lib/chat';
 import { formatDistanceToNow } from 'date-fns';
+
+interface ChatMessage {
+  id: number;
+  conversation_id: number;
+  sender_type: 'customer' | 'staff' | 'system';
+  sender_id: number;
+  message: string;
+  message_type: string;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  is_read: boolean;
+  created_at: string;
+}
 
 interface ChatMessageProps {
   message: ChatMessage;
@@ -15,16 +28,6 @@ interface ChatMessageProps {
 export default function ChatMessageComponent({ message, isOwn, onDelete, onDownload }: ChatMessageProps) {
   const [showActions, setShowActions] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
-
-  const getMessageIcon = () => {
-    switch (message.message_type) {
-      case 'image': return <ImageIcon size={16} />;
-      case 'file': return <File size={16} />;
-      case 'voice': return <Mic size={16} />;
-      case 'url': return <LinkIcon size={16} />;
-      default: return null;
-    }
-  };
 
   const renderContent = () => {
     switch (message.message_type) {
@@ -78,20 +81,14 @@ export default function ChatMessageComponent({ message, isOwn, onDelete, onDownl
       onMouseLeave={() => setShowActions(false)}
     >
       <div className={`max-w-[75%] ${isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'} rounded-2xl px-4 py-2 shadow-sm`}>
-        {/* Sender info */}
         {!isOwn && (
           <p className="text-xs font-semibold mb-1 opacity-75">
             {message.sender_type === 'staff' ? 'Support Team' : 'Customer'}
           </p>
         )}
         
-        {/* Message content */}
-        <div className="flex items-start gap-2">
-          {getMessageIcon()}
-          <div className="flex-1">{renderContent()}</div>
-        </div>
+        <div className="flex-1">{renderContent()}</div>
         
-        {/* Timestamp and status */}
         <div className={`flex items-center justify-end gap-1 mt-1 text-xs ${isOwn ? 'text-blue-200' : 'text-gray-400'}`}>
           <span>{formatDistanceToNow(new Date(message.created_at), { addSuffix: true })}</span>
           {isOwn && (
@@ -100,7 +97,6 @@ export default function ChatMessageComponent({ message, isOwn, onDelete, onDownl
         </div>
       </div>
       
-      {/* Actions */}
       {showActions && isOwn && onDelete && (
         <button
           onClick={() => onDelete(message.id)}

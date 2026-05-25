@@ -1,9 +1,9 @@
 ﻿"use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, Paperclip, Mic, Smile, X, Image, File, Mic as MicIcon } from 'lucide-react';
+import { Send, Paperclip, Mic, X, File as FileIcon } from 'lucide-react';
 import { useUserStore } from '@/store/useUserStore';
-import { getMessages, sendMessage, deleteMessage, ChatMessage as ChatMessageType } from '@/lib/chat';
+import { getMessages, sendMessage, deleteMessage } from '@/lib/chat';
 import ChatMessageComponent from './ChatMessage';
 import toast from 'react-hot-toast';
 
@@ -15,11 +15,10 @@ interface ChatProps {
 
 export default function Chat({ conversationId, customerId, onClose }: ChatProps) {
   const { user } = useUserStore();
-  const [messages, setMessages] = useState<ChatMessageType[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [recording, setRecording] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -55,7 +54,7 @@ export default function Chat({ conversationId, customerId, onClose }: ChatProps)
   };
 
   const handleSend = async () => {
-    if (!newMessage.trim() && !sending) return;
+    if (!newMessage.trim() || sending) return;
     
     setSending(true);
     try {
@@ -91,55 +90,6 @@ export default function Chat({ conversationId, customerId, onClose }: ChatProps)
     } finally {
       setSending(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-      
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
-      };
-      
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const audioFile = new File([audioBlob], 'voice-message.webm', { type: 'audio/webm' });
-        
-        setSending(true);
-        try {
-          const msg = await sendMessage(conversationId, senderType, senderId, '', 'voice', audioFile);
-          setMessages([...messages, msg]);
-          scrollToBottom();
-        } catch (error) {
-          toast.error('Failed to send voice message');
-        } finally {
-          setSending(false);
-        }
-        stream.getTracks().forEach(track => track.stop());
-      };
-      
-      mediaRecorder.start();
-      setRecording(true);
-      
-      setTimeout(() => {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.stop();
-          setRecording(false);
-        }
-      }, 30000); // Max 30 seconds
-    } catch (error) {
-      toast.error('Microphone access denied');
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setRecording(false);
     }
   };
 
@@ -210,33 +160,24 @@ export default function Chat({ conversationId, customerId, onClose }: ChatProps)
             <Paperclip size={20} />
           </button>
           
-          <button
-            onClick={recording ? stopRecording : startRecording}
-            className={`p-2 rounded-full transition-colors ${recording ? 'bg-red-500 text-white animate-pulse' : 'text-gray-500 hover:text-blue-600'}`}
-          >
-            <Mic size={20} />
-          </button>
-          
           <textarea
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={recording ? 'Recording...' : 'Type a message...'}
-            disabled={recording}
+            placeholder="Type a message..."
             rows={1}
             className="flex-1 px-3 py-2 bg-gray-50 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none text-sm"
           />
           
           <button
             onClick={handleSend}
-            disabled={sending || !newMessage.trim() || recording}
+            disabled={sending || !newMessage.trim()}
             className="p-2 bg-blue-600 text-white rounded-xl disabled:opacity-50 transition-colors"
           >
             <Send size={20} />
           </button>
         </div>
         
-        {/* Hidden file inputs */}
         <input
           type="file"
           ref={fileInputRef}
@@ -244,21 +185,7 @@ export default function Chat({ conversationId, customerId, onClose }: ChatProps)
           accept="image/*,application/pdf,.doc,.docx,.txt"
           onChange={(e) => handleFileUpload(e, 'file')}
         />
-        <input
-          type="file"
-          className="hidden"
-          accept="image/*"
-          onChange={(e) => handleFileUpload(e, 'image')}
-          id="image-upload"
-        />
       </div>
-      
-      {/* Recording indicator */}
-      {recording && (
-        <div className="bg-red-50 text-red-600 text-center py-1 text-sm font-medium animate-pulse">
-          Recording... Release to send
-        </div>
-      )}
     </div>
   );
 }
