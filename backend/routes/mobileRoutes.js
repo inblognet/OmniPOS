@@ -690,3 +690,200 @@ router.get('/customer/dashboard', async (req, res) => {
         client.release();
     }
 });
+
+// ==========================================
+// CUSTOMER ORDERS
+// ==========================================
+router.get('/customer/orders', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const session = sessions.get(token);
+    if (!session) {
+        return res.status(401).json({ success: false, message: 'Invalid session' });
+    }
+    
+    const userId = session.userId;
+    const client = await pool.connect();
+    
+    try {
+        const result = await client.query(`
+            SELECT 
+                o.id, 
+                o.total_amount, 
+                COALESCE(o.order_status, 'PENDING') as status, 
+                o.created_at
+            FROM orders o
+            WHERE o.customer_id = $1
+            ORDER BY o.created_at DESC
+        `, [userId]);
+        
+        res.json({
+            success: true,
+            orders: result.rows.map(order => ({
+                id: order.id,
+                total_amount: parseFloat(order.total_amount),
+                status: order.status,
+                created_at: order.created_at
+            }))
+        });
+    } catch (err) {
+        console.error('Orders error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// CUSTOMER PRODUCTS
+// ==========================================
+router.get('/products', async (req, res) => {
+    const client = await pool.connect();
+    
+    try {
+        const result = await client.query(`
+            SELECT 
+                p.id, 
+                p.name, 
+                p.price, 
+                p.web_allocated_stock,
+                p.category,
+                COALESCE(p.description, '') as description,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary))
+                     FROM product_images pi 
+                     WHERE pi.product_id = p.id),
+                    '[]'::json
+                ) as images
+            FROM products p
+            WHERE p.is_active = true AND p.web_allocated_stock > 0
+            ORDER BY p.id DESC
+            LIMIT 50
+        `);
+        
+        res.json({ 
+            success: true, 
+            products: result.rows.map(p => ({
+                ...p,
+                price: parseFloat(p.price),
+                web_allocated_stock: parseInt(p.web_allocated_stock)
+            }))
+        });
+    } catch (err) {
+        console.error('Products error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// SINGLE PRODUCT
+// ==========================================
+router.get('/products/:id', async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    
+    try {
+        const result = await client.query(`
+            SELECT 
+                p.id, 
+                p.name, 
+                p.price, 
+                p.web_allocated_stock,
+                p.category,
+                COALESCE(p.description, '') as description,
+                COALESCE(
+                    (SELECT json_agg(json_build_object('url', pi.image_url, 'is_primary', pi.is_primary))
+                     FROM product_images pi 
+                     WHERE pi.product_id = p.id),
+                    '[]'::json
+                ) as images
+            FROM products p
+            WHERE p.id = $1 AND p.is_active = true
+        `, [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Product not found' });
+        }
+        
+        res.json({ 
+            success: true, 
+            product: {
+                ...result.rows[0],
+                price: parseFloat(result.rows[0].price),
+                web_allocated_stock: parseInt(result.rows[0].web_allocated_stock)
+            }
+        });
+    } catch (err) {
+        console.error('Product error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ==========================================
+// ORDER DETAILS
+// ==========================================
+router.get('/orders/:id', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const { id } = req.params;
+    const client = await pool.connect();
+    
+    try {
+        const orderResult = await client.query(`
+            SELECT 
+                o.id, 
+                o.total_amount, 
+                o.payment_method,
+                o.payment_status,
+                COALESCE(o.order_status, 'PENDING') as order_status,
+                o.created_at,
+                o.delivery_address,
+                o.delivery_city,
+                o.delivery_phone,
+                o.discount_code,
+                o.discount_amount
+            FROM orders o
+            WHERE o.id = $1
+        `, [id]);
+        
+        if (orderResult.rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Order not found' });
+        }
+        
+        const itemsResult = await client.query(`
+            SELECT 
+                oi.id,
+                oi.product_id,
+                p.name,
+                oi.quantity,
+                oi.price
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1
+        `, [id]);
+        
+        res.json({
+            success: true,
+            order: orderResult.rows[0],
+            items: itemsResult.rows.map(item => ({
+                ...item,
+                price: parseFloat(item.price)
+            }))
+        });
+    } catch (err) {
+        console.error('Order details error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
