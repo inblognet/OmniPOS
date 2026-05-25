@@ -624,3 +624,69 @@ module.exports = router;
 
 
 
+
+// ==========================================
+// CUSTOMER DASHBOARD
+// ==========================================
+router.get('/customer/dashboard', async (req, res) => {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    
+    const client = await pool.connect();
+    try {
+        const session = sessions.get(token);
+        if (!session) {
+            return res.status(401).json({ success: false, message: 'Invalid session' });
+        }
+        
+        const userId = session.userId;
+        
+        const statsResult = await client.query(`
+            SELECT 
+                COALESCE(SUM(o.total_amount), 0) as total_spent,
+                COUNT(DISTINCT o.id) as total_orders,
+                COALESCE(c.loyalty_points, c.points, 0) as loyalty_points
+            FROM customers c
+            LEFT JOIN orders o ON c.id = o.customer_id AND o.order_status != 'CANCELLED'
+            WHERE c.id = $1
+            GROUP BY c.loyalty_points, c.points
+        `, [userId]);
+        
+        const ordersResult = await client.query(`
+            SELECT 
+                o.id, 
+                o.total_amount, 
+                COALESCE(o.order_status, 'PENDING') as status, 
+                o.created_at
+            FROM orders o
+            WHERE o.customer_id = $1
+            ORDER BY o.created_at DESC
+            LIMIT 5
+        `, [userId]);
+        
+        const stats = statsResult.rows[0] || { total_spent: 0, total_orders: 0, loyalty_points: 0 };
+        
+        res.json({
+            success: true,
+            stats: {
+                total_spent: parseFloat(stats.total_spent),
+                total_orders: parseInt(stats.total_orders),
+                loyalty_points: parseInt(stats.loyalty_points),
+                loyalty_joined: parseInt(stats.loyalty_points) > 0
+            },
+            recent_orders: ordersResult.rows.map(order => ({
+                id: order.id,
+                total_amount: parseFloat(order.total_amount),
+                status: order.status,
+                created_at: order.created_at
+            }))
+        });
+    } catch (err) {
+        console.error('Dashboard error:', err);
+        res.status(500).json({ success: false, message: err.message });
+    } finally {
+        client.release();
+    }
+});
