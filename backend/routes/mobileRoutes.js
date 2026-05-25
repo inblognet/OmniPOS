@@ -1,6 +1,7 @@
 ﻿const express = require('express');
 const router = express.Router();
 const { pool } = require('../config/db');
+const { upload } = require('../config/cloudinary');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
@@ -620,5 +621,6 @@ router.delete('/staff/products/:id', async (req, res) => {
 });
 
 module.exports = router;
+
 
 
