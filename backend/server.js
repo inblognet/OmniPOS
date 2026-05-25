@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -9,7 +9,7 @@ const webAdminRoutes = require('./routes/webAdminRoutes');
 const webRoutes = require('./routes/webRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const webAuthRoutes = require('./routes/webAuthRoutes');
-const mobileRoutes = require('./routes/mobileRoutes'); // ✅ Added mobile routes
+const mobileRoutes = require('./routes/mobileRoutes'); // âœ… Added mobile routes
 
 const adminRoutes = require('./routes/adminRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
@@ -22,6 +22,8 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
+const chatRoutes = require('./routes/chatRoutes');
+
 
 const app = express();
 
@@ -30,7 +32,7 @@ const app = express();
 // 1. Request Logger (Fixed to Sri Lanka Local Time for Render)
 app.use((req, res, next) => {
   const localTime = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo' });
-  console.log(`📡 [${localTime}] ${req.method} ${req.url}`);
+  console.log(`ðŸ“¡ [${localTime}] ${req.method} ${req.url}`);
   next();
 });
 
@@ -50,12 +52,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
 
 
-// --- 🚨 DIAGNOSTIC TEST ROUTE 🚨 ---
+// --- ðŸš¨ DIAGNOSTIC TEST ROUTE ðŸš¨ ---
 // This strictly tests if Express is allowing PUT requests at all.
 app.put('/api/test-put', (req, res) => {
     res.json({
         success: true,
-        message: "✅ PUT requests are successfully reaching your server.js file!"
+        message: "âœ… PUT requests are successfully reaching your server.js file!"
     });
 });
 // -----------------------------------
@@ -72,15 +74,16 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/suppliers', supplierRoutes);
+app.use('/api/chat', chatRoutes);
 app.use('/api/web', webRoutes);
 app.use('/api/web-admin', webAdminRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/web/auth', webAuthRoutes);
-app.use('/api/mobile', mobileRoutes); // ✅ Added mobile routes
+app.use('/api/mobile', mobileRoutes); // âœ… Added mobile routes
 
 // Health Check
-app.get('/', (req, res) => res.status(200).send('✅ OmniPOS Backend is Online!'));
+app.get('/', (req, res) => res.status(200).send('âœ… OmniPOS Backend is Online!'));
 
 // Handle 404 - Unknown Routes
 app.use((req, res, next) => {
@@ -90,7 +93,7 @@ app.use((req, res, next) => {
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error("🔥 Server Error:", err.stack);
+  console.error("ðŸ”¥ Server Error:", err.stack);
   res.status(err.status || 500).json({
     error: 'Internal Server Error',
     details: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
@@ -103,9 +106,10 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5005;
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 SERVER RESTARTED SUCCESSFULLY`);
+  console.log(`\nðŸš€ SERVER RESTARTED SUCCESSFULLY`);
   console.log(`   - Port: ${PORT}`);
   console.log(`   - Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`   - Node Version: ${process.version}`);
   console.log(`   - Status: Waiting for Frontend...\n`);
 });
+
