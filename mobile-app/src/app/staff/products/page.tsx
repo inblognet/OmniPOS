@@ -1,8 +1,9 @@
 ﻿"use client";
 
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Edit2, Trash2, Eye, EyeOff, Package, RefreshCw } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Eye, EyeOff, Package, RefreshCw, Camera } from 'lucide-react';
 import StaffMobileLayout from '@/components/staff/StaffLayout';
+import BarcodeScanner from '@/components/scanner/BarcodeScanner';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 
@@ -24,6 +25,7 @@ export default function StaffProducts() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -149,6 +151,11 @@ export default function StaffProducts() {
     setShowModal(true);
   };
 
+  const handleProductAdded = () => {
+    fetchProducts();
+    setShowScanner(false);
+  };
+
   if (loading) {
     return (
       <StaffMobileLayout>
@@ -167,12 +174,21 @@ export default function StaffProducts() {
             <h1 className="text-xl font-bold text-gray-900">Products</h1>
             <p className="text-sm text-gray-500">Manage your inventory</p>
           </div>
-          <button
-            onClick={() => { resetForm(); setShowModal(true); }}
-            className="bg-blue-600 text-white p-2 rounded-xl"
-          >
-            <Plus size={20} />
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowScanner(true)}
+              className="bg-green-600 text-white p-2 rounded-xl flex items-center gap-2"
+            >
+              <Camera size={20} />
+              <span className="text-sm font-medium hidden sm:inline">Quick Add</span>
+            </button>
+            <button
+              onClick={() => { resetForm(); setShowModal(true); }}
+              className="bg-blue-600 text-white p-2 rounded-xl"
+            >
+              <Plus size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Search */}
@@ -193,6 +209,13 @@ export default function StaffProducts() {
             <div className="bg-white rounded-2xl p-8 text-center text-gray-400">
               <Package size={48} className="mx-auto mb-3 opacity-50" />
               <p>No products found</p>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="mt-3 text-green-600 text-sm font-medium flex items-center justify-center gap-2"
+              >
+                <Camera size={16} />
+                Quick Add with Camera
+              </button>
             </div>
           ) : (
             filteredProducts.map((product) => (
@@ -321,6 +344,14 @@ export default function StaffProducts() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Barcode Scanner Modal */}
+        {showScanner && (
+          <BarcodeScanner 
+            onClose={() => setShowScanner(false)}
+            onProductAdded={handleProductAdded}
+          />
         )}
       </div>
     </StaffMobileLayout>

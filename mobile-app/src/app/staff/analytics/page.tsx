@@ -37,7 +37,28 @@ export default function StaffAnalytics() {
     try {
       const res = await api.get(`/mobile/staff/analytics?days=${timeRange}`);
       if (res.data.success) {
-        setData(res.data);
+        // Parse numeric values from the response
+        const parsedData = {
+          daily_sales: (res.data.daily_sales || []).map((item: any) => ({
+            date: item.date,
+            amount: parseFloat(item.amount) || 0
+          })),
+          top_products: (res.data.top_products || []).map((item: any) => ({
+            name: item.name,
+            quantity: parseInt(item.quantity) || 0
+          })),
+          category_sales: (res.data.category_sales || []).map((item: any) => ({
+            name: item.name || 'Uncategorized',
+            value: parseInt(item.value) || 0
+          })),
+          stats: {
+            total_revenue: parseFloat(res.data.stats?.total_revenue) || 0,
+            total_orders: parseInt(res.data.stats?.total_orders) || 0,
+            avg_order_value: parseFloat(res.data.stats?.avg_order_value) || 0,
+            total_customers: parseInt(res.data.stats?.total_customers) || 0
+          }
+        };
+        setData(parsedData);
       }
     } catch (error) {
       console.error('Failed to fetch analytics:', error);
@@ -89,7 +110,7 @@ export default function StaffAnalytics() {
               <span className="text-xs text-gray-500">Total Revenue</span>
             </div>
             <p className="text-2xl font-bold text-gray-900">
-              ${data?.stats.total_revenue.toFixed(2) || '0'}
+              ${data?.stats.total_revenue.toFixed(2) || '0.00'}
             </p>
           </div>
           
@@ -107,7 +128,7 @@ export default function StaffAnalytics() {
               <span className="text-xs text-gray-500">Avg Order Value</span>
             </div>
             <p className="text-2xl font-bold text-gray-900">
-              ${data?.stats.avg_order_value.toFixed(2) || '0'}
+              ${data?.stats.avg_order_value.toFixed(2) || '0.00'}
             </p>
           </div>
           
@@ -129,7 +150,7 @@ export default function StaffAnalytics() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" fontSize={10} />
                 <YAxis fontSize={10} />
-                <Tooltip />
+                <Tooltip formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'Revenue']} />
                 <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={2} />
               </LineChart>
             </ResponsiveContainer>
@@ -143,7 +164,7 @@ export default function StaffAnalytics() {
             {(data?.top_products || []).slice(0, 5).map((product, idx) => (
               <div key={idx} className="flex items-center justify-between">
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{product.name}</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
                   <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
                     <div
                       className="bg-blue-600 rounded-full h-2"
@@ -176,7 +197,7 @@ export default function StaffAnalytics() {
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(value: any) => [Number(value), 'Sales']} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
