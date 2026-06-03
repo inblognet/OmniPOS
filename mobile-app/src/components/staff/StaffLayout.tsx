@@ -29,6 +29,8 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   const navItems = [
+    { path: '/staff/chat', icon: MessageCircle, label: 'Chat' },
+
     { path: '/staff/dashboard', icon: LayoutDashboard, label: 'Home' },
     { path: '/staff/orders', icon: Package, label: 'Orders' },
     { path: '/staff/products', icon: Box, label: 'Products' },
@@ -159,3 +161,4 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
     </div>
   );
 }
+
