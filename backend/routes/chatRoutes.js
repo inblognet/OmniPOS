@@ -23,15 +23,6 @@ const upload = multer({ storage: storage, limits: { fileSize: 10 * 1024 * 1024 }
 // Store sessions
 const sessions = new Map();
 
-// Helper: Get customer name from participant
-async function getCustomerName(client, participantType, participantId) {
-    if (participantType === 'customer') {
-        const result = await client.query('SELECT name FROM customers WHERE id = $1', [participantId]);
-        return result.rows[0]?.name || 'Customer';
-    }
-    return null;
-}
-
 // ==========================================
 // CONVERSATIONS
 // ==========================================
@@ -43,7 +34,6 @@ router.get('/staff/conversations', async (req, res) => {
     
     const client = await pool.connect();
     try {
-        // Get conversations where staff is participant2 (or participant1 if staff)
         const result = await client.query(`
             SELECT 
                 c.*,
@@ -65,10 +55,9 @@ router.get('/staff/conversations', async (req, res) => {
             ORDER BY c.last_message_at DESC NULLS LAST
         `);
         
-        // Calculate unread count for staff
         const conversations = result.rows.map(row => ({
             ...row,
-            unread_count: row.unread_count_p2 || 0 // staff is usually participant2
+            unread_count: row.unread_count_p2 || 0
         }));
         
         res.json({ success: true, conversations });
@@ -85,9 +74,10 @@ router.get('/messages/:conversationId', async (req, res) => {
     const { conversationId } = req.params;
     const client = await pool.connect();
     try {
+        // Simple query without is_deleted check (in case column doesn't exist)
         const result = await client.query(`
             SELECT * FROM chat_messages 
-            WHERE conversation_id = $1 AND is_deleted = false
+            WHERE conversation_id = $1
             ORDER BY created_at ASC
         `, [conversationId]);
         
@@ -123,15 +113,12 @@ router.post('/messages', upload.single('file'), async (req, res) => {
         `, [conversation_id, sender_type, sender_id, message, message_type || 'text', fileUrl, fileName, fileSize]);
         
         const displayMessage = message || (message_type === 'image' ? '📷 Image' : message_type === 'file' ? '📎 File' : '');
-        
-        // Update conversation last message
         await client.query(`
             UPDATE chat_conversations 
             SET last_message = $1, last_message_at = NOW(), updated_at = NOW()
             WHERE id = $2
         `, [displayMessage, conversation_id]);
         
-        // Increment unread for the other participant
         if (sender_type === 'customer') {
             await client.query(`UPDATE chat_conversations SET unread_count_p2 = unread_count_p2 + 1 WHERE id = $1`, [conversation_id]);
         } else {
@@ -152,7 +139,6 @@ router.post('/conversations', async (req, res) => {
     const { customer_id, staff_id, order_id, product_name } = req.body;
     const client = await pool.connect();
     try {
-        // Check if conversation already exists
         const existing = await client.query(`
             SELECT * FROM chat_conversations 
             WHERE participant1_id = $1 AND participant1_type = 'customer'
