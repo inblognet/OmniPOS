@@ -20,8 +20,17 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-// Store sessions (will be populated from mobileRoutes)
+// Store sessions
 const sessions = new Map();
+
+// Helper: Get customer name from participant
+async function getCustomerName(client, participantType, participantId) {
+    if (participantType === 'customer') {
+        const result = await client.query('SELECT name FROM customers WHERE id = $1', [participantId]);
+        return result.rows[0]?.name || 'Customer';
+    }
+    return null;
+}
 
 // ==========================================
 // CONVERSATIONS
@@ -34,17 +43,35 @@ router.get('/staff/conversations', async (req, res) => {
     
     const client = await pool.connect();
     try {
+        // Get conversations where staff is participant2 (or participant1 if staff)
         const result = await client.query(`
             SELECT 
-                c.*, 
-                cust.name as customer_name, 
-                cust.email as customer_email,
-                (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND sender_type = 'customer' AND is_read = false) as unread_count
+                c.*,
+                CASE 
+                    WHEN c.participant1_type = 'customer' THEN c.participant1_id
+                    WHEN c.participant2_type = 'customer' THEN c.participant2_id
+                END as customer_id,
+                CASE 
+                    WHEN c.participant1_type = 'customer' THEN (SELECT name FROM customers WHERE id = c.participant1_id)
+                    WHEN c.participant2_type = 'customer' THEN (SELECT name FROM customers WHERE id = c.participant2_id)
+                END as customer_name,
+                CASE 
+                    WHEN c.participant1_type = 'customer' THEN (SELECT email FROM customers WHERE id = c.participant1_id)
+                    WHEN c.participant2_type = 'customer' THEN (SELECT email FROM customers WHERE id = c.participant2_id)
+                END as customer_email
             FROM chat_conversations c
-            JOIN customers cust ON c.customer_id = cust.id
+            WHERE c.is_active = true
+            AND (c.participant1_type = 'staff' OR c.participant2_type = 'staff')
             ORDER BY c.last_message_at DESC NULLS LAST
         `);
-        res.json({ success: true, conversations: result.rows });
+        
+        // Calculate unread count for staff
+        const conversations = result.rows.map(row => ({
+            ...row,
+            unread_count: row.unread_count_p2 || 0 // staff is usually participant2
+        }));
+        
+        res.json({ success: true, conversations });
     } catch (err) {
         console.error('Staff conversations error:', err);
         res.status(500).json({ success: false, message: err.message });
@@ -58,22 +85,17 @@ router.get('/messages/:conversationId', async (req, res) => {
     const { conversationId } = req.params;
     const client = await pool.connect();
     try {
-        // Get messages
         const result = await client.query(`
             SELECT * FROM chat_messages 
             WHERE conversation_id = $1 AND is_deleted = false
             ORDER BY created_at ASC
         `, [conversationId]);
         
-        // Mark messages as read
+        // Mark messages as read for staff
         await client.query(`
-            UPDATE chat_messages SET is_read = true, read_at = NOW()
-            WHERE conversation_id = $1 AND is_read = false
-        `, [conversationId]);
-        
-        // Reset unread count
-        await client.query(`
-            UPDATE chat_conversations SET staff_unread = 0 WHERE id = $1
+            UPDATE chat_conversations 
+            SET unread_count_p2 = 0 
+            WHERE id = $1
         `, [conversationId]);
         
         res.json({ success: true, messages: result.rows });
@@ -94,26 +116,26 @@ router.post('/messages', upload.single('file'), async (req, res) => {
     
     const client = await pool.connect();
     try {
-        // Insert message
         const result = await client.query(`
             INSERT INTO chat_messages (conversation_id, sender_type, sender_id, message, message_type, file_url, file_name, file_size)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
         `, [conversation_id, sender_type, sender_id, message, message_type || 'text', fileUrl, fileName, fileSize]);
         
+        const displayMessage = message || (message_type === 'image' ? '📷 Image' : message_type === 'file' ? '📎 File' : '');
+        
         // Update conversation last message
-        const displayMessage = message || (message_type === 'image' ? '📷 Image' : message_type === 'file' ? '📎 File' : message_type === 'voice' ? '🎤 Voice' : '');
         await client.query(`
             UPDATE chat_conversations 
             SET last_message = $1, last_message_at = NOW(), updated_at = NOW()
             WHERE id = $2
         `, [displayMessage, conversation_id]);
         
-        // Increment unread for other party
+        // Increment unread for the other participant
         if (sender_type === 'customer') {
-            await client.query(`UPDATE chat_conversations SET staff_unread = staff_unread + 1 WHERE id = $1`, [conversation_id]);
+            await client.query(`UPDATE chat_conversations SET unread_count_p2 = unread_count_p2 + 1 WHERE id = $1`, [conversation_id]);
         } else {
-            await client.query(`UPDATE chat_conversations SET customer_unread = customer_unread + 1 WHERE id = $1`, [conversation_id]);
+            await client.query(`UPDATE chat_conversations SET unread_count_p1 = unread_count_p1 + 1 WHERE id = $1`, [conversation_id]);
         }
         
         res.json({ success: true, message: result.rows[0] });
@@ -127,25 +149,36 @@ router.post('/messages', upload.single('file'), async (req, res) => {
 
 // Create a new conversation
 router.post('/conversations', async (req, res) => {
-    const { customer_id, staff_id, product_id, product_name, product_price, product_image } = req.body;
+    const { customer_id, staff_id, order_id, product_name } = req.body;
     const client = await pool.connect();
     try {
         // Check if conversation already exists
         const existing = await client.query(`
             SELECT * FROM chat_conversations 
-            WHERE customer_id = $1 AND status = 'ACTIVE'
+            WHERE participant1_id = $1 AND participant1_type = 'customer'
+            AND participant2_id = $2 AND participant2_type = 'staff'
+            AND is_active = true
             LIMIT 1
-        `, [customer_id]);
+        `, [customer_id, staff_id || 1]);
         
         if (existing.rows.length > 0) {
             return res.json({ success: true, conversation: existing.rows[0] });
         }
         
         const result = await client.query(`
-            INSERT INTO chat_conversations (customer_id, staff_id, product_id, product_name, product_price, product_image)
+            INSERT INTO chat_conversations (
+                participant1_type, participant1_id, 
+                participant2_type, participant2_id,
+                order_id, last_message
+            )
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-        `, [customer_id, staff_id || null, product_id || null, product_name || null, product_price || null, product_image || null]);
+        `, [
+            'customer', customer_id,
+            'staff', staff_id || 1,
+            order_id || null,
+            'Conversation started'
+        ]);
         
         res.json({ success: true, conversation: result.rows[0] });
     } catch (err) {
@@ -160,7 +193,6 @@ router.post('/conversations', async (req, res) => {
 // TEMPLATES
 // ==========================================
 
-// Get all templates
 router.get('/templates', async (req, res) => {
     const client = await pool.connect();
     try {
@@ -176,7 +208,6 @@ router.get('/templates', async (req, res) => {
     }
 });
 
-// Create template
 router.post('/templates', async (req, res) => {
     const { title, message, category, created_by } = req.body;
     const client = await pool.connect();
@@ -195,7 +226,6 @@ router.post('/templates', async (req, res) => {
     }
 });
 
-// Update template
 router.put('/templates/:id', async (req, res) => {
     const { id } = req.params;
     const { title, message, category, is_active } = req.body;
@@ -215,7 +245,6 @@ router.put('/templates/:id', async (req, res) => {
     }
 });
 
-// Delete template
 router.delete('/templates/:id', async (req, res) => {
     const { id } = req.params;
     const client = await pool.connect();
