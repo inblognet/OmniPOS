@@ -10,6 +10,7 @@ import {
   Box,
   TrendingUp,
   FileText,
+  MessageCircle,
   LogOut,
   Menu,
   X
@@ -29,8 +30,6 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   const navItems = [
-    { path: '/staff/chat', icon: MessageCircle, label: 'Chat' },
-
     { path: '/staff/dashboard', icon: LayoutDashboard, label: 'Home' },
     { path: '/staff/orders', icon: Package, label: 'Orders' },
     { path: '/staff/products', icon: Box, label: 'Products' },
@@ -38,6 +37,7 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
     { path: '/staff/invoices', icon: FileText, label: 'Invoices' },
     { path: '/staff/analytics', icon: TrendingUp, label: 'Analytics' },
     { path: '/staff/refunds', icon: Receipt, label: 'Refunds' },
+    { path: '/staff/chat', icon: MessageCircle, label: 'Chat' },
   ];
 
   useEffect(() => {
@@ -161,4 +161,3 @@ export default function StaffMobileLayout({ children }: StaffMobileLayoutProps) 
     </div>
   );
 }
-
