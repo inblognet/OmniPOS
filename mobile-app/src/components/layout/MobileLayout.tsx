@@ -21,6 +21,8 @@ export default function MobileLayout({ children }: MobileLayoutProps) {
   const showBottomNav = user && !pathname?.includes('/staff') && pathname !== '/login';
   
   const navItems = [
+    { path: '/chat', icon: MessageCircle, label: 'Chat' },
+
     { path: '/dashboard', icon: Home, label: 'Home' },
     { path: '/products', icon: ShoppingBag, label: 'Shop' },
     { path: '/orders', icon: Package, label: 'Orders' },
@@ -85,3 +87,4 @@ export default function MobileLayout({ children }: MobileLayoutProps) {
     </div>
   );
 }
+
