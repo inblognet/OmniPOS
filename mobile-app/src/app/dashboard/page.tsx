@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -137,6 +137,19 @@ export default function CustomerDashboard() {
             </div>
           ) : (
             <div className="space-y-3">
+        <button
+          onClick={() => router.push("/chat")}
+          className="w-full bg-blue-600 text-white p-4 rounded-xl text-left shadow-sm flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">💬</span>
+            <div>
+              <p className="font-semibold">Support Chat</p>
+              <p className="text-sm text-white/70">Chat with our team</p>
+            </div>
+          </div>
+          <span className="text-white/50">→</span>
+        </button>
               {recentOrders.map((order) => (
                 <div
                   key={order.id}
@@ -167,3 +180,4 @@ export default function CustomerDashboard() {
     </MobileLayout>
   );
 }
+
